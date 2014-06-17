@@ -1531,6 +1531,28 @@ func (s *MachineSuite) TestMergedAddresses(c *gc.C) {
 	})
 }
 
+func (s *MachineSuite) TestSetAddressesDead(c *gc.C) {
+	defer state.SetBeforeHooks(c, s.State, func() {
+		c.Assert(s.machine.EnsureDead(), gc.IsNil)
+	}).Check()
+	err := s.machine.SetAddresses(
+		network.NewAddress("127.0.0.1", network.ScopeUnknown),
+	)
+	c.Assert(err, gc.ErrorMatches, "cannot set addresses of machine 1: not found or dead")
+}
+
+func (s *MachineSuite) TestSetAddressesNoChange(c *gc.C) {
+	addr := network.NewAddress("127.0.0.1", network.ScopeUnknown)
+	var revno int64
+	defer state.SetBeforeHooks(c, s.State, func() {
+		c.Assert(s.machine.SetAddresses(addr), gc.IsNil)
+		revno = state.MachineTxnRevno(c, s.machine)
+	}).Check()
+	err := s.machine.SetAddresses(addr)
+	c.Assert(err, gc.IsNil)
+	c.Assert(state.MachineTxnRevno(c, s.machine), gc.Equals, revno)
+}
+
 func (s *MachineSuite) addMachineWithSupportedContainer(c *gc.C, container instance.ContainerType) *state.Machine {
 	machine, err := s.State.AddMachine("quantal", state.JobHostUnits)
 	c.Assert(err, gc.IsNil)

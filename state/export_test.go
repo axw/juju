@@ -72,6 +72,15 @@ func (doc *MachineDoc) String() string {
 	return m.String()
 }
 
+func MachineTxnRevno(c *gc.C, m *Machine) int64 {
+	var doc struct {
+		TxnRevno int64 `bson:"txn-revno"`
+	}
+	err := m.st.machines.FindId(m.doc.Id).One(&doc)
+	c.Assert(err, gc.IsNil)
+	return doc.TxnRevno
+}
+
 func ServiceSettingsRefCount(st *State, serviceName string, curl *charm.URL) (int, error) {
 	key := serviceSettingsKey(serviceName, curl)
 	var doc settingsRefsDoc

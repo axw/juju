@@ -103,11 +103,15 @@ func (r *Relationer) StartHooks() error {
 	if r.dying {
 		r.queue = relation.NewDyingHookQueue(r.dir.State(), r.hooks)
 	} else {
-		w, err := r.ru.Watch()
+		ruWatcher, err := r.ru.Watch()
 		if err != nil {
 			return err
 		}
-		r.queue = relation.NewAliveHookQueue(r.dir.State(), r.hooks, w)
+		addressesWatcher, err := r.ru.WatchAddresses()
+		if err != nil {
+			return err
+		}
+		r.queue = relation.NewAliveHookQueue(r.dir.State(), r.hooks, ruWatcher, addressesWatcher)
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"launchpad.net/tomb"
 
 	"github.com/juju/juju/state/api/params"
+	apiwatcher "github.com/juju/juju/state/api/watcher"
 	"github.com/juju/juju/state/watcher"
 	"github.com/juju/juju/worker/uniter/hook"
 )
@@ -21,22 +22,14 @@ type HookQueue interface {
 	Stop() error
 }
 
-// RelationUnitsWatcher is used to enable deterministic testing of
-// AliveHookQueue, by supplying a reliable stream of RelationUnitsChange
-// events; usually, it will be a *state.RelationUnitsWatcher.
-type RelationUnitsWatcher interface {
-	Err() error
-	Stop() error
-	Changes() <-chan params.RelationUnitsChange
-}
-
 // AliveHookQueue aggregates values obtained from a relation units watcher
 // and sends out details about hooks that must be executed in the unit.
 type AliveHookQueue struct {
-	tomb       tomb.Tomb
-	w          RelationUnitsWatcher
-	out        chan<- hook.Info
-	relationId int
+	tomb             tomb.Tomb
+	ruWatcher        apiwatcher.RelationUnitsWatcher
+	addressesWatcher apiwatcher.NotifyWatcher
+	out              chan<- hook.Info
+	relationId       int
 
 	// info holds information about all units that were added to the
 	// queue and haven't had a "relation-departed" event popped. This
@@ -54,6 +47,10 @@ type AliveHookQueue struct {
 	// If changedPending is not empty, the queue is considered non-
 	// empty, even if head is nil.
 	changedPending string
+
+	// addressesChanged will be set to true when the relation
+	// unit's addresses have changed.
+	addressesChanged bool
 }
 
 // unitInfo holds unit information for management by AliveHookQueue.
@@ -84,12 +81,13 @@ type unitInfo struct {
 // respect the guarantees Juju makes about hook execution order. If any values
 // have previously been received from w's Changes channel, the AliveHookQueue's
 // behaviour is undefined.
-func NewAliveHookQueue(initial *State, out chan<- hook.Info, w RelationUnitsWatcher) *AliveHookQueue {
+func NewAliveHookQueue(initial *State, out chan<- hook.Info, ruWatcher apiwatcher.RelationUnitsWatcher, addressesWatcher apiwatcher.NotifyWatcher) *AliveHookQueue {
 	q := &AliveHookQueue{
-		w:          w,
-		out:        out,
-		relationId: initial.RelationId,
-		info:       map[string]*unitInfo{},
+		ruWatcher:        ruWatcher,
+		addressesWatcher: addressesWatcher,
+		out:              out,
+		relationId:       initial.RelationId,
+		info:             map[string]*unitInfo{},
 	}
 	go q.loop(initial)
 	return q
@@ -97,15 +95,16 @@ func NewAliveHookQueue(initial *State, out chan<- hook.Info, w RelationUnitsWatc
 
 func (q *AliveHookQueue) loop(initial *State) {
 	defer q.tomb.Done()
-	defer watcher.Stop(q.w, &q.tomb)
+	defer watcher.Stop(q.ruWatcher, &q.tomb)
+	defer watcher.Stop(q.addressesWatcher, &q.tomb)
 
 	// Consume initial event, and reconcile with initial state, by inserting
 	// a new RelationUnitsChange before the initial event, which schedules
 	// every missing unit for immediate departure before anything else happens
 	// (apart from a single potential required post-joined changed event).
-	ch1, ok := <-q.w.Changes()
+	ch1, ok := <-q.ruWatcher.Changes()
 	if !ok {
-		q.tomb.Kill(watcher.MustErr(q.w))
+		q.tomb.Kill(watcher.MustErr(q.ruWatcher))
 		return
 	}
 	if len(ch1.Departed) != 0 {
@@ -138,12 +137,16 @@ func (q *AliveHookQueue) loop(initial *State) {
 		select {
 		case <-q.tomb.Dying():
 			return
-		case ch, ok := <-q.w.Changes():
+		case ch, ok := <-q.ruWatcher.Changes():
 			if !ok {
-				q.tomb.Kill(watcher.MustErr(q.w))
+				q.tomb.Kill(watcher.MustErr(q.ruWatcher))
 				return
 			}
 			q.update(ch)
+		case _, ok := <-q.addressesWatcher.Changes():
+			if ok && !q.addressesChanged {
+				q.addressesChanged = true
+			}
 		case out <- next:
 			q.pop()
 		}
@@ -163,7 +166,7 @@ func (q *AliveHookQueue) Stop() error {
 
 // empty returns true if the queue is empty.
 func (q *AliveHookQueue) empty() bool {
-	return q.head == nil && q.changedPending == ""
+	return q.head == nil && q.changedPending == "" && !q.addressesChanged
 }
 
 // update modifies the queue such that the hook.Info values it sends will
@@ -213,6 +216,8 @@ func (q *AliveHookQueue) pop() {
 			q.unqueue(q.changedPending)
 		}
 		q.changedPending = ""
+	} else if q.addressesChanged {
+		q.addressesChanged = false
 	} else {
 		old := *q.head
 		q.unqueue(q.head.unit)
@@ -235,11 +240,16 @@ func (q *AliveHookQueue) next() hook.Info {
 	if q.changedPending != "" {
 		unit = q.changedPending
 		kind = hooks.RelationChanged
+	} else if q.addressesChanged {
+		kind = hooks.RelationAddressChanged
 	} else {
 		unit = q.head.unit
 		kind = q.head.hookKind
 	}
-	version := q.info[unit].version
+	var version int64
+	if unit != "" {
+		version = q.info[unit].version
+	}
 	return hook.Info{
 		Kind:          kind,
 		RelationId:    q.relationId,

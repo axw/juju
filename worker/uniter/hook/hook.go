@@ -1,5 +1,4 @@
-// Copyright 2012, 2013 Canonical Ltd.
-// Licensed under the AGPLv3, see LICENCE file for details.
+// Copyright 2012, 2013 Canonical Ltd.  // Licensed under the AGPLv3, see LICENCE file for details.
 
 // hook provides types that define the hooks known to the Uniter
 package hook
@@ -20,7 +19,8 @@ type Info struct {
 	RelationId int `yaml:"relation-id,omitempty"`
 
 	// RemoteUnit is the name of the unit that triggered the hook. It is only
-	// set when Kind inicates a relation hook other than relation-broken.
+	// set when Kind inicates a relation hook other than relation-broken or
+	// relation-address-changed.
 	RemoteUnit string `yaml:"remote-unit,omitempty"`
 
 	// ChangeVersion identifies the most recent unit settings change
@@ -36,7 +36,7 @@ func (hi Info) Validate() error {
 			return fmt.Errorf("%q hook requires a remote unit", hi.Kind)
 		}
 		fallthrough
-	case hooks.Install, hooks.Start, hooks.ConfigChanged, hooks.UpgradeCharm, hooks.Stop, hooks.RelationBroken:
+	case hooks.Install, hooks.Start, hooks.ConfigChanged, hooks.ActionRequested, hooks.UpgradeCharm, hooks.Stop, hooks.RelationBroken, hooks.RelationAddressChanged:
 		return nil
 	}
 	return fmt.Errorf("unknown hook kind %q", hi.Kind)

@@ -278,3 +278,37 @@ func (s *relationUnitSuite) TestWatchRelationUnits(c *gc.C) {
 	statetesting.AssertStop(c, w)
 	wc.AssertClosed()
 }
+
+func (s *relationUnitSuite) TestWatchAddresses(c *gc.C) {
+	// Enter scope with mysqlUnit.
+	myRelUnit, err := s.stateRelation.Unit(s.mysqlUnit)
+	c.Assert(err, gc.IsNil)
+	//err = myRelUnit.EnterScope(nil)
+	//c.Assert(err, gc.IsNil)
+	//s.assertInScope(c, myRelUnit, true)
+
+	w, err := apiRelUnit.WatchAddresses()
+	defer statetesting.AssertStop(c, w)
+	wc := statetesting.NewNotifyWatcherC(c, s.BackingState, w)
+
+	// Initial event.
+	wc.AssertOneChange()
+
+	// Change machine's addresses, check it's detected.
+	err = m.mysqlMachine.SetAddresses(network.NewAddress("0.1.2.3", network.ScopeUnknown))
+	c.Assert(err, gc.IsNil)
+	wc.AssertOneChange()
+
+	// Non-address change on machines are not detected.
+	err = m.mysqlMachine.SetProvisioned("i-1", "fake_nonce", nil)
+	c.Assert(err, gc.IsNil)
+	wc.AssertNoChange()
+
+	// NOTE: This test is not as exhaustive as the one in state,
+	// because the watcher is already tested there. Here we just
+	// ensure we get the events when we expect them and don't get
+	// them when they're not expected.
+
+	statetesting.AssertStop(c, w)
+	wc.AssertClosed()
+}

@@ -986,3 +986,58 @@ func (u *UniterAPI) GetOwnerTag(args params.Entities) (params.StringResult, erro
 		Result: service.GetOwnerTag(),
 	}, nil
 }
+
+func (u *UniterAPI) watchOneAssignedMachineAddresses(unitTag string) (string, error) {
+	t, err := names.ParseUnitTag(unitTag)
+	if err != nil {
+		return "", err
+	}
+	unit, err := u.st.Unit(t.Id())
+	if err != nil {
+		return "", err
+	}
+	mid, err := unit.AssignedMachineId()
+	if err != nil {
+		return "", err
+	}
+	m, err := u.st.Machine(mid)
+	if err != nil {
+		return "", err
+	}
+	watch := m.WatchAddresses()
+	// Consume the initial event. Technically, API
+	// calls to Watch 'transmit' the initial event
+	// in the Watch response. But NotifyWatchers
+	// have no state to transmit.
+	if _, ok := <-watch.Changes(); ok {
+		return u.resources.Register(watch), nil
+	}
+	return "", watcher.MustErr(watch)
+}
+
+// WatchRelationUnitsAddresses returns a NotifyWatcher for
+// observing changes to the specified relation units'
+// addresses.
+func (u *UniterAPI) WatchRelationUnitsAddresses(args params.RelationUnits) (params.NotifyWatchResults, error) {
+	result := params.NotifyWatchResults{
+		Results: make([]params.NotifyWatchResult, len(args.RelationUnits)),
+	}
+	canAccess, err := u.accessUnit()
+	if err != nil {
+		return params.NotifyWatchResults{}, err
+	}
+	// TODO(axw) 2014-06-19 #NNNNNN
+	// Watch addresses on relation units when
+	// we have networks on relations. For now
+	// we ignore arg.Relation.
+	for i, arg := range args.RelationUnits {
+		err := common.ErrPerm
+		watcherId := ""
+		if canAccess(arg.Unit) {
+			watcherId, err = u.watchOneAssignedMachineAddresses(arg.Unit)
+		}
+		result.Results[i].NotifyWatcherId = watcherId
+		result.Results[i].Error = common.ServerError(err)
+	}
+	return result, nil
+}

@@ -182,3 +182,28 @@ func (ru *RelationUnit) Watch() (watcher.RelationUnitsWatcher, error) {
 	w := watcher.NewRelationUnitsWatcher(ru.st.caller, result)
 	return w, nil
 }
+
+// WatchRelationUnitAddresses returns a watcher that notifies of changes to
+// the relation unit's local addresses.
+func (ru *RelationUnit) WatchAddresses() (watcher.NotifyWatcher, error) {
+	var results params.NotifyWatchResults
+	args := params.RelationUnits{
+		RelationUnits: []params.RelationUnit{{
+			Relation: ru.relation.tag,
+			Unit:     ru.unit.tag,
+		}},
+	}
+	err := ru.st.call("WatchRelationUnitsAddresses", args, &results)
+	if err != nil {
+		return nil, err
+	}
+	if len(results.Results) != 1 {
+		return nil, fmt.Errorf("expected 1 result, got %d", len(results.Results))
+	}
+	result := results.Results[0]
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	w := watcher.NewNotifyWatcher(ru.st.caller, result)
+	return w, nil
+}

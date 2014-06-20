@@ -74,7 +74,7 @@ func (s *State) Validate(hi hook.Info) (err error) {
 		}
 	} else if _, joined := s.Members[unit]; joined && kind == hooks.RelationJoined {
 		return fmt.Errorf("unit already joined")
-	} else if !joined && kind != hooks.RelationJoined {
+	} else if !joined && kind != hooks.RelationJoined && kind != hooks.RelationAddressChanged {
 		return fmt.Errorf("unit has not joined")
 	}
 	return nil
@@ -192,6 +192,9 @@ func (d *StateDir) Write(hi hook.Info) (err error) {
 	defer errors.Maskf(&err, "failed to write %q hook info for %q on state directory", hi.Kind, hi.RemoteUnit)
 	if hi.Kind == hooks.RelationBroken {
 		return d.Remove()
+	}
+	if hi.Kind == hooks.RelationAddressChanged {
+		return nil
 	}
 	name := strings.Replace(hi.RemoteUnit, "/", "-", 1)
 	path := filepath.Join(d.path, name)

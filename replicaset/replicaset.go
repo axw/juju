@@ -73,6 +73,7 @@ func Initiate(session *mgo.Session, address, name string, tags map[string]string
 			time.Sleep(initiateAttemptDelay)
 			continue
 		}
+		logger.Debugf("initiate returned: %v", err)
 		break
 	}
 
@@ -90,6 +91,7 @@ func Initiate(session *mgo.Session, address, name string, tags map[string]string
 			time.Sleep(initiateAttemptStatusDelay)
 			continue
 		}
+		logger.Debugf("CurrentStatus returned: %+v, %v", status, err)
 		break
 	}
 	return err

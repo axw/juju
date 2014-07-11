@@ -83,7 +83,7 @@ func EnsureAdminUser(p EnsureAdminUserParams) (added bool, err error) {
 	if session, err = mgo.DialWithInfo(p.DialInfo); err != nil {
 		return false, fmt.Errorf("can't dial mongo to ensure admin user: %v", err)
 	}
-	err = SetAdminMongoPassword(session, p.User, p.Password)
+	err = SetAdminMongoPassword(session, p.User, p.Password, true)
 	session.Close()
 	if err != nil {
 		return false, fmt.Errorf("failed to add %q to admin database: %v", p.User, err)
@@ -109,7 +109,7 @@ func EnsureAdminUser(p EnsureAdminUserParams) (added bool, err error) {
 // to access a mongo database. If the password is non-empty,
 // all subsequent attempts to access the database must
 // be authorized; otherwise no authorization is required.
-func SetAdminMongoPassword(session *mgo.Session, user, password string) error {
+func SetAdminMongoPassword(session *mgo.Session, user, password string, login bool) error {
 	admin := session.DB("admin")
 	if password != "" {
 		if err := admin.UpsertUser(&mgo.User{
@@ -119,11 +119,18 @@ func SetAdminMongoPassword(session *mgo.Session, user, password string) error {
 		}); err != nil {
 			return fmt.Errorf("cannot set admin password: %v", err)
 		}
-		if err := admin.Login(user, password); err != nil {
-			return fmt.Errorf("cannot login after setting password: %v", err)
+		if login {
+			if err := admin.Login(user, password); err != nil {
+				return fmt.Errorf("cannot login after setting password: %v", err)
+			}
 		}
 	} else {
-		if err := admin.RemoveUser(user); err != nil && err != mgo.ErrNotFound {
+		// RemoveUser fails with Mongo 2.6.3 if the user does not exist.
+		// See: https://bugs.launchpad.net/mgo/+bug/1340361
+		err := admin.RemoveUser(user)
+		switch {
+		case err == nil, err == mgo.ErrNotFound, err.Error() == "User 'admin@admin' not found":
+		default:
 			return fmt.Errorf("cannot disable admin password: %v", err)
 		}
 	}
@@ -136,7 +143,7 @@ func SetMongoPassword(name, password string, dbs ...*mgo.Database) error {
 	user := &mgo.User{
 		Username: name,
 		Password: password,
-		Roles:    []mgo.Role{mgo.RoleReadWriteAny, mgo.RoleUserAdmin, mgo.RoleClusterAdmin},
+		Roles:    []mgo.Role{mgo.RoleReadWrite, mgo.RoleUserAdmin},
 	}
 	for _, db := range dbs {
 		if err := db.UpsertUser(user); err != nil {

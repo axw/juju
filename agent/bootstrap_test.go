@@ -228,7 +228,7 @@ func (s *bootstrapSuite) TestInitializeStateFailsSecondTime(c *gc.C) {
 	if err == nil {
 		st.Close()
 	}
-	c.Assert(err, gc.ErrorMatches, "failed to initialize state: cannot create log collection: unauthorized mongo access: unauthorized")
+	c.Assert(err, gc.ErrorMatches, "failed to initialize state: cannot create log collection: (unauthorized|not authorized).*")
 }
 
 func (*bootstrapSuite) assertCanLogInAsAdmin(c *gc.C, password string) {

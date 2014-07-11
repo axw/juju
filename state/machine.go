@@ -329,7 +329,7 @@ func (m *Machine) SetAgentVersion(v version.Binary) (err error) {
 // should use to communicate with the state servers.  Previous passwords
 // are invalidated.
 func (m *Machine) SetMongoPassword(password string) error {
-	return m.st.setMongoPassword(m.Tag().String(), password)
+	return m.st.setMongoPassword(m.Tag().String(), password, true)
 }
 
 // SetPassword sets the password for the machine's agent.

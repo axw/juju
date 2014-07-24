@@ -6,9 +6,9 @@ package storage_test
 import (
 	gittesting "github.com/juju/testing"
 	jc "github.com/juju/testing/checkers"
-	"labix.org/v2/mgo"
-	"labix.org/v2/mgo/bson"
-	"labix.org/v2/mgo/txn"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mgo.v2/txn"
 	gc "launchpad.net/gocheck"
 
 	"github.com/juju/juju/state/storage"

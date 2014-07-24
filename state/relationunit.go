@@ -11,9 +11,9 @@ import (
 	"github.com/juju/charm"
 	"github.com/juju/errors"
 	"github.com/juju/names"
-	"labix.org/v2/mgo"
-	"labix.org/v2/mgo/bson"
-	"labix.org/v2/mgo/txn"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mgo.v2/txn"
 
 	statetxn "github.com/juju/juju/state/txn"
 )

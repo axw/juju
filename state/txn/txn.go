@@ -16,7 +16,7 @@ import (
 	stderrors "errors"
 
 	"github.com/juju/loggo"
-	"labix.org/v2/mgo/txn"
+	"gopkg.in/mgo.v2/txn"
 )
 
 var logger = loggo.GetLogger("juju.state.txn")

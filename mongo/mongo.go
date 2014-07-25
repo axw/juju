@@ -48,13 +48,20 @@ var (
 	mongoConfigPath = "/etc/default/mongodb"
 
 	// JujuMongodPath holds the default path to the juju-specific mongod.
-	JujuMongodPath = "/tmp/mongod"
+	JujuMongodPath = "/usr/lib/juju/bin/mongod"
 
 	upstartConfInstall          = (*upstart.Conf).Install
 	upstartServiceStopAndRemove = (*upstart.Service).StopAndRemove
 	upstartServiceStop          = (*upstart.Service).Stop
 	upstartServiceStart         = (*upstart.Service).Start
 )
+
+func init() {
+	jujuMongod := os.Getenv("JUJU_MONGOD")
+	if jujuMongod != "" {
+		JujuMongodPath = jujuMongod
+	}
+}
 
 // WithAddresses represents an entity that has a set of
 // addresses. e.g. a state Machine object

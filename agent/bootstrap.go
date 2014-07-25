@@ -6,6 +6,7 @@ package agent
 import (
 	"fmt"
 
+	"github.com/juju/errors"
 	"github.com/juju/names"
 	"github.com/juju/utils"
 
@@ -87,7 +88,7 @@ func InitializeState(c ConfigSetter, envCfg *config.Config, machineCfg Bootstrap
 	logger.Debugf("initializing address %v", info.Addrs)
 	st, err := state.Initialize(info, envCfg, timeout, policy)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to initialize state: %v", err)
+		return nil, nil, errors.Annotate(err, "failed to initialize state")
 	}
 	logger.Debugf("connected to initial state")
 	defer func() {

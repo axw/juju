@@ -46,16 +46,26 @@ func Open(info *authentication.ConnectionInfo, opts mongo.DialOpts, policy Polic
 	}
 	logger.Debugf("connection established")
 
-	// TODO(axw) This fails on Mongo 2.6.3 when journalling is disabled.
-	// https://bugs.launchpad.net/mgo/+bug/1340275
-	_, err = replicaset.CurrentConfig(session)
-	safe := &mgo.Safe{J: true}
-	if err == nil {
+	if err := login(session, info); err != nil {
+		session.Close()
+		return nil, err
+	}
+
+	var safe mgo.Safe
+	if _, err = replicaset.CurrentConfig(session); err == nil {
 		// set mongo to write-majority (writes only returned after replicated
 		// to a majority of replica-set members)
 		safe.WMode = "majority"
 	}
-	session.SetSafe(safe)
+	// Setting J=true fails in Mongo 2.6 when journaling is disabled.
+	// https://bugs.launchpad.net/mgo/+bug/1340275
+	journalEnabled, err := mongo.JournalEnabled(session)
+	if err != nil {
+		session.Close()
+		return nil, maybeUnauthorized(err, "cannot detect journaling")
+	}
+	safe.J = journalEnabled
+	session.SetSafe(&safe)
 
 	st, err := newState(session, info, policy)
 	if err != nil {
@@ -175,25 +185,41 @@ func isUnauthorized(err error) bool {
 	return false
 }
 
+func login(session *mgo.Session, info *authentication.ConnectionInfo) error {
+	cred := mgo.Credential{Username: AdminUser, Password: info.Password}
+	if info.Tag != nil {
+		cred.Username = info.Tag.String()
+	} else if info.Password == "" {
+		return nil
+	}
+	if err := session.Login(&cred); err != nil {
+		msg := fmt.Sprintf("cannot log in to admin database as %q", cred.Username)
+		return maybeUnauthorized(err, msg)
+	}
+	return nil
+}
+
 func newState(session *mgo.Session, info *authentication.ConnectionInfo, policy Policy) (*State, error) {
 	db := session.DB("juju")
 	pdb := session.DB("presence")
-	admin := session.DB("admin")
-	if info.Tag != nil {
-		if err := db.Login(info.Tag.String(), info.Password); err != nil {
-			return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to juju database as %q", info.Tag))
+	/*
+		admin := session.DB("admin")
+		if info.Tag != nil {
+			if err := db.Login(info.Tag.String(), info.Password); err != nil {
+				return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to juju database as %q", info.Tag))
+			}
+			if err := pdb.Login(info.Tag.String(), info.Password); err != nil {
+				return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to presence database as %q", info.Tag))
+			}
+			if err := admin.Login(info.Tag.String(), info.Password); err != nil {
+				return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to admin database as %q", info.Tag))
+			}
+		} else if info.Password != "" {
+			if err := admin.Login(AdminUser, info.Password); err != nil {
+				return nil, maybeUnauthorized(err, "cannot log in to admin database")
+			}
 		}
-		if err := pdb.Login(info.Tag.String(), info.Password); err != nil {
-			return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to presence database as %q", info.Tag))
-		}
-		if err := admin.Login(info.Tag.String(), info.Password); err != nil {
-			return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to admin database as %q", info.Tag))
-		}
-	} else if info.Password != "" {
-		if err := admin.Login(AdminUser, info.Password); err != nil {
-			return nil, maybeUnauthorized(err, "cannot log in to admin database")
-		}
-	}
+	*/
 
 	st := &State{
 		info:              info,

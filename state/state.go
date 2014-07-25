@@ -1492,17 +1492,16 @@ func (st *State) SetAdminMongoPassword(password string) error {
 	return mongo.SetAdminMongoPassword(st.db.Session, AdminUser, password, true)
 }
 
-func (st *State) setMongoPassword(name, password string, admin bool) error {
-	if admin {
-		err := mongo.SetAdminMongoPassword(st.db.Session, name, password, false)
-		if err != nil {
+func (st *State) setMongoPassword(name, password string) error {
+	if err := mongo.SetAdminMongoPassword(st.db.Session, name, password, false); err != nil {
+		return err
+	}
+	for _, db := range []string{"juju", "presence"} {
+		if err := mongo.SetMongoPassword(st.db.Session, db, name, password, false); err != nil {
 			return err
 		}
 	}
-	return mongo.SetMongoPassword(name, password,
-		st.db,
-		st.db.Session.DB("presence"),
-		st.db.Session.DB("admin"))
+	return nil
 }
 
 type stateServersDoc struct {

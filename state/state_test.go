@@ -2077,17 +2077,26 @@ func tryOpenState(info *authentication.ConnectionInfo) error {
 
 func (s *StateSuite) TestOpenWithoutSetMongoPassword(c *gc.C) {
 	info := state.TestingStateInfo()
+	st, err := state.Open(info, state.TestingDialOpts(), state.Policy(nil))
+	c.Assert(err, gc.IsNil)
+	defer st.Close()
+
+	// This works until we add a user.
+	info.Tag, info.Password = nil, ""
+	err = tryOpenState(info)
+	c.Assert(err, gc.IsNil)
+
+	// Disable localhost exception.
+	err = st.SetAdminMongoPassword("admin-secret")
+	c.Assert(err, gc.IsNil)
+
 	info.Tag, info.Password = names.NewUserTag("arble"), "bar"
-	err := tryOpenState(info)
+	err = tryOpenState(info)
 	c.Assert(err, jc.Satisfies, errors.IsUnauthorized)
 
 	info.Tag, info.Password = names.NewUserTag("arble"), ""
 	err = tryOpenState(info)
 	c.Assert(err, jc.Satisfies, errors.IsUnauthorized)
-
-	info.Tag, info.Password = nil, ""
-	err = tryOpenState(info)
-	c.Assert(err, gc.IsNil)
 }
 
 func (s *StateSuite) TestOpenDoesnotSetWriteMajority(c *gc.C) {
@@ -2099,7 +2108,6 @@ func (s *StateSuite) TestOpenDoesnotSetWriteMajority(c *gc.C) {
 	session := st.MongoSession()
 	safe := session.Safe()
 	c.Assert(safe.WMode, gc.Not(gc.Equals), "majority")
-	c.Assert(safe.J, gc.Equals, true)
 }
 
 func (s *StateSuite) TestOpenSetsWriteMajority(c *gc.C) {
@@ -2126,7 +2134,32 @@ func (s *StateSuite) TestOpenSetsWriteMajority(c *gc.C) {
 	stateSession := st.MongoSession()
 	safe := stateSession.Safe()
 	c.Assert(safe.WMode, gc.Equals, "majority")
-	c.Assert(safe.J, gc.Equals, true)
+}
+
+func (s *StateSuite) TestOpenDoesNotForceGroupCommits(c *gc.C) {
+	info := state.TestingStateInfo()
+	st, err := state.Open(info, state.TestingDialOpts(), state.Policy(nil))
+	c.Assert(err, gc.IsNil)
+	defer st.Close()
+
+	session := st.MongoSession()
+	safe := session.Safe()
+	c.Assert(safe.J, jc.IsFalse)
+}
+
+func (s *StateSuite) TestOpenForcesGroupCommits(c *gc.C) {
+	inst := gitjujutesting.MgoInstance{EnableJournal: true}
+	err := inst.Start(testing.Certs)
+	c.Assert(err, gc.IsNil)
+	defer inst.Destroy()
+	stateInfo := &authentication.ConnectionInfo{Info: mongo.Info{Addrs: []string{inst.Addr()}, CACert: testing.CACert}}
+	st, err := state.Open(stateInfo, state.TestingDialOpts(), state.Policy(nil))
+	c.Assert(err, gc.IsNil)
+	defer st.Close()
+
+	stateSession := st.MongoSession()
+	safe := stateSession.Safe()
+	c.Assert(safe.J, jc.IsTrue)
 }
 
 func (s *StateSuite) TestOpenBadAddress(c *gc.C) {
@@ -2156,10 +2189,10 @@ func (s *StateSuite) TestOpenDelaysRetryBadAddress(c *gc.C) {
 	}
 	c.Assert(err, gc.ErrorMatches, "no reachable servers")
 	// tryOpenState should have delayed for at least retryDelay
-	// internally mgo will try three times in a row before returning
-	// to the caller.
-	if t1 := time.Since(t0); t1 < 3*retryDelay {
-		c.Errorf("mgo.Dial only paused for %v, expected at least %v", t1, 3*retryDelay)
+	// newer versions of mgo will try just once for invalid addresses,
+	// and three times in a row for older versions of mgo.
+	if t1 := time.Since(t0); t1 < retryDelay {
+		c.Errorf("mgo.Dial only paused for %v, expected at least %v", t1, retryDelay)
 	}
 }
 
@@ -2292,37 +2325,16 @@ func testSetMongoPassword(c *gc.C, getEntity func(st *state.State) (entity, erro
 	info.Tag, info.Password = nil, "admin-secret"
 	err = tryOpenState(info)
 	c.Assert(err, gc.IsNil)
-
-	// Remove the admin password so that the test harness can reset the state.
-	err = st.SetAdminMongoPassword("")
-	c.Assert(err, gc.IsNil)
 }
 
 func (s *StateSuite) TestSetAdminMongoPassword(c *gc.C) {
-	// Check that we can SetAdminMongoPassword to nothing when there's
-	// no password currently set.
-	err := s.State.SetAdminMongoPassword("")
+	err := s.State.SetAdminMongoPassword("foo")
 	c.Assert(err, gc.IsNil)
-
-	err = s.State.SetAdminMongoPassword("foo")
-	c.Assert(err, gc.IsNil)
-	defer s.State.SetAdminMongoPassword("")
 	info := state.TestingStateInfo()
 	err = tryOpenState(info)
 	c.Assert(err, jc.Satisfies, errors.IsUnauthorized)
 
 	info.Password = "foo"
-	err = tryOpenState(info)
-	c.Assert(err, gc.IsNil)
-
-	err = s.State.SetAdminMongoPassword("")
-	c.Assert(err, gc.IsNil)
-
-	// Check that removing the password is idempotent.
-	err = s.State.SetAdminMongoPassword("")
-	c.Assert(err, gc.IsNil)
-
-	info.Password = ""
 	err = tryOpenState(info)
 	c.Assert(err, gc.IsNil)
 }

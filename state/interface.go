@@ -112,7 +112,6 @@ type MongoPassworder interface {
 
 var (
 	_ MongoPassworder = (*Machine)(nil)
-	_ MongoPassworder = (*Unit)(nil)
 )
 
 // Annotator represents entities capable of handling annotations.
@@ -148,7 +147,7 @@ type AgentEntity interface {
 	Entity
 	Lifer
 	Authenticator
-	MongoPassworder
+	//MongoPassworder
 	AgentTooler
 	StatusSetter
 	EnsureDeader

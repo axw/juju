@@ -193,7 +193,7 @@ func initBootstrapMachine(c ConfigSetter, st *state.State, cfg BootstrapMachineC
 	if err := m.SetPassword(newPassword); err != nil {
 		return nil, err
 	}
-	if err := m.SetMongoPassword(newPassword); err != nil {
+	if err := mongo.SetAdminMongoPassword(st.MongoSession(), m.Tag().String(), newPassword, false); err != nil {
 		return nil, err
 	}
 	c.SetPassword(newPassword)

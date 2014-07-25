@@ -165,10 +165,6 @@ func (*NewConnSuite) TestConnStateSecretsSideEffect(c *gc.C) {
 	statecfg, err = conn.State.EnvironConfig()
 	c.Assert(err, gc.IsNil)
 	c.Assert(statecfg.UnknownAttrs()["secret"], gc.Equals, "pork")
-
-	// Reset the admin password so the state db can be reused.
-	err = conn.State.SetAdminMongoPassword("")
-	c.Assert(err, gc.IsNil)
 }
 
 func (*NewConnSuite) TestConnStateDoesNotUpdateExistingSecrets(c *gc.C) {
@@ -202,10 +198,6 @@ func (*NewConnSuite) TestConnStateDoesNotUpdateExistingSecrets(c *gc.C) {
 	cfg, err = conn.State.EnvironConfig()
 	c.Assert(err, gc.IsNil)
 	c.Assert(cfg.UnknownAttrs()["secret"], gc.Equals, "pork")
-
-	// Reset the admin password so the state db can be reused.
-	err = conn.State.SetAdminMongoPassword("")
-	c.Assert(err, gc.IsNil)
 }
 
 func (*NewConnSuite) TestConnWithPassword(c *gc.C) {
@@ -247,10 +239,6 @@ func (*NewConnSuite) TestConnWithPassword(c *gc.C) {
 	conn, err = juju.NewConn(env)
 	c.Assert(err, gc.IsNil)
 	defer assertClose(c, conn)
-
-	// Reset the admin password so the state db can be reused.
-	err = conn.State.SetAdminMongoPassword("")
-	c.Assert(err, gc.IsNil)
 }
 
 type ConnSuite struct {
@@ -284,9 +272,7 @@ func (s *ConnSuite) TearDownTest(c *gc.C) {
 	if s.conn == nil {
 		return
 	}
-	err := s.conn.State.SetAdminMongoPassword("")
-	c.Assert(err, gc.IsNil)
-	err = s.conn.Environ.Destroy()
+	err := s.conn.Environ.Destroy()
 	c.Check(err, gc.IsNil)
 	assertClose(c, s.conn)
 	s.conn = nil

@@ -958,7 +958,7 @@ func (s *MachineSuite) TestMachineAgentUpgradeMongo(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	s.agentSuite.PatchValue(&ensureMongoAdminUser, func(p mongo.EnsureAdminUserParams) (bool, error) {
-		err := s.State.MongoSession().DB("admin").AddUser(p.User, p.Password, false)
+		err := mongo.SetAdminMongoPassword(s.State.MongoSession(), p.User, p.Password, false)
 		c.Assert(err, gc.IsNil)
 		return true, nil
 	})

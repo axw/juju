@@ -173,17 +173,9 @@ func isUnauthorized(err error) bool {
 }
 
 func newState(session *mgo.Session, mongoInfo *authentication.MongoInfo, policy Policy) (*State, error) {
-	db := session.DB("juju")
-	pdb := session.DB("presence")
 	admin := session.DB("admin")
 	authenticated := false
 	if mongoInfo.Tag != nil {
-		if err := db.Login(mongoInfo.Tag.String(), mongoInfo.Password); err != nil {
-			return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to juju database as %q", mongoInfo.Tag))
-		}
-		if err := pdb.Login(mongoInfo.Tag.String(), mongoInfo.Password); err != nil {
-			return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to presence database as %q", mongoInfo.Tag))
-		}
 		if err := admin.Login(mongoInfo.Tag.String(), mongoInfo.Password); err != nil {
 			return nil, maybeUnauthorized(err, fmt.Sprintf("cannot log in to admin database as %q", mongoInfo.Tag))
 		}
@@ -195,6 +187,8 @@ func newState(session *mgo.Session, mongoInfo *authentication.MongoInfo, policy 
 		authenticated = true
 	}
 
+	db := session.DB("juju")
+	pdb := session.DB("presence")
 	st := &State{
 		mongoInfo:     mongoInfo,
 		policy:        policy,

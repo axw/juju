@@ -23,7 +23,6 @@
 package dummy
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -33,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
 	"github.com/juju/schema"
@@ -667,15 +667,29 @@ func (e *environ) Bootstrap(ctx environs.BootstrapContext, args environs.Bootstr
 		// TODO(rog) factor out relevant code from cmd/jujud/bootstrap.go
 		// so that we can call it here.
 
+		// First try to login without a password. If we succeed, then this must
+		// be the first time initializing mongo. We always use the same password
+		// so we don't have to destroy Mongo.
 		info := stateInfo(estate.preferIPv6)
 		st, err := state.Initialize(info, cfg, mongo.DefaultDialOpts(), estate.statePolicy)
+		if err == nil {
+			if err := st.SetAdminMongoPassword(gitjujutesting.DefaultMongoPassword); err != nil {
+				panic(err)
+			}
+			if err := st.Close(); err != nil {
+				panic(err)
+			}
+			// Reopen below so we cache the password.
+		} else if !errors.IsUnauthorized(err) {
+			panic(err)
+		}
+		info.Password = gitjujutesting.DefaultMongoPassword
+		st, err = state.Initialize(info, cfg, mongo.DefaultDialOpts(), estate.statePolicy)
 		if err != nil {
 			panic(err)
 		}
+
 		if err := st.SetEnvironConstraints(args.Constraints); err != nil {
-			panic(err)
-		}
-		if err := st.SetAdminMongoPassword(password); err != nil {
 			panic(err)
 		}
 		_, err = st.AddAdminUser(password)

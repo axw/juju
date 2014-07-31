@@ -21,10 +21,6 @@ type UserSuite struct {
 
 var _ = gc.Suite(&UserSuite{})
 
-func (s *UserSuite) SetUpTest(c *gc.C) {
-	s.ConnSuite.SetUpTest(c)
-}
-
 func (s *UserSuite) TestAddUserInvalidNames(c *gc.C) {
 	for _, name := range []string{
 		"",

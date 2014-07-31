@@ -15,8 +15,10 @@ import (
 	gc "launchpad.net/gocheck"
 
 	"github.com/juju/juju/constraints"
+	"github.com/juju/juju/environmentserver/authentication"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/instance"
+	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/api/params"
@@ -342,55 +344,6 @@ func (s *MachineSuite) TestMachineSetAgentPresence(c *gc.C) {
 
 func (s *MachineSuite) TestTag(c *gc.C) {
 	c.Assert(s.machine.Tag().String(), gc.Equals, "machine-1")
-}
-
-func (s *MachineSuite) TestSetMongoPassword(c *gc.C) {
-	info := state.TestingMongoInfo()
-	st, err := state.Open(info, state.TestingDialOpts(), state.Policy(nil))
-	c.Assert(err, gc.IsNil)
-	defer st.Close()
-	// Turn on fully-authenticated mode.
-	err = st.SetAdminMongoPassword(jujutesting.DefaultMongoPassword)
-	c.Assert(err, gc.IsNil)
-
-	// Set the password for the machine.
-	m, err := st.Machine("0")
-	c.Assert(err, gc.IsNil)
-	err = m.SetMongoPassword("foo")
-	c.Assert(err, gc.IsNil)
-
-	// Check that we cannot log in with the wrong password.
-	info.Tag = m.Tag()
-	info.Password = "bar"
-	err = tryOpenState(info)
-	c.Assert(err, jc.Satisfies, errors.IsUnauthorized)
-
-	// Check that we can log in with the correct password.
-	info.Password = "foo"
-	err = tryOpenState(info)
-	c.Assert(err, gc.IsNil)
-
-	// Change the password with an entity derived from the newly
-	// opened and authenticated state.
-	m, err = st.Machine("0")
-	c.Assert(err, gc.IsNil)
-	err = m.SetMongoPassword("bar")
-	c.Assert(err, gc.IsNil)
-
-	// Check that we cannot log in with the old password.
-	info.Password = "foo"
-	err = tryOpenState(info)
-	c.Assert(err, jc.Satisfies, errors.IsUnauthorized)
-
-	// Check that we can log in with the new password.
-	info.Password = "bar"
-	err = tryOpenState(info)
-	c.Assert(err, gc.IsNil)
-
-	// Check that the administrator can still log in.
-	info.Tag, info.Password = nil, jujutesting.DefaultMongoPassword
-	err = tryOpenState(info)
-	c.Assert(err, gc.IsNil)
 }
 
 func (s *MachineSuite) TestSetPassword(c *gc.C) {
@@ -1985,4 +1938,68 @@ func (s *MachineSuite) TestWatchInterfacesDiesOnStateClose(c *gc.C) {
 		<-w.Changes()
 		return w
 	})
+}
+
+// MachineMongoPasswordSuite tests mongo authentication/authorization.
+// This suite does not use MgoSuite, as we want to ensure that it does
+// not affect the localhost exception of the shared mongo instance.
+type MachineMongoPasswordSuite struct {
+}
+
+func (s *MachineMongoPasswordSuite) TestSetMongoPassword(c *gc.C) {
+	inst := jujutesting.MgoInstance{}
+	err := inst.Start(coretesting.Certs)
+	c.Assert(err, gc.IsNil)
+	defer inst.Destroy()
+	info := &authentication.MongoInfo{Info: mongo.Info{
+		Addrs:  []string{inst.Addr()},
+		CACert: coretesting.CACert,
+	}}
+
+	st, err := state.Open(info, state.TestingDialOpts(), state.Policy(nil))
+	c.Assert(err, gc.IsNil)
+	defer st.Close()
+
+	// Turn on fully-authenticated mode.
+	err = st.SetAdminMongoPassword(jujutesting.DefaultMongoPassword)
+	c.Assert(err, gc.IsNil)
+
+	// Create a machine and set its password.
+	m, err := st.AddMachine("quantal", state.JobManageEnviron)
+	c.Assert(err, gc.IsNil)
+	err = m.SetMongoPassword("foo")
+	c.Assert(err, gc.IsNil)
+
+	// Check that we cannot log in with the wrong password.
+	info.Tag = m.Tag()
+	info.Password = "bar"
+	err = tryOpenState(info)
+	c.Assert(err, jc.Satisfies, errors.IsUnauthorized)
+
+	// Check that we can log in with the correct password.
+	info.Password = "foo"
+	err = tryOpenState(info)
+	c.Assert(err, gc.IsNil)
+
+	// Change the password with an entity derived from the newly
+	// opened and authenticated state.
+	m, err = st.Machine("0")
+	c.Assert(err, gc.IsNil)
+	err = m.SetMongoPassword("bar")
+	c.Assert(err, gc.IsNil)
+
+	// Check that we cannot log in with the old password.
+	info.Password = "foo"
+	err = tryOpenState(info)
+	c.Assert(err, jc.Satisfies, errors.IsUnauthorized)
+
+	// Check that we can log in with the new password.
+	info.Password = "bar"
+	err = tryOpenState(info)
+	c.Assert(err, gc.IsNil)
+
+	// Check that the administrator can still log in.
+	info.Tag, info.Password = nil, jujutesting.DefaultMongoPassword
+	err = tryOpenState(info)
+	c.Assert(err, gc.IsNil)
 }

@@ -110,7 +110,7 @@ func (s *JujuConnSuite) Reset(c *gc.C) {
 
 func (s *JujuConnSuite) MongoInfo(c *gc.C) *authentication.MongoInfo {
 	info := s.State.MongoConnectionInfo()
-	info.Password = "dummy-secret"
+	info.Password = gitjujutesting.DefaultMongoPassword
 	return info
 }
 
@@ -118,7 +118,7 @@ func (s *JujuConnSuite) APIInfo(c *gc.C) *api.Info {
 	apiInfo, err := environs.APIInfo(s.Environ)
 	c.Assert(err, gc.IsNil)
 	apiInfo.Tag = names.NewUserTag("admin")
-	apiInfo.Password = "dummy-secret"
+	apiInfo.Password = AdminSecret
 
 	env, err := s.State.Environment()
 	c.Assert(err, gc.IsNil)
@@ -250,15 +250,11 @@ var redialStrategy = utils.AttemptStrategy{
 // newState returns a new State that uses the given environment.
 // The environment must have already been bootstrapped.
 func newState(environ environs.Environ, mongoInfo *authentication.MongoInfo) (*state.State, error) {
-	password := environ.Config().AdminSecret()
-	if password == "" {
-		return nil, fmt.Errorf("cannot connect without admin-secret")
-	}
 	if err := environs.CheckEnvironment(environ); err != nil {
 		return nil, err
 	}
 
-	mongoInfo.Password = password
+	mongoInfo.Password = gitjujutesting.DefaultMongoPassword
 	opts := mongo.DefaultDialOpts()
 	st, err := state.Open(mongoInfo, opts, environs.NewStatePolicy())
 	if errors.IsUnauthorized(err) {
@@ -426,14 +422,9 @@ func (s *JujuConnSuite) tearDownConn(c *gc.C) {
 	serverAlive := gitjujutesting.MgoServer.Addr() != ""
 
 	// Bootstrap will set the admin password, and render non-authorized use
-	// impossible. s.State may still hold the right password, so try to reset
-	// the password so that the MgoSuite soft-resetting works. If that fails,
-	// it will still work, but it will take a while since it has to kill the
-	// whole database and start over.
+	// impossible. We always use testing.DefaultMongoPassword to work around
+	// this.
 	if s.State != nil {
-		if err := s.State.SetAdminMongoPassword(""); err != nil && serverAlive {
-			c.Logf("cannot reset admin password: %v", err)
-		}
 		err := s.State.Close()
 		if serverAlive {
 			c.Assert(err, gc.IsNil)

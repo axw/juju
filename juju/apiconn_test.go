@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/juju/testing"
 	jc "github.com/juju/testing/checkers"
 	gc "launchpad.net/gocheck"
 
@@ -27,19 +28,32 @@ import (
 
 type NewAPIConnSuite struct {
 	coretesting.FakeJujuHomeSuite
+	testing.MgoSuite
 	envtesting.ToolsFixture
 }
 
 var _ = gc.Suite(&NewAPIConnSuite{})
 
+func (cs *NewAPIConnSuite) SetUpSuite(c *gc.C) {
+	cs.FakeJujuHomeSuite.SetUpSuite(c)
+	cs.MgoSuite.SetUpSuite(c)
+}
+
+func (cs *NewAPIConnSuite) TearDownSuite(c *gc.C) {
+	cs.MgoSuite.TearDownSuite(c)
+	cs.FakeJujuHomeSuite.TearDownSuite(c)
+}
+
 func (cs *NewAPIConnSuite) SetUpTest(c *gc.C) {
 	cs.FakeJujuHomeSuite.SetUpTest(c)
+	cs.MgoSuite.SetUpTest(c)
 	cs.ToolsFixture.SetUpTest(c)
 }
 
 func (cs *NewAPIConnSuite) TearDownTest(c *gc.C) {
 	dummy.Reset()
 	cs.ToolsFixture.TearDownTest(c)
+	cs.MgoSuite.TearDownTest(c)
 	cs.FakeJujuHomeSuite.TearDownTest(c)
 }
 
@@ -76,12 +90,29 @@ func (*NewAPIConnSuite) TestNewConn(c *gc.C) {
 
 type NewAPIClientSuite struct {
 	coretesting.FakeJujuHomeSuite
+	testing.MgoSuite
 }
 
 var _ = gc.Suite(&NewAPIClientSuite{})
 
+func (cs *NewAPIClientSuite) SetUpSuite(c *gc.C) {
+	cs.FakeJujuHomeSuite.SetUpSuite(c)
+	cs.MgoSuite.SetUpSuite(c)
+}
+
+func (cs *NewAPIClientSuite) TearDownSuite(c *gc.C) {
+	cs.MgoSuite.TearDownSuite(c)
+	cs.FakeJujuHomeSuite.TearDownSuite(c)
+}
+
+func (cs *NewAPIClientSuite) SetUpTest(c *gc.C) {
+	cs.FakeJujuHomeSuite.SetUpTest(c)
+	cs.MgoSuite.SetUpTest(c)
+}
+
 func (cs *NewAPIClientSuite) TearDownTest(c *gc.C) {
 	dummy.Reset()
+	cs.MgoSuite.TearDownTest(c)
 	cs.FakeJujuHomeSuite.TearDownTest(c)
 }
 

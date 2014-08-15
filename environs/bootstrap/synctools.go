@@ -150,53 +150,16 @@ func validateUploadAllowed(env environs.Environ, toolsArch *string, forceVersion
 	return nil
 }
 
-// EnsureToolsAvailability verifies the tools are available. If no tools are
-// found, it will automatically synchronize them.
-func EnsureToolsAvailability(ctx environs.BootstrapContext, env environs.Environ, series string, toolsArch *string) (coretools.List, error) {
-	cfg := env.Config()
+func findAvailableTools(env environs.Environ) (coretools.List, error) {
 	var vers *version.Number
-	if agentVersion, ok := cfg.AgentVersion(); ok {
+	if agentVersion, ok := env.Config().AgentVersion(); ok {
 		vers = &agentVersion
 	}
-
-	logger.Debugf(
-		"looking for bootstrap tools: series=%q, arch=%v, version=%v",
-		series, toolsArch, vers,
-	)
-	params := envtools.BootstrapToolsParams{
-		Version: vers,
-		Arch:    toolsArch,
-		Series:  series,
-		// If vers.Build>0, the tools may have been uploaded in this session.
-		// Allow retries, so we wait until the storage has caught up.
-		AllowRetry: vers != nil && vers.Build > 0,
-	}
+	logger.Debugf("looking for bootstrap tools: version=%v", vers)
+	params := envtools.BootstrapToolsParams{Version: vers}
 	toolsList, err := envtools.FindBootstrapTools(env, params)
 	if err == nil {
 		return toolsList, nil
-	} else if !errors.IsNotFound(err) {
-		return nil, err
 	}
-
-	// Only automatically upload tools for dev versions.
-	if !version.Current.IsDev() {
-		return nil, fmt.Errorf("cannot upload bootstrap tools: %v", noToolsNoUploadMessage)
-	}
-
-	// No tools available so our only hope is to build locally and upload.
-	logger.Warningf("no prepackaged tools available")
-	uploadSeries := SeriesToUpload(cfg, nil)
-	if series != "" {
-		uploadSeries = append(uploadSeries, series)
-	}
-	if err := UploadTools(ctx, env, toolsArch, false, uploadSeries...); err != nil {
-		logger.Errorf("%s", noToolsMessage)
-		return nil, fmt.Errorf("cannot upload bootstrap tools: %v", err)
-	}
-	// TODO(axw) have uploadTools return the list of tools in the target, and use that.
-	params.AllowRetry = true
-	if toolsList, err = envtools.FindBootstrapTools(env, params); err != nil {
-		return nil, fmt.Errorf("cannot find bootstrap tools: %v", err)
-	}
-	return toolsList, nil
+	return nil, err
 }

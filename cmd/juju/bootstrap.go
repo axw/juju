@@ -63,6 +63,7 @@ See Also:
 type BootstrapCommand struct {
 	envcmd.EnvCommandBase
 	Constraints    constraints.Value
+	Keep           bool
 	UploadTools    bool
 	Series         []string
 	seriesOld      []string
@@ -81,6 +82,7 @@ func (c *BootstrapCommand) Info() *cmd.Info {
 func (c *BootstrapCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.Var(constraints.ConstraintsValue{Target: &c.Constraints}, "constraints", "set environment constraints")
 	f.BoolVar(&c.UploadTools, "upload-tools", false, "upload local version of tools before bootstrapping")
+	f.BoolVar(&c.Keep, "keep", false, "keep environment on bootstrap failure")
 	f.Var(newSeriesValue(nil, &c.Series), "upload-series", "upload tools for supplied comma-separated series list")
 	f.Var(newSeriesValue(nil, &c.seriesOld), "series", "upload tools for supplied comma-separated series list (DEPRECATED, see --upload-series)")
 	f.StringVar(&c.MetadataSource, "metadata-source", "", "local path to use as tools and/or metadata source")
@@ -141,8 +143,7 @@ func (v *seriesValue) Set(s string) error {
 // bootstrap functionality that Run calls to support cleaner testing
 type BootstrapInterface interface {
 	EnsureNotBootstrapped(env environs.Environ) error
-	UploadTools(environs.BootstrapContext, environs.Environ, *string, bool, ...string) error
-	Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args environs.BootstrapParams) error
+	Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args bootstrap.BootstrapParams) error
 }
 
 type bootstrapFuncs struct{}
@@ -151,11 +152,7 @@ func (b bootstrapFuncs) EnsureNotBootstrapped(env environs.Environ) error {
 	return bootstrap.EnsureNotBootstrapped(env)
 }
 
-func (b bootstrapFuncs) UploadTools(ctx environs.BootstrapContext, env environs.Environ, toolsArch *string, forceVersion bool, bootstrapSeries ...string) error {
-	return bootstrap.UploadTools(ctx, env, toolsArch, forceVersion, bootstrapSeries...)
-}
-
-func (b bootstrapFuncs) Bootstrap(ctx environs.BootstrapContext, env environs.Environ, args environs.BootstrapParams) error {
+func (b bootstrapFuncs) Bootstrap(ctx environs.BootstrapContext, env environs.Environ, args bootstrap.BootstrapParams) error {
 	return bootstrap.Bootstrap(ctx, env, args)
 }
 
@@ -183,11 +180,13 @@ func (c *BootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	}
 
 	// If we error out for any reason, clean up the environment.
-	defer func() {
-		if resultErr != nil {
-			cleanup()
-		}
-	}()
+	if !c.Keep {
+		defer func() {
+			if resultErr != nil {
+				cleanup()
+			}
+		}()
+	}
 
 	// We want to validate constraints early. However, if a custom image metadata
 	// source is specified, we can't validate the arch because that depends on what
@@ -240,15 +239,11 @@ func (c *BootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	if environ.Config().Type() == provider.Local {
 		c.UploadTools = true
 	}
-	if c.UploadTools {
-		err = bootstrapFuncs.UploadTools(ctx, environ, c.Constraints.Arch, true, c.Series...)
-		if err != nil {
-			return err
-		}
-	}
-	return bootstrapFuncs.Bootstrap(ctx, environ, environs.BootstrapParams{
-		Constraints: c.Constraints,
-		Placement:   c.Placement,
+	return bootstrapFuncs.Bootstrap(ctx, environ, bootstrap.BootstrapParams{
+		Constraints:       c.Constraints,
+		Placement:         c.Placement,
+		UploadTools:       c.UploadTools,
+		UploadToolsSeries: c.Series,
 	})
 }
 

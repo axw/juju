@@ -71,10 +71,11 @@ func NewMachineConfig(
 // NewBootstrapMachineConfig sets up a basic machine configuration for a
 // bootstrap node.  You'll still need to supply more information, but this
 // takes care of the fixed entries and the ones that are always needed.
-func NewBootstrapMachineConfig(privateSystemSSHKey string) *cloudinit.MachineConfig {
+func NewBootstrapMachineConfig(cons constraints.Value, privateSystemSSHKey string) *cloudinit.MachineConfig {
 	// For a bootstrap instance, FinishMachineConfig will provide the
 	// state.Info and the api.Info. The machine id must *always* be "0".
 	mcfg := NewMachineConfig("0", agent.BootstrapNonce, "", nil, nil, nil)
+	mcfg.Constraints = cons
 	mcfg.Bootstrap = true
 	mcfg.SystemPrivateSSHKey = privateSystemSSHKey
 	mcfg.Jobs = []params.MachineJob{params.JobManageEnviron, params.JobHostUnits}
@@ -110,16 +111,13 @@ func PopulateMachineConfig(mcfg *cloudinit.MachineConfig,
 }
 
 // FinishMachineConfig sets fields on a MachineConfig that can be determined by
-// inspecting a plain config.Config and the machine constraints at the last
-// moment before bootstrapping. It assumes that the supplied Config comes from
-// an environment that has passed through all the validation checks in the
-// Bootstrap func, and that has set an agent-version (via finding the tools to,
-// use for bootstrap, or otherwise).
+// inspecting a plain config.Config at the last moment before bootstrapping.
+//
 // TODO(fwereade) This function is not meant to be "good" in any serious way:
 // it is better that this functionality be collected in one place here than
 // that it be spread out across 3 or 4 providers, but this is its only
 // redeeming feature.
-func FinishMachineConfig(mcfg *cloudinit.MachineConfig, cfg *config.Config, cons constraints.Value) (err error) {
+func FinishMachineConfig(mcfg *cloudinit.MachineConfig, cfg *config.Config) (err error) {
 	defer errors.Maskf(&err, "cannot complete machine configuration")
 
 	if err := PopulateMachineConfig(
@@ -169,7 +167,6 @@ func FinishMachineConfig(mcfg *cloudinit.MachineConfig, cfg *config.Config, cons
 		SystemIdentity: mcfg.SystemPrivateSSHKey,
 	}
 	mcfg.StateServingInfo = &srvInfo
-	mcfg.Constraints = cons
 	if mcfg.Config, err = BootstrapConfig(cfg); err != nil {
 		return err
 	}

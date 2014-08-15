@@ -19,12 +19,12 @@ import (
 )
 
 // Archive writes the executable files found in the given directory in
-// gzipped tar format to w, returning the SHA256 hash of the resulting file.
-// An error is returned if an entry inside dir is not a regular executable file.
-func Archive(w io.Writer, dir string) (string, error) {
+// gzipped tar format to w. An error is returned if an entry inside dir
+// is not a regular executable file.
+func Archive(w io.Writer, dir string) error {
 	entries, err := ioutil.ReadDir(dir)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	gzw := gzip.NewWriter(w)
@@ -33,7 +33,6 @@ func Archive(w io.Writer, dir string) (string, error) {
 	tarw := tar.NewWriter(gzw)
 	defer closeErrorCheck(&err, tarw)
 
-	sha256hash := sha256.New()
 	for _, ent := range entries {
 		h := tarHeader(ent)
 		logger.Debugf("adding entry: %#v", h)
@@ -45,17 +44,14 @@ func Archive(w io.Writer, dir string) (string, error) {
 		}
 		err := tarw.WriteHeader(h)
 		if err != nil {
-			return "", err
+			return err
 		}
 		fileName := filepath.Join(dir, ent.Name())
 		if err := copyFile(tarw, fileName); err != nil {
-			return "", err
-		}
-		if err := copyFile(sha256hash, fileName); err != nil {
-			return "", err
+			return err
 		}
 	}
-	return fmt.Sprintf("%x", sha256hash.Sum(nil)), nil
+	return nil
 }
 
 // copyFile writes the contents of the given file to w.
@@ -239,9 +235,10 @@ func bundleTools(w io.Writer, forceVersion *version.Number) (tvers version.Binar
 	if err != nil {
 		return version.Binary{}, "", fmt.Errorf("invalid version %q printed by jujud", tvs)
 	}
-	sha256Hash, err = Archive(w, dir)
-	if err != nil {
+
+	sha256hash := sha256.New()
+	if err := Archive(io.MultiWriter(sha256hash, w), dir); err != nil {
 		return version.Binary{}, "", err
 	}
-	return tvers, sha256Hash, err
+	return tvers, fmt.Sprintf("%x", sha256hash.Sum(nil)), err
 }

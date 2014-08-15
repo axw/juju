@@ -5,11 +5,15 @@ package bootstrap
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 
+	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
+	"github.com/juju/juju/environs/config"
+	"github.com/juju/juju/environs/sync"
 	"github.com/juju/juju/network"
 	coretools "github.com/juju/juju/tools"
 	"github.com/juju/juju/utils/ssh"
@@ -18,10 +22,29 @@ import (
 
 var logger = loggo.GetLogger("juju.environs.bootstrap")
 
+// BootstrapParams holds the parameters for bootstrapping an environment.
+type BootstrapParams struct {
+	// Constraints are used to choose the initial instance specification,
+	// and will be stored in the new environment's state.
+	Constraints constraints.Value
+
+	// Placement, if non-empty, holds an environment-specific placement
+	// directive used to choose the initial instance.
+	Placement string
+
+	// UploadTools reports whether we should upload the local tools and
+	// override the environment's specified agent-version.
+	UploadTools bool
+
+	// UploadSeries is the tools series to upload. If unspecified,
+	// the LTS series will be uploaded.
+	UploadToolsSeries []string
+}
+
 // Bootstrap bootstraps the given environment. The supplied constraints are
 // used to provision the instance, and are also set within the bootstrapped
 // environment.
-func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args environs.BootstrapParams) error {
+func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args BootstrapParams) error {
 	cfg := environ.Config()
 	network.InitializeFromConfig(cfg)
 	if secret := cfg.AdminSecret(); secret == "" {
@@ -41,18 +64,128 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args env
 	if _, hasCAKey := cfg.CAPrivateKey(); !hasCAKey {
 		return errors.Errorf("environment configuration has no ca-private-key")
 	}
-	// Write out the bootstrap-init file, and confirm storage is writeable.
-	if err := environs.VerifyStorage(environ.Storage()); err != nil {
+	// We must generate an SSH key for the state servers to log into other instances.
+	// generateSystemSSHKey updates the environment's authorized-keys, so this must
+	// be done before bootstrapping.
+	privateKey, err := generateSystemSSHKey(environ)
+	if err != nil {
 		return err
 	}
+
+	var availableTools coretools.List
+	if args.UploadTools {
+		// We're forcing an upload, so mock up some tools
+		// which we'll later upload.
+		for _, series := range args.UploadToolsSeries {
+			if _, err := version.SeriesVersion(series); err != nil {
+				return err
+			}
+		}
+		// Override agent-version and create fake tools.
+		uploadVersion := uploadVersion(version.Current.Number, nil)
+		uploadSeries := SeriesToUpload(cfg, args.UploadToolsSeries)
+		ctx.Infof("uploading tools for series %s", uploadSeries)
+		if cfg, err = cfg.Apply(map[string]interface{}{
+			"agent-version": uploadVersion.String(),
+		}); err != nil {
+			return err
+		}
+		if err = environ.SetConfig(cfg); err != nil {
+			return err
+		}
+		availableTools = make(coretools.List, len(uploadSeries))
+		for i, series := range uploadSeries {
+			binary := version.Current
+			binary.Number = uploadVersion
+			binary.Series = series
+			availableTools[i] = &coretools.Tools{Version: binary}
+		}
+	} else {
+		// We're not forcing an upload, so look for tools
+		// in the environment's simplestreams search paths.
+		availableTools, err = findAvailableTools(environ)
+		if err != nil {
+			return err
+		}
+	}
+	if args.Constraints.Arch != nil {
+		availableTools, err = availableTools.Match(coretools.Filter{
+			Arch: *args.Constraints.Arch,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	logger.Debugf("environment %q supports service/machine networks: %v", cfg.Name(), environ.SupportNetworks())
 	logger.Infof("bootstrapping environment %q", cfg.Name())
-	return environ.Bootstrap(ctx, args)
+
+	// TODO(axw) find bootstrap tools
+	// TODO(axw) log message to ctx
+	arch, series, finalizer, err := environ.Bootstrap(ctx, environs.BootstrapParams{
+		Constraints:    args.Constraints,
+		Placement:      args.Placement,
+		AvailableTools: availableTools,
+	})
+	if err != nil {
+		return err
+	}
+	// TODO(axw) validate returned arch, series.
+
+	matchingTools, err := availableTools.Match(coretools.Filter{
+		Arch:   arch,
+		Series: series,
+	})
+	if err != nil {
+		return err
+	}
+	selectedTools, err := setBootstrapTools(environ, matchingTools)
+	if err != nil {
+		return err
+	}
+	if selectedTools.URL == "" {
+		builtTools, err := sync.BuildToolsTarball(&selectedTools.Version.Number)
+		if err != nil {
+			return err
+		}
+		filename := filepath.Join(builtTools.Dir, builtTools.StorageName)
+		selectedTools.URL = fmt.Sprintf("file://%s", filename)
+		selectedTools.Size = builtTools.Size
+		selectedTools.SHA256 = builtTools.Sha256Hash
+	}
+
+	// TODO(axw) log message to ctx
+	machineConfig := environs.NewBootstrapMachineConfig(args.Constraints, privateKey)
+	machineConfig.Tools = selectedTools
+	return finalizer(ctx, machineConfig)
 }
 
-// SetBootstrapTools returns the newest tools from the given tools list,
+// generateSystemSSHKey creates a new key for the system identity. The
+// authorized_keys in the environment config is updated to include the public
+// key for the generated key.
+func generateSystemSSHKey(env environs.Environ) (privateKey string, err error) {
+	logger.Debugf("generate a system ssh key")
+	// Create a new system ssh key and add that to the authorized keys.
+	privateKey, publicKey, err := ssh.GenerateKey(config.JujuSystemKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to create system key: %v", err)
+	}
+	authorized_keys := config.ConcatAuthKeys(env.Config().AuthorizedKeys(), publicKey)
+	newConfig, err := env.Config().Apply(map[string]interface{}{
+		config.AuthKeysConfig: authorized_keys,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create new config: %v", err)
+	}
+	if err = env.SetConfig(newConfig); err != nil {
+		return "", fmt.Errorf("failed to set new config: %v", err)
+	}
+	return privateKey, nil
+}
+
+// setBootstrapTools returns the newest tools from the given tools list,
 // and updates the agent-version configuration attribute.
-func SetBootstrapTools(environ environs.Environ, possibleTools coretools.List) (coretools.List, error) {
+func setBootstrapTools(environ environs.Environ, possibleTools coretools.List) (*coretools.Tools, error) {
 	if len(possibleTools) == 0 {
 		return nil, fmt.Errorf("no bootstrap tools available")
 	}
@@ -87,7 +220,7 @@ func SetBootstrapTools(environ environs.Environ, possibleTools coretools.List) (
 		}
 	}
 	logger.Infof("picked bootstrap tools version: %s", bootstrapVersion)
-	return toolsList, nil
+	return toolsList[0], nil
 }
 
 // findCompatibleTools finds tools in the list that have the same major, minor

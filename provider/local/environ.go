@@ -42,6 +42,7 @@ import (
 	servicecommon "github.com/juju/juju/service/common"
 	"github.com/juju/juju/service/upstart"
 	"github.com/juju/juju/state/api/params"
+	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 	"github.com/juju/juju/worker/terminationworker"
 )
@@ -105,19 +106,20 @@ func ensureNotRoot() error {
 }
 
 // Bootstrap is specified in the Environ interface.
-func (env *localEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.BootstrapParams) error {
+func (env *localEnviron) Bootstrap(
+	ctx environs.BootstrapContext, args environs.BootstrapParams,
+) (arch string, series string, _ environs.BootstrapFinalizer, _ error) {
 	if err := ensureNotRoot(); err != nil {
-		return err
-	}
-	privateKey, err := common.GenerateSystemSSHKey(env)
-	if err != nil {
-		return err
+		return "", "", nil, err
 	}
 
-	vers := version.Current
-	selectedTools, err := common.EnsureBootstrapTools(ctx, env, vers.Series, &vers.Arch)
-	if err != nil {
-		return err
+	// Make sure there are tools available for the
+	// host's architecture and series.
+	if _, err := args.AvailableTools.Match(tools.Filter{
+		Arch:   version.Current.Arch,
+		Series: version.Current.Series,
+	}); err != nil {
+		return "", "", nil, err
 	}
 
 	// Record the bootstrap IP, so the containers know where to go for storage.
@@ -129,12 +131,21 @@ func (env *localEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.
 	}
 	if err != nil {
 		logger.Errorf("failed to apply bootstrap-ip to config: %v", err)
-		return err
+		return "", "", nil, err
 	}
+	return version.Current.Arch, version.Current.Series, env.finishBootstrap, nil
+}
 
-	mcfg := environs.NewBootstrapMachineConfig(privateKey)
+func (env *localEnviron) finishBootstrap(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
+	return finishBootstrap(env, ctx, mcfg)
+}
+
+// finishBootstrap converts the machine config to cloud-config,
+// converts that to a script, and then executes it locally.
+//
+// mcfg is supplied for testing purposes.
+var finishBootstrap = func(env *localEnviron, ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
 	mcfg.InstanceId = bootstrapInstanceId
-	mcfg.Tools = selectedTools[0]
 	mcfg.DataDir = env.config.rootDir()
 	mcfg.LogDir = fmt.Sprintf("/var/log/juju-%s", env.config.namespace())
 	mcfg.Jobs = []params.MachineJob{params.JobManageEnviron}
@@ -151,13 +162,15 @@ func (env *localEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.
 		// the preallocation faster with no disadvantage.
 		agent.MongoOplogSize: "1", // 1MB
 	}
-	if err := environs.FinishMachineConfig(mcfg, cfg, args.Constraints); err != nil {
+	if err := environs.FinishMachineConfig(mcfg, env.Config()); err != nil {
 		return err
 	}
+
 	// don't write proxy settings for local machine
 	mcfg.AptProxySettings = proxy.Settings{}
 	mcfg.ProxySettings = proxy.Settings{}
 	cloudcfg := coreCloudinit.New()
+
 	// Since rsyslogd is restricted by apparmor to only write to /var/log/**
 	// we now provide a symlink to the written file in the local log dir.
 	// Also, we leave the old all-machines.log file in
@@ -180,14 +193,8 @@ func (env *localEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.
 	if err := cloudinit.ConfigureJuju(mcfg, cloudcfg); err != nil {
 		return err
 	}
-	return finishBootstrap(mcfg, cloudcfg, ctx)
-}
 
-// finishBootstrap converts the machine config to cloud-config,
-// converts that to a script, and then executes it locally.
-//
-// mcfg is supplied for testing purposes.
-var finishBootstrap = func(mcfg *cloudinit.MachineConfig, cloudcfg *coreCloudinit.Config, ctx environs.BootstrapContext) error {
+	// Finally, convert cloud-config to a script and execute it.
 	configScript, err := sshinit.ConfigureScript(cloudcfg)
 	if err != nil {
 		return nil
@@ -356,7 +363,7 @@ func (env *localEnviron) StartInstance(args environs.StartInstanceParams) (insta
 
 	args.MachineConfig.MachineContainerType = env.config.container()
 	logger.Debugf("tools: %#v", args.MachineConfig.Tools)
-	if err := environs.FinishMachineConfig(args.MachineConfig, env.config.Config, args.Constraints); err != nil {
+	if err := environs.FinishMachineConfig(args.MachineConfig, env.config.Config); err != nil {
 		return nil, nil, nil, err
 	}
 	// TODO: evaluate the impact of setting the contstraints on the

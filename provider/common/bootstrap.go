@@ -20,12 +20,11 @@ import (
 	coreCloudinit "github.com/juju/juju/cloudinit"
 	"github.com/juju/juju/cloudinit/sshinit"
 	"github.com/juju/juju/environs"
-	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/cloudinit"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
-	coretools "github.com/juju/juju/tools"
+	"github.com/juju/juju/tools"
 	"github.com/juju/juju/utils/ssh"
 )
 
@@ -34,7 +33,11 @@ var logger = loggo.GetLogger("juju.provider.common")
 // Bootstrap is a common implementation of the Bootstrap method defined on
 // environs.Environ; we strongly recommend that this implementation be used
 // when writing a new provider.
-func Bootstrap(ctx environs.BootstrapContext, env environs.Environ, args environs.BootstrapParams) (err error) {
+func Bootstrap(
+	ctx environs.BootstrapContext,
+	env environs.Environ,
+	args environs.BootstrapParams,
+) (arch, series string, _ environs.BootstrapFinalizer, err error) {
 	// TODO make safe in the case of racing Bootstraps
 	// If two Bootstraps are called concurrently, there's
 	// no way to make sure that only one succeeds.
@@ -42,50 +45,50 @@ func Bootstrap(ctx environs.BootstrapContext, env environs.Environ, args environ
 	var inst instance.Instance
 	defer func() { handleBootstrapError(err, ctx, inst, env) }()
 
-	network.InitializeFromConfig(env.Config())
-
 	// First thing, ensure we have tools otherwise there's no point.
-	selectedTools, err := EnsureBootstrapTools(ctx, env, config.PreferredSeries(env.Config()), args.Constraints.Arch)
+	series = config.PreferredSeries(env.Config())
+	availableTools, err := args.AvailableTools.Match(tools.Filter{Series: series})
 	if err != nil {
-		return err
+		return "", "", nil, err
 	}
 
-	// Get the bootstrap SSH client. Do this early, so we know
-	// not to bother with any of the below if we can't finish the job.
 	client := ssh.DefaultClient
 	if client == nil {
 		// This should never happen: if we don't have OpenSSH, then
 		// go.crypto/ssh should be used with an auto-generated key.
-		return fmt.Errorf("no SSH client available")
+		return "", "", nil, fmt.Errorf("no SSH client available")
 	}
 
 	privateKey, err := GenerateSystemSSHKey(env)
 	if err != nil {
-		return err
+		return "", "", nil, err
 	}
-	machineConfig := environs.NewBootstrapMachineConfig(privateKey)
+	machineConfig := environs.NewBootstrapMachineConfig(args.Constraints, privateKey)
 
 	fmt.Fprintln(ctx.GetStderr(), "Launching instance")
 	inst, hw, _, err := env.StartInstance(environs.StartInstanceParams{
 		Constraints:   args.Constraints,
-		Tools:         selectedTools,
+		Tools:         availableTools,
 		MachineConfig: machineConfig,
 		Placement:     args.Placement,
 	})
 	if err != nil {
-		return fmt.Errorf("cannot start bootstrap instance: %v", err)
+		return "", "", nil, fmt.Errorf("cannot start bootstrap instance: %v", err)
 	}
 	fmt.Fprintf(ctx.GetStderr(), " - %s\n", inst.Id())
-	machineConfig.InstanceId = inst.Id()
-	machineConfig.HardwareCharacteristics = hw
 
 	err = SaveState(env.Storage(), &BootstrapState{
 		StateInstances: []instance.Id{inst.Id()},
 	})
 	if err != nil {
-		return fmt.Errorf("cannot save state: %v", err)
+		return "", "", nil, fmt.Errorf("cannot save state: %v", err)
 	}
-	return FinishBootstrap(ctx, client, inst, machineConfig)
+	finalize := func(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
+		mcfg.InstanceId = inst.Id()
+		mcfg.HardwareCharacteristics = hw
+		return FinishBootstrap(ctx, client, inst, mcfg)
+	}
+	return *hw.Arch, series, finalize, nil
 }
 
 // GenerateSystemSSHKey creates a new key for the system identity. The
@@ -401,15 +404,4 @@ func waitSSH(ctx environs.BootstrapContext, interrupted <-chan os.Signal, client
 			return result.(*hostChecker).addr.Value, nil
 		}
 	}
-}
-
-// EnsureBootstrapTools finds tools, syncing with an external tools source as
-// necessary; it then selects the newest tools to bootstrap with, and sets
-// agent-version.
-func EnsureBootstrapTools(ctx environs.BootstrapContext, env environs.Environ, series string, arch *string) (coretools.List, error) {
-	possibleTools, err := bootstrap.EnsureToolsAvailability(ctx, env, series, arch)
-	if err != nil {
-		return nil, err
-	}
-	return bootstrap.SetBootstrapTools(env, possibleTools)
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"path"
 	"strconv"
@@ -77,6 +78,8 @@ type MachineConfig struct {
 	MachineNonce string
 
 	// Tools is juju tools to be used on the new machine.
+	// Tools with a "file://" scheme URL will be uploaded
+	// to the machine.
 	Tools *coretools.Tools
 
 	// DataDir holds the directory that juju state will be put in the new
@@ -205,7 +208,7 @@ func ConfigureBasic(cfg *MachineConfig, c *cloudinit.Config) error {
 	// the presence of the nonce file is used to gate the remainder
 	// of synchronous bootstrap.
 	noncefile := path.Join(cfg.DataDir, NonceFile)
-	c.AddFile(noncefile, cfg.MachineNonce, 0644)
+	c.AddFile(noncefile, []byte(cfg.MachineNonce), 0644)
 	return nil
 }
 
@@ -295,29 +298,37 @@ func ConfigureJuju(cfg *MachineConfig, c *cloudinit.Config) error {
 		fmt.Sprintf("chown syslog:adm %s", cfg.LogDir),
 	)
 
+	c.AddScripts(
+		"bin="+shquote(cfg.jujuTools()),
+		"mkdir -p $bin",
+	)
+
 	// Make a directory for the tools to live in, then fetch the
 	// tools and unarchive them into it.
-	var copyCmd string
 	if strings.HasPrefix(cfg.Tools.URL, fileSchemePrefix) {
-		copyCmd = fmt.Sprintf("cp %s $bin/tools.tar.gz", shquote(cfg.Tools.URL[len(fileSchemePrefix):]))
+		toolsData, err := ioutil.ReadFile(cfg.Tools.URL[len(fileSchemePrefix):])
+		if err != nil {
+			return err
+		}
+		c.AddFile(path.Join(cfg.jujuTools(), "tools.tar.gz"), []byte(toolsData), 0644)
 	} else {
 		curlCommand := "curl -sSfw 'tools from %{url_effective} downloaded: HTTP %{http_code}; time %{time_total}s; size %{size_download} bytes; speed %{speed_download} bytes/s '"
 		curlCommand += " --retry 10"
 		if cfg.DisableSSLHostnameVerification {
 			curlCommand += " --insecure"
 		}
-		copyCmd = fmt.Sprintf("%s -o $bin/tools.tar.gz %s", curlCommand, shquote(cfg.Tools.URL))
+		copyCmd := fmt.Sprintf("%s -o $bin/tools.tar.gz %s", curlCommand, shquote(cfg.Tools.URL))
 		c.AddRunCmd(cloudinit.LogProgressCmd("Fetching tools: %s", copyCmd))
+		c.AddRunCmd(copyCmd)
 	}
 	toolsJson, err := json.Marshal(cfg.Tools)
 	if err != nil {
 		return err
 	}
 	c.AddScripts(
-		"bin="+shquote(cfg.jujuTools()),
-		"mkdir -p $bin",
-		copyCmd,
 		fmt.Sprintf("sha256sum $bin/tools.tar.gz > $bin/juju%s.sha256", cfg.Tools.Version),
+		fmt.Sprintf(`echo %s`, cfg.Tools.SHA256),
+		fmt.Sprintf(`cat $bin/juju%s.sha256`, cfg.Tools.Version),
 		fmt.Sprintf(`grep '%s' $bin/juju%s.sha256 || (echo "Tools checksum mismatch"; exit 1)`,
 			cfg.Tools.SHA256, cfg.Tools.Version),
 		fmt.Sprintf("tar zxf $bin/tools.tar.gz -C $bin"),

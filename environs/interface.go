@@ -8,11 +8,13 @@ import (
 	"os"
 
 	"github.com/juju/juju/constraints"
+	"github.com/juju/juju/environs/cloudinit"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/storage"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/tools"
 )
 
 // A EnvironProvider represents a computing and storage provider.
@@ -74,7 +76,14 @@ type BootstrapParams struct {
 	// Placement, if non-empty, holds an environment-specific placement
 	// directive used to choose the initial instance.
 	Placement string
+
+	// AvailableTools is a collection of tools which the Bootstrap method
+	// may use to decide which architecture/series to instantiate.
+	AvailableTools tools.List
 }
+
+// BootstrapFinalizer ... TODO(axw)
+type BootstrapFinalizer func(BootstrapContext, *cloudinit.MachineConfig) error
 
 // An Environ represents a juju environment as specified
 // in the environments.yaml file.
@@ -91,18 +100,17 @@ type BootstrapParams struct {
 // implementation.  The typical provider implementation needs locking to
 // avoid undefined behaviour when the configuration changes.
 type Environ interface {
-	// Bootstrap initializes the state for the environment, possibly
-	// starting one or more instances.  If the configuration's
-	// AdminSecret is non-empty, the administrator password on the
-	// newly bootstrapped state will be set to a hash of it (see
-	// utils.PasswordHash), When first connecting to the
-	// environment via the juju package, the password hash will be
-	// automatically replaced by the real password.
+	// Bootstrap creates a pristine instance with the environment's
+	// preferred series and architecture (for which there are tools
+	// available), and returns the instance's architecture and series,
+	// and a function that can be used to finalize the bootstrap process
+	// by populating the instance with tools and starting the initial
+	// Juju agent.
 	//
 	// Bootstrap is responsible for selecting the appropriate tools,
 	// and setting the agent-version configuration attribute prior to
 	// bootstrapping the environment.
-	Bootstrap(ctx BootstrapContext, params BootstrapParams) error
+	Bootstrap(ctx BootstrapContext, params BootstrapParams) (arch string, series string, _ BootstrapFinalizer, _ error)
 
 	// InstanceBroker defines methods for starting and stopping
 	// instances.

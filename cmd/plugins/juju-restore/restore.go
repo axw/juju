@@ -28,7 +28,7 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environmentserver/authentication"
 	"github.com/juju/juju/environs"
-	"github.com/juju/juju/environs/bootstrap"
+	//"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/instance"
@@ -351,11 +351,14 @@ func rebootstrap(cfg *config.Config, ctx *cmd.Context, cons constraints.Value) (
 	// error-prone) or we could provide a --no-check flag to make
 	// it go ahead anyway without the check.
 
-	args := environs.BootstrapParams{Constraints: cons}
-	if err := bootstrap.Bootstrap(ctx, env, args); err != nil {
-		return nil, fmt.Errorf("cannot bootstrap new instance: %v", err)
-	}
-	return env, nil
+	/*
+		args := environs.BootstrapParams{Constraints: cons}
+		if err := bootstrap.Bootstrap(ctx, env, args); err != nil {
+			return nil, fmt.Errorf("cannot bootstrap new instance: %v", err)
+		}
+		return env, nil
+	*/
+	panic("woat")
 }
 
 func restoreBootstrapMachine(st *api.State, backupFile string, agentConf agentConfig) (addr string, err error) {

@@ -83,6 +83,7 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 				return err
 			}
 		}
+
 		// Override agent-version and create fake tools.
 		uploadVersion := uploadVersion(version.Current.Number, nil)
 		uploadSeries := SeriesToUpload(cfg, args.UploadToolsSeries)
@@ -107,6 +108,22 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 		// in the environment's simplestreams search paths.
 		ctx.Infof("Searching for bootstrap tools")
 		availableTools, err = findAvailableTools(environ)
+		if errors.IsNotFound(err) {
+			return errors.New(noToolsNoUploadMessage)
+		} else if err != nil {
+			return err
+		}
+
+		// Set an arbitrary agent-version to appease
+		// FinishMachineConfig, which will be called
+		// by Bootstrap; it will be set to the
+		// right thing later by setBootstrapTools.
+		cfg, err := environ.Config().Apply(map[string]interface{}{
+			"agent-version": version.Current.Number.String(),
+		})
+		if err == nil {
+			err = environ.SetConfig(cfg)
+		}
 		if err != nil {
 			return err
 		}
@@ -116,7 +133,7 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 			Arch: *args.Constraints.Arch,
 		})
 		if err != nil {
-			return err
+			return errors.Annotate(err, noToolsNoUploadMessage)
 		}
 	}
 

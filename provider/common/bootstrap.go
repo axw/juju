@@ -86,6 +86,9 @@ func Bootstrap(
 	finalize := func(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
 		mcfg.InstanceId = inst.Id()
 		mcfg.HardwareCharacteristics = hw
+		if err := environs.FinishMachineConfig(mcfg, env.Config()); err != nil {
+			return err
+		}
 		return FinishBootstrap(ctx, client, inst, mcfg)
 	}
 	return *hw.Arch, series, finalize, nil

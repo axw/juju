@@ -14,6 +14,7 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
+	"github.com/juju/juju/environs/cloudinit"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/environs/simplestreams"
@@ -21,7 +22,6 @@ import (
 	envtesting "github.com/juju/juju/environs/testing"
 	envtools "github.com/juju/juju/environs/tools"
 	toolstesting "github.com/juju/juju/environs/tools/testing"
-	"github.com/juju/juju/juju/arch"
 	"github.com/juju/juju/provider/dummy"
 	coretesting "github.com/juju/juju/testing"
 	"github.com/juju/juju/tools"
@@ -65,20 +65,20 @@ func (s *bootstrapSuite) TestBootstrapNeedsSettings(c *gc.C) {
 		env.cfg = cfg
 	}
 
-	err := bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{})
+	err := bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{})
 	c.Assert(err, gc.ErrorMatches, "environment configuration has no admin-secret")
 
 	fixEnv("admin-secret", "whatever")
-	err = bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{})
+	err = bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{})
 	c.Assert(err, gc.ErrorMatches, "environment configuration has no ca-cert")
 
 	fixEnv("ca-cert", coretesting.CACert)
-	err = bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{})
+	err = bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{})
 	c.Assert(err, gc.ErrorMatches, "environment configuration has no ca-private-key")
 
 	fixEnv("ca-private-key", coretesting.CAKey)
 	uploadTools(c, env)
-	err = bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{})
+	err = bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{})
 	c.Assert(err, gc.IsNil)
 }
 
@@ -91,9 +91,10 @@ func uploadTools(c *gc.C, env environs.Environ) {
 func (s *bootstrapSuite) TestBootstrapEmptyConstraints(c *gc.C) {
 	env := newEnviron("foo", useDefaultKeys, nil)
 	s.setDummyStorage(c, env)
-	err := bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{})
+	err := bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{})
 	c.Assert(err, gc.IsNil)
 	c.Assert(env.bootstrapCount, gc.Equals, 1)
+	env.args.AvailableTools = nil
 	c.Assert(env.args, gc.DeepEquals, environs.BootstrapParams{})
 }
 
@@ -101,7 +102,7 @@ func (s *bootstrapSuite) TestBootstrapSpecifiedConstraints(c *gc.C) {
 	env := newEnviron("foo", useDefaultKeys, nil)
 	s.setDummyStorage(c, env)
 	cons := constraints.MustParse("cpu-cores=2 mem=4G")
-	err := bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{Constraints: cons})
+	err := bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{Constraints: cons})
 	c.Assert(err, gc.IsNil)
 	c.Assert(env.bootstrapCount, gc.Equals, 1)
 	c.Assert(env.args.Constraints, gc.DeepEquals, cons)
@@ -111,7 +112,7 @@ func (s *bootstrapSuite) TestBootstrapSpecifiedPlacement(c *gc.C) {
 	env := newEnviron("foo", useDefaultKeys, nil)
 	s.setDummyStorage(c, env)
 	placement := "directive"
-	err := bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{Placement: placement})
+	err := bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{Placement: placement})
 	c.Assert(err, gc.IsNil)
 	c.Assert(env.bootstrapCount, gc.Equals, 1)
 	c.Assert(env.args.Placement, gc.DeepEquals, placement)
@@ -151,7 +152,7 @@ var bootstrapSetAgentVersionTests = []envtesting.BootstrapToolsTest{
 		Available:     envtesting.V1all,
 		CliVersion:    envtesting.V31d0qppc64,
 		DefaultSeries: "precise",
-		Expect:        []version.Binary{envtesting.V31d01qppc64},
+		Expect:        []version.Binary{envtesting.V31d0qppc64},
 	}}
 
 func (s *bootstrapSuite) TestBootstrapTools(c *gc.C) {
@@ -176,7 +177,7 @@ func (s *bootstrapSuite) TestBootstrapTools(c *gc.C) {
 		c.Assert(err, gc.IsNil)
 		envtesting.RemoveAllTools(c, env)
 
-		version.Current = test.CliVersion
+		s.PatchValue(&version.Current, test.CliVersion)
 		envtesting.AssertUploadFakeToolsVersions(c, env.Storage(), test.Available...)
 		// Remove the default tools URL from the search path, just look in cloud storage.
 		s.PatchValue(&envtools.DefaultBaseURL, "")
@@ -185,7 +186,7 @@ func (s *bootstrapSuite) TestBootstrapTools(c *gc.C) {
 		if test.Arch != "" {
 			cons = constraints.MustParse("arch=" + test.Arch)
 		}
-		err = bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{Constraints: cons})
+		err = bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{Constraints: cons})
 		if test.Err != "" {
 			c.Check(err, gc.NotNil)
 			if err != nil {
@@ -208,111 +209,22 @@ func (s *bootstrapSuite) TestBootstrapTools(c *gc.C) {
 	}
 }
 
-func (s *bootstrapSuite) TestBootstrapNoTools(c *gc.C) {
+func (s *bootstrapSuite) TestBootstrapAutoUploadDev(c *gc.C) {
 	env := newEnviron("foo", useDefaultKeys, nil)
 	s.setDummyStorage(c, env)
 	envtesting.RemoveFakeTools(c, env.Storage())
-	err := bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{})
-	// bootstrap.Bootstrap leaves it to the provider to
-	// locate bootstrap tools.
+	s.PatchValue(&version.Current.Number, version.MustParse("1.19.0"))
+	err := bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{})
 	c.Assert(err, gc.IsNil)
 }
 
-func (s *bootstrapSuite) TestEnsureToolsAvailabilityIncompatibleHostArch(c *gc.C) {
-	// Host runs amd64, want ppc64 tools.
-	s.PatchValue(&arch.HostArch, func() string {
-		return "amd64"
-	})
-	// Force a dev version by having a non zero build number.
-	// This is because we have not uploaded any tools and auto
-	// upload is only enabled for dev versions.
-	devVersion := version.Current
-	devVersion.Build = 1234
-	s.PatchValue(&version.Current, devVersion)
+func (s *bootstrapSuite) TestBootstrapAutoUploadStable(c *gc.C) {
 	env := newEnviron("foo", useDefaultKeys, nil)
 	s.setDummyStorage(c, env)
 	envtesting.RemoveFakeTools(c, env.Storage())
-	arch := "ppc64el"
-	_, err := bootstrap.EnsureToolsAvailability(coretesting.Context(c), env, config.PreferredSeries(env.Config()), &arch)
-	c.Assert(err, gc.NotNil)
-	stripped := strings.Replace(err.Error(), "\n", "", -1)
-	c.Assert(stripped,
-		gc.Matches,
-		`cannot upload bootstrap tools: cannot build tools for "ppc64el" using a machine running on "amd64"`)
-}
-
-func (s *bootstrapSuite) TestEnsureToolsAvailabilityIncompatibleTargetArch(c *gc.C) {
-	// Host runs ppc64el, environment only supports amd64, arm64.
-	s.PatchValue(&arch.HostArch, func() string {
-		return "ppc64el"
-	})
-	// Force a dev version by having a non zero build number.
-	// This is because we have not uploaded any tools and auto
-	// upload is only enabled for dev versions.
-	devVersion := version.Current
-	devVersion.Build = 1234
-	s.PatchValue(&version.Current, devVersion)
-	env := newEnviron("foo", useDefaultKeys, nil)
-	s.setDummyStorage(c, env)
-	envtesting.RemoveFakeTools(c, env.Storage())
-	_, err := bootstrap.EnsureToolsAvailability(coretesting.Context(c), env, config.PreferredSeries(env.Config()), nil)
-	c.Assert(err, gc.NotNil)
-	stripped := strings.Replace(err.Error(), "\n", "", -1)
-	c.Assert(stripped,
-		gc.Matches,
-		`cannot upload bootstrap tools: environment "foo" of type dummy does not support instances running on "ppc64el"`)
-}
-
-func (s *bootstrapSuite) TestEnsureToolsAvailabilityAgentVersionAlreadySet(c *gc.C) {
-	// Can't upload tools if agent version already set.
-	env := newEnviron("foo", useDefaultKeys, map[string]interface{}{"agent-version": "1.16.0"})
-	s.setDummyStorage(c, env)
-	envtesting.RemoveFakeTools(c, env.Storage())
-	_, err := bootstrap.EnsureToolsAvailability(coretesting.Context(c), env, config.PreferredSeries(env.Config()), nil)
-	c.Assert(err, gc.NotNil)
-	stripped := strings.Replace(err.Error(), "\n", "", -1)
-	c.Assert(stripped,
-		gc.Matches,
-		"cannot upload bootstrap tools: Juju cannot bootstrap because no tools are available for your environment.*")
-}
-
-func (s *bootstrapSuite) TestEnsureToolsAvailabilityNonDevVersion(c *gc.C) {
-	// Can't automatically upload tools for released versions.
-	s.PatchValue(&version.Current, version.MustParseBinary("1.18.0-trusty-arm64"))
-	env := newEnviron("foo", useDefaultKeys, nil)
-	s.setDummyStorage(c, env)
-	envtesting.RemoveFakeTools(c, env.Storage())
-	_, err := bootstrap.EnsureToolsAvailability(coretesting.Context(c), env, config.PreferredSeries(env.Config()), nil)
-	c.Assert(err, gc.NotNil)
-	stripped := strings.Replace(err.Error(), "\n", "", -1)
-	c.Assert(stripped,
-		gc.Matches,
-		"cannot upload bootstrap tools: Juju cannot bootstrap because no tools are available for your environment.*")
-}
-
-func (s *bootstrapSuite) TestEnsureToolsAvailability(c *gc.C) {
-	existingToolsVersion := version.MustParseBinary("1.19.0-trusty-amd64")
-	s.PatchValue(&version.Current, existingToolsVersion)
-	env := newEnviron("foo", useDefaultKeys, nil)
-	s.setDummyStorage(c, env)
-	// At this point, as a result of setDummyStorage, env has tools for amd64 uploaded.
-	// Set version.Current to be arm64 to simulate a different CLI version.
-	cliVersion := version.Current
-	cliVersion.Arch = "arm64"
-	version.Current = cliVersion
-	s.PatchValue(&envtools.BundleTools, toolstesting.GetMockBundleTools(c))
-	// Host runs arm64, environment supports arm64.
-	s.PatchValue(&arch.HostArch, func() string {
-		return "arm64"
-	})
-	arch := "arm64"
-	agentTools, err := bootstrap.EnsureToolsAvailability(coretesting.Context(c), env, config.PreferredSeries(env.Config()), &arch)
-	c.Assert(err, gc.IsNil)
-	c.Assert(agentTools, gc.HasLen, 1)
-	expectedVers := version.Current
-	expectedVers.Number.Build++
-	expectedVers.Series = config.PreferredSeries(env.Config())
-	c.Assert(agentTools[0].Version, gc.DeepEquals, expectedVers)
+	s.PatchValue(&version.Current.Number, version.MustParse("1.20.0"))
+	err := bootstrap.Bootstrap(coretesting.Context(c), env, bootstrap.BootstrapParams{})
+	c.Assert(err, gc.ErrorMatches, "Juju cannot bootstrap because no tools are available for your environment(.|\n)*")
 }
 
 func (s *bootstrapSuite) TestSeriesToUpload(c *gc.C) {
@@ -335,65 +247,6 @@ func (s *bootstrapSuite) TestSeriesToUpload(c *gc.C) {
 	env = newEnviron("foo", useDefaultKeys, map[string]interface{}{"default-series": "lucid"})
 	cfg = env.Config()
 	c.Assert(bootstrap.SeriesToUpload(cfg, nil), jc.SameContents, []string{"quantal", "precise", "trusty", "lucid"})
-}
-
-func (s *bootstrapSuite) assertUploadTools(c *gc.C, vers version.Binary, forceVersion bool,
-	extraConfig map[string]interface{}, errMessage string) {
-
-	s.PatchValue(&version.Current, vers)
-	// If we allow released tools to be uploaded, the build number is incremented so in that case
-	// we need to ensure the environment is set up to allow dev tools to be used.
-	env := newEnviron("foo", useDefaultKeys, extraConfig)
-	s.setDummyStorage(c, env)
-	envtesting.RemoveFakeTools(c, env.Storage())
-
-	// At this point, as a result of setDummyStorage, env has tools for amd64 uploaded.
-	// Set version.Current to be arm64 to simulate a different CLI version.
-	cliVersion := version.Current
-	cliVersion.Arch = "arm64"
-	version.Current = cliVersion
-	s.PatchValue(&envtools.BundleTools, toolstesting.GetMockBundleTools(c))
-	// Host runs arm64, environment supports arm64.
-	s.PatchValue(&arch.HostArch, func() string {
-		return "arm64"
-	})
-	arch := "arm64"
-	err := bootstrap.UploadTools(coretesting.Context(c), env, &arch, forceVersion, "precise")
-	if errMessage != "" {
-		c.Assert(err, gc.NotNil)
-		stripped := strings.Replace(err.Error(), "\n", "", -1)
-		c.Assert(stripped, gc.Matches, errMessage)
-		return
-	}
-	c.Assert(err, gc.IsNil)
-	params := envtools.BootstrapToolsParams{
-		Arch:   &arch,
-		Series: version.Current.Series,
-	}
-	agentTools, err := envtools.FindBootstrapTools(env, params)
-	c.Assert(err, gc.IsNil)
-	c.Assert(agentTools, gc.HasLen, 1)
-	expectedVers := vers
-	expectedVers.Number.Build++
-	expectedVers.Series = version.Current.Series
-	c.Assert(agentTools[0].Version, gc.DeepEquals, expectedVers)
-}
-
-func (s *bootstrapSuite) TestUploadTools(c *gc.C) {
-	vers := version.MustParseBinary("1.19.0-trusty-arm64")
-	s.assertUploadTools(c, vers, false, nil, "")
-}
-
-func (s *bootstrapSuite) TestUploadToolsReleaseToolsWithDevConfig(c *gc.C) {
-	vers := version.MustParseBinary("1.18.0-trusty-arm64")
-	extraCfg := map[string]interface{}{"development": true}
-	s.assertUploadTools(c, vers, false, extraCfg, "")
-}
-
-func (s *bootstrapSuite) TestUploadToolsForceVersionAllowsAgentVersionSet(c *gc.C) {
-	vers := version.MustParseBinary("1.18.0-trusty-arm64")
-	extraCfg := map[string]interface{}{"agent-version": "1.18.0", "development": true}
-	s.assertUploadTools(c, vers, true, extraCfg, "")
 }
 
 func (s *bootstrapSuite) TestSetBootstrapTools(c *gc.C) {
@@ -447,8 +300,7 @@ func (s *bootstrapSuite) TestSetBootstrapTools(c *gc.C) {
 		s.PatchValue(&version.Current.Number, t.currentVersion)
 		bootstrapTools, err := bootstrap.SetBootstrapTools(env, availableTools)
 		c.Assert(err, gc.IsNil)
-		c.Assert(bootstrapTools, gc.HasLen, 1)
-		c.Assert(bootstrapTools[0].Version.Number, gc.Equals, t.expectedTools)
+		c.Assert(bootstrapTools.Version.Number, gc.Equals, t.expectedTools)
 		agentVersion, _ := env.Config().AgentVersion()
 		c.Assert(agentVersion, gc.Equals, t.expectedAgentVersion)
 	}
@@ -460,7 +312,9 @@ type bootstrapEnviron struct {
 
 	// The following fields are filled in when Bootstrap is called.
 	bootstrapCount int
+	finalizerCount int
 	args           environs.BootstrapParams
+	machineConfig  *cloudinit.MachineConfig
 	storage        storage.Storage
 }
 
@@ -502,10 +356,16 @@ func (s *bootstrapSuite) setDummyStorage(c *gc.C, env *bootstrapEnviron) {
 	s.AddCleanup(func(c *gc.C) { closer.Close() })
 }
 
-func (e *bootstrapEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.BootstrapParams) error {
+func (e *bootstrapEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.BootstrapParams) (arch, series string, _ environs.BootstrapFinalizer, _ error) {
 	e.bootstrapCount++
 	e.args = args
-	return nil
+	finalizer := func(_ environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
+		e.finalizerCount++
+		e.machineConfig = mcfg
+		return nil
+	}
+	tools := args.AvailableTools[0]
+	return tools.Version.Arch, tools.Version.Series, finalizer, nil
 }
 
 func (e *bootstrapEnviron) Config() *config.Config {

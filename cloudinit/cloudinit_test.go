@@ -187,15 +187,8 @@ var ctests = []struct {
   key: someKey
 runcmd:
 - install -D -m 644 /dev/null '/some/path'
-- 'printf ''%s\n'' ''Explanation: test
-
-  Package: *
-
-  Pin: release n=series
-
-  Pin-Priority: 123
-
-  '' > ''/some/path'''
+- printf '%s' RXhwbGFuYXRpb246IHRlc3QKUGFja2FnZTogKgpQaW46IHJlbGVhc2Ugbj1zZXJpZXMKUGluLVByaW9yaXR5OiAxMjMK
+  | base64 -d > '/some/path'
 `,
 		func(cfg *cloudinit.Config) {
 			prefs := &cloudinit.AptPreferences{
@@ -269,7 +262,7 @@ runcmd:
 		func(cfg *cloudinit.Config) {
 			cfg.AddFile(
 				"/etc/apt/apt.conf.d/99proxy",
-				`"Acquire::http::Proxy "http://10.0.3.1:3142";`,
+				[]byte(`"Acquire::http::Proxy "http://10.0.3.1:3142";`),
 				0644,
 			)
 		},
@@ -287,7 +280,8 @@ const (
 	header          = "#cloud-config\n"
 	addFileExpected = `runcmd:
 - install -D -m 644 /dev/null '/etc/apt/apt.conf.d/99proxy'
-- printf '%s\n' '"Acquire::http::Proxy "http://10.0.3.1:3142";' > '/etc/apt/apt.conf.d/99proxy'
+- printf '%s' IkFjcXVpcmU6Omh0dHA6OlByb3h5ICJodHRwOi8vMTAuMC4zLjE6MzE0MiI7 | base64
+  -d > '/etc/apt/apt.conf.d/99proxy'
 `
 )
 

@@ -4,5 +4,5 @@
 package bootstrap
 
 var (
-	NewInterruptibleStorage = newInterruptibleStorage
+	SetBootstrapTools = setBootstrapTools
 )

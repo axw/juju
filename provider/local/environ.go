@@ -57,6 +57,8 @@ var _ environs.Environ = (*localEnviron)(nil)
 // localEnviron implements SupportsCustomSources.
 var _ envtools.SupportsCustomSources = (*localEnviron)(nil)
 
+var environsFinishMachineConfig = environs.FinishMachineConfig
+
 type localEnviron struct {
 	common.SupportsUnitPlacementPolicy
 
@@ -136,15 +138,9 @@ func (env *localEnviron) Bootstrap(
 	return version.Current.Arch, version.Current.Series, env.finishBootstrap, nil
 }
 
-func (env *localEnviron) finishBootstrap(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
-	return finishBootstrap(env, ctx, mcfg)
-}
-
 // finishBootstrap converts the machine config to cloud-config,
 // converts that to a script, and then executes it locally.
-//
-// mcfg is supplied for testing purposes.
-var finishBootstrap = func(env *localEnviron, ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
+func (env *localEnviron) finishBootstrap(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
 	mcfg.InstanceId = bootstrapInstanceId
 	mcfg.DataDir = env.config.rootDir()
 	mcfg.LogDir = fmt.Sprintf("/var/log/juju-%s", env.config.namespace())
@@ -162,7 +158,7 @@ var finishBootstrap = func(env *localEnviron, ctx environs.BootstrapContext, mcf
 		// the preallocation faster with no disadvantage.
 		agent.MongoOplogSize: "1", // 1MB
 	}
-	if err := environs.FinishMachineConfig(mcfg, env.Config()); err != nil {
+	if err := environsFinishMachineConfig(mcfg, env.Config()); err != nil {
 		return err
 	}
 

@@ -327,8 +327,6 @@ func ConfigureJuju(cfg *MachineConfig, c *cloudinit.Config) error {
 	}
 	c.AddScripts(
 		fmt.Sprintf("sha256sum $bin/tools.tar.gz > $bin/juju%s.sha256", cfg.Tools.Version),
-		fmt.Sprintf(`echo %s`, cfg.Tools.SHA256),
-		fmt.Sprintf(`cat $bin/juju%s.sha256`, cfg.Tools.Version),
 		fmt.Sprintf(`grep '%s' $bin/juju%s.sha256 || (echo "Tools checksum mismatch"; exit 1)`,
 			cfg.Tools.SHA256, cfg.Tools.Version),
 		fmt.Sprintf("tar zxf $bin/tools.tar.gz -C $bin"),

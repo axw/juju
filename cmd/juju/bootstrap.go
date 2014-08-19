@@ -99,9 +99,6 @@ func (c *BootstrapCommand) Init(args []string) (err error) {
 	if len(c.Series) > 0 && len(c.seriesOld) > 0 {
 		return fmt.Errorf("--upload-series and --series can't be used together")
 	}
-	if len(c.seriesOld) > 0 {
-		c.Series = c.seriesOld
-	}
 
 	// Parse the placement directive. Bootstrap currently only
 	// supports provider-specific placement directives.
@@ -167,7 +164,10 @@ func (c *BootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	bootstrapFuncs := getBootstrapFuncs()
 
 	if len(c.seriesOld) > 0 {
-		fmt.Fprintln(ctx.Stderr, "Use of --series is deprecated. Please use --upload-series instead.")
+		fmt.Fprintln(ctx.Stderr, "Use of --series is deprecated. It is no longer necessary to specify this flag.")
+	}
+	if len(c.Series) > 0 {
+		fmt.Fprintln(ctx.Stderr, "Use of --upload-series is deprecated. It is no longer necessary to specify this flag.")
 	}
 
 	if c.ConnectionName() == "" {
@@ -240,10 +240,9 @@ func (c *BootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		c.UploadTools = true
 	}
 	return bootstrapFuncs.Bootstrap(ctx, environ, bootstrap.BootstrapParams{
-		Constraints:       c.Constraints,
-		Placement:         c.Placement,
-		UploadTools:       c.UploadTools,
-		UploadToolsSeries: c.Series,
+		Constraints: c.Constraints,
+		Placement:   c.Placement,
+		UploadTools: c.UploadTools,
 	})
 }
 

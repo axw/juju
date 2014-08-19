@@ -127,6 +127,11 @@ type OpBootstrap struct {
 	Args    environs.BootstrapParams
 }
 
+type OpFinalizeBootstrap struct {
+	Context       environs.BootstrapContext
+	MachineConfig *cloudinit.MachineConfig
+}
+
 type OpDestroy struct {
 	Env   string
 	Error error
@@ -614,8 +619,12 @@ func (e *environ) GetToolsSources() ([]simplestreams.DataSource, error) {
 }
 
 func (e *environ) Bootstrap(ctx environs.BootstrapContext, args environs.BootstrapParams) (arch, series string, _ environs.BootstrapFinalizer, _ error) {
-	arch = args.AvailableTools.Arches()[0]
-	series = args.AvailableTools.OneSeries()
+	series = config.PreferredSeries(e.Config())
+	availableTools, err := args.AvailableTools.Match(coretools.Filter{Series: series})
+	if err != nil {
+		return "", "", nil, err
+	}
+	arch = availableTools.Arches()[0]
 
 	defer delay()
 	if err := e.checkBroken("Bootstrap"); err != nil {
@@ -695,7 +704,8 @@ func (e *environ) Bootstrap(ctx environs.BootstrapContext, args environs.Bootstr
 	}
 	estate.bootstrapped = true
 	estate.ops <- OpBootstrap{Context: ctx, Env: e.name, Args: args}
-	finalize := func(environs.BootstrapContext, *cloudinit.MachineConfig) error {
+	finalize := func(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
+		estate.ops <- OpFinalizeBootstrap{Context: ctx, MachineConfig: mcfg}
 		return nil
 	}
 	return arch, series, finalize, nil

@@ -25,6 +25,7 @@ import (
 	coretesting "github.com/juju/juju/testing"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/utils/ssh"
+	"github.com/juju/juju/version"
 )
 
 type BootstrapSuite struct {
@@ -65,6 +66,7 @@ func minimalConfig(c *gc.C) *config.Config {
 		"ca-cert":         coretesting.CACert,
 		"ca-private-key":  coretesting.CAKey,
 		"authorized-keys": coretesting.FakeAuthKeys,
+		"admin-secret":    "woat",
 	}
 	cfg, err := config.New(config.UseDefaults, attrs)
 	c.Assert(err, gc.IsNil)
@@ -87,7 +89,7 @@ func (s *BootstrapSuite) TestCannotStartInstance(c *gc.C) {
 	) {
 		c.Assert(placement, gc.DeepEquals, checkPlacement)
 		c.Assert(cons, gc.DeepEquals, checkCons)
-		c.Assert(mcfg, gc.DeepEquals, environs.NewBootstrapMachineConfig(mcfg.SystemPrivateSSHKey))
+		c.Assert(mcfg, gc.DeepEquals, environs.NewBootstrapMachineConfig(cons, mcfg.SystemPrivateSSHKey))
 		return nil, nil, nil, fmt.Errorf("meh, not started")
 	}
 
@@ -98,9 +100,12 @@ func (s *BootstrapSuite) TestCannotStartInstance(c *gc.C) {
 	}
 
 	ctx := coretesting.Context(c)
-	err := common.Bootstrap(ctx, env, environs.BootstrapParams{
+	_, _, _, err := common.Bootstrap(ctx, env, environs.BootstrapParams{
 		Constraints: checkCons,
 		Placement:   checkPlacement,
+		AvailableTools: []*tools.Tools{&tools.Tools{
+			Version: version.MustParseBinary("1.20.1-trusty-arm64"),
+		}},
 	})
 	c.Assert(err, gc.ErrorMatches, "cannot start bootstrap instance: meh, not started")
 }
@@ -132,7 +137,11 @@ func (s *BootstrapSuite) TestCannotRecordStartedInstance(c *gc.C) {
 	}
 
 	ctx := coretesting.Context(c)
-	err := common.Bootstrap(ctx, env, environs.BootstrapParams{})
+	_, _, _, err := common.Bootstrap(ctx, env, environs.BootstrapParams{
+		AvailableTools: []*tools.Tools{&tools.Tools{
+			Version: version.MustParseBinary("1.20.1-trusty-arm64"),
+		}},
+	})
 	c.Assert(err, gc.ErrorMatches, "cannot save state: suddenly a wild blah")
 	c.Assert(stopped, gc.HasLen, 1)
 	c.Assert(stopped[0], gc.Equals, instance.Id("i-blah"))
@@ -169,7 +178,11 @@ func (s *BootstrapSuite) TestCannotRecordThenCannotStop(c *gc.C) {
 	}
 
 	ctx := coretesting.Context(c)
-	err := common.Bootstrap(ctx, env, environs.BootstrapParams{})
+	_, _, _, err := common.Bootstrap(ctx, env, environs.BootstrapParams{
+		AvailableTools: []*tools.Tools{&tools.Tools{
+			Version: version.MustParseBinary("1.20.1-trusty-arm64"),
+		}},
+	})
 	c.Assert(err, gc.ErrorMatches, "cannot save state: suddenly a wild blah")
 	c.Assert(stopped, gc.HasLen, 1)
 	c.Assert(stopped[0], gc.Equals, instance.Id("i-blah"))
@@ -181,7 +194,7 @@ func (s *BootstrapSuite) TestCannotRecordThenCannotStop(c *gc.C) {
 func (s *BootstrapSuite) TestSuccess(c *gc.C) {
 	stor := newStorage(s, c)
 	checkInstanceId := "i-success"
-	checkHardware := instance.MustParseHardware("mem=2T")
+	checkHardware := instance.MustParseHardware("arch=ppc64el mem=2T")
 
 	startInstance := func(
 		_ string, _ constraints.Value, _ []string, _ tools.List, mcfg *cloudinit.MachineConfig,
@@ -201,9 +214,6 @@ func (s *BootstrapSuite) TestSuccess(c *gc.C) {
 		return nil
 	}
 
-	restore := envtesting.DisableFinishBootstrap()
-	defer restore()
-
 	env := &mockEnviron{
 		storage:       stor,
 		startInstance: startInstance,
@@ -212,8 +222,14 @@ func (s *BootstrapSuite) TestSuccess(c *gc.C) {
 	}
 	originalAuthKeys := env.Config().AuthorizedKeys()
 	ctx := coretesting.Context(c)
-	err := common.Bootstrap(ctx, env, environs.BootstrapParams{})
+	arch, series, _, err := common.Bootstrap(ctx, env, environs.BootstrapParams{
+		AvailableTools: []*tools.Tools{&tools.Tools{
+			Version: version.MustParseBinary("1.20.1-trusty-arm64"),
+		}},
+	})
 	c.Assert(err, gc.IsNil)
+	c.Check(arch, gc.Equals, "ppc64el") // based on hardware characteristics
+	c.Check(series, gc.Equals, "trusty")
 
 	authKeys := env.Config().AuthorizedKeys()
 	c.Assert(authKeys, gc.Not(gc.Equals), originalAuthKeys)

@@ -117,16 +117,16 @@ var cloudinitTests = []cloudinitTest{
 		expectScripts: `
 set -xe
 install -D -m 644 /dev/null '/var/lib/juju/nonce.txt'
-printf '%s\\n' 'FAKE_NONCE' > '/var/lib/juju/nonce.txt'
+printf '%s' RkFLRV9OT05DRQ== | base64 -d > '/var/lib/juju/nonce.txt'
 test -e /proc/self/fd/9 \|\| exec 9>&2
 \(\[ ! -e /home/ubuntu/.profile \] \|\| grep -q '.juju-proxy' /home/ubuntu/.profile\) \|\| printf .* >> /home/ubuntu/.profile
 mkdir -p /var/lib/juju/locks
 \[ -e /home/ubuntu \] && chown ubuntu:ubuntu /var/lib/juju/locks
 mkdir -p /var/log/juju
 chown syslog:adm /var/log/juju
-echo 'Fetching tools.*
 bin='/var/lib/juju/tools/1\.2\.3-precise-amd64'
 mkdir -p \$bin
+echo 'Fetching tools.*
 curl -sSfw 'tools from %{url_effective} downloaded: HTTP %{http_code}; time %{time_total}s; size %{size_download} bytes; speed %{speed_download} bytes/s ' --retry 10 -o \$bin/tools\.tar\.gz 'http://foo\.com/tools/releases/juju1\.2\.3-precise-amd64\.tgz'
 sha256sum \$bin/tools\.tar\.gz > \$bin/juju1\.2\.3-precise-amd64\.sha256
 grep '1234' \$bin/juju1\.2\.3-precise-amd64.sha256 \|\| \(echo "Tools checksum mismatch"; exit 1\)
@@ -137,7 +137,7 @@ mkdir -p '/var/lib/juju/agents/machine-0'
 install -m 600 /dev/null '/var/lib/juju/agents/machine-0/agent\.conf'
 printf '%s\\n' '.*' > '/var/lib/juju/agents/machine-0/agent\.conf'
 install -D -m 644 /dev/null '/etc/apt/preferences\.d/50-cloud-tools'
-printf '%s\\n' '.*' > '/etc/apt/preferences\.d/50-cloud-tools'
+printf '%s' .* | base64 -d > '/etc/apt/preferences\.d/50-cloud-tools'
 echo 'Bootstrapping Juju machine agent'.*
 /var/lib/juju/tools/1\.2\.3-precise-amd64/jujud bootstrap-state --data-dir '/var/lib/juju' --env-config '[^']*' --instance-id 'i-bootstrap' --constraints 'mem=2048M' --debug
 ln -s 1\.2\.3-precise-amd64 '/var/lib/juju/tools/machine-0'
@@ -220,16 +220,16 @@ ln -s 1\.2\.3-raring-amd64 '/var/lib/juju/tools/machine-0'
 		expectScripts: `
 set -xe
 install -D -m 644 /dev/null '/var/lib/juju/nonce.txt'
-printf '%s\\n' 'FAKE_NONCE' > '/var/lib/juju/nonce.txt'
+printf '%s' RkFLRV9OT05DRQ== | base64 -d > '/var/lib/juju/nonce.txt'
 test -e /proc/self/fd/9 \|\| exec 9>&2
 \(\[ ! -e /home/ubuntu/\.profile \] \|\| grep -q '.juju-proxy' /home/ubuntu/.profile\) \|\| printf .* >> /home/ubuntu/.profile
 mkdir -p /var/lib/juju/locks
 \[ -e /home/ubuntu \] && chown ubuntu:ubuntu /var/lib/juju/locks
 mkdir -p /var/log/juju
 chown syslog:adm /var/log/juju
-echo 'Fetching tools.*
 bin='/var/lib/juju/tools/1\.2\.3-quantal-amd64'
 mkdir -p \$bin
+echo 'Fetching tools.*
 curl -sSfw 'tools from %{url_effective} downloaded: HTTP %{http_code}; time %{time_total}s; size %{size_download} bytes; speed %{speed_download} bytes/s ' --retry 10 -o \$bin/tools\.tar\.gz 'http://foo\.com/tools/releases/juju1\.2\.3-quantal-amd64\.tgz'
 sha256sum \$bin/tools\.tar\.gz > \$bin/juju1\.2\.3-quantal-amd64\.sha256
 grep '1234' \$bin/juju1\.2\.3-quantal-amd64.sha256 \|\| \(echo "Tools checksum mismatch"; exit 1\)
@@ -818,7 +818,7 @@ func (*cloudinitSuite) createMachineConfig(c *gc.C, environConfig *config.Config
 		Version: version.MustParseBinary("2.3.4-quantal-amd64"),
 		URL:     "http://tools.testing.invalid/2.3.4-quantal-amd64.tgz",
 	}
-	err := environs.FinishMachineConfig(machineConfig, environConfig, constraints.Value{})
+	err := environs.FinishMachineConfig(machineConfig, environConfig)
 	c.Assert(err, gc.IsNil)
 	return machineConfig
 }

@@ -55,7 +55,7 @@ func testConfig(c *gc.C, stateServer bool, vers version.Binary) *config.Config {
 func (s *configureSuite) getCloudConfig(c *gc.C, stateServer bool, vers version.Binary) *cloudinit.Config {
 	var mcfg *envcloudinit.MachineConfig
 	if stateServer {
-		mcfg = environs.NewBootstrapMachineConfig("private-key")
+		mcfg = environs.NewBootstrapMachineConfig(constraints.Value{}, "private-key")
 		mcfg.InstanceId = "instance-id"
 		mcfg.Jobs = []params.MachineJob{params.JobManageEnviron, params.JobHostUnits}
 	} else {
@@ -64,10 +64,10 @@ func (s *configureSuite) getCloudConfig(c *gc.C, stateServer bool, vers version.
 	}
 	mcfg.Tools = &tools.Tools{
 		Version: vers,
-		URL:     "file:///var/lib/juju/storage/" + envtools.StorageName(vers),
+		URL:     "http://testing.invalid/var/lib/juju/storage/" + envtools.StorageName(vers),
 	}
 	environConfig := testConfig(c, stateServer, vers)
-	err := environs.FinishMachineConfig(mcfg, environConfig, constraints.Value{})
+	err := environs.FinishMachineConfig(mcfg, environConfig)
 	c.Assert(err, gc.IsNil)
 	cloudcfg := cloudinit.New()
 	err = envcloudinit.Configure(mcfg, cloudcfg)

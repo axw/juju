@@ -35,10 +35,6 @@ type BootstrapParams struct {
 	// UploadTools reports whether we should upload the local tools and
 	// override the environment's specified agent-version.
 	UploadTools bool
-
-	// UploadSeries is the tools series to upload. If unspecified,
-	// the LTS series will be uploaded.
-	UploadToolsSeries []string
 }
 
 // Bootstrap bootstraps the given environment. The supplied constraints are
@@ -74,67 +70,25 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 	ctx.Infof("Bootstrapping environment %q", cfg.Name())
 	logger.Debugf("environment %q supports service/machine networks: %v", cfg.Name(), environ.SupportNetworks())
 
-	var availableTools coretools.List
-	if args.UploadTools {
-		// We're forcing an upload, so mock up some tools
-		// which we'll later upload.
-		for _, series := range args.UploadToolsSeries {
-			if _, err := version.SeriesVersion(series); err != nil {
-				return err
-			}
-		}
-
-		// Override agent-version and create fake tools.
-		uploadVersion := uploadVersion(version.Current.Number, nil)
-		uploadSeries := SeriesToUpload(cfg, args.UploadToolsSeries)
-		logger.Debugf("creating bootstrap tools for series: %v", uploadSeries)
-		if cfg, err = cfg.Apply(map[string]interface{}{
-			"agent-version": uploadVersion.String(),
-		}); err != nil {
-			return err
-		}
-		if err = environ.SetConfig(cfg); err != nil {
-			return err
-		}
-		availableTools = make(coretools.List, len(uploadSeries))
-		for i, series := range uploadSeries {
-			binary := version.Current
-			binary.Number = uploadVersion
-			binary.Series = series
-			availableTools[i] = &coretools.Tools{Version: binary}
-		}
-	} else {
-		// We're not forcing an upload, so look for tools
-		// in the environment's simplestreams search paths.
-		ctx.Infof("Searching for bootstrap tools")
-		availableTools, err = findAvailableTools(environ)
-		if errors.IsNotFound(err) {
-			return errors.New(noToolsNoUploadMessage)
-		} else if err != nil {
-			return err
-		}
-
-		// Set an arbitrary agent-version to appease
-		// FinishMachineConfig, which will be called
-		// by Bootstrap; it will be set to the
-		// right thing later by setBootstrapTools.
-		cfg, err := environ.Config().Apply(map[string]interface{}{
-			"agent-version": version.Current.Number.String(),
-		})
-		if err == nil {
-			err = environ.SetConfig(cfg)
-		}
-		if err != nil {
-			return err
-		}
+	availableTools, err := findAvailableTools(environ, args.Constraints, args.UploadTools)
+	if errors.IsNotFound(err) {
+		return errors.New(noToolsNoUploadMessage)
+	} else if err != nil {
+		return err
 	}
-	if args.Constraints.Arch != nil {
-		availableTools, err = availableTools.Match(coretools.Filter{
-			Arch: *args.Constraints.Arch,
-		})
-		if err != nil {
-			return errors.Annotate(err, noToolsNoUploadMessage)
-		}
+
+	// If we're uploading, we must override agent-version;
+	// if we're not uploading, we want to ensure we have an
+	// agent-version set anyway, to appease FinishMachineConfig.
+	// In the latter case, setBootstrapTools will later set
+	// agent-version to the correct thing.
+	if cfg, err = cfg.Apply(map[string]interface{}{
+		"agent-version": version.Current.Number.String(),
+	}); err != nil {
+		return err
+	}
+	if err = environ.SetConfig(cfg); err != nil {
+		return err
 	}
 
 	ctx.Infof("Starting new instance for initial machine")
@@ -162,7 +116,7 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 		ctx.Infof("Building tools to upload (%s)", selectedTools.Version)
 		builtTools, err := sync.BuildToolsTarball(&selectedTools.Version.Number)
 		if err != nil {
-			return err
+			return errors.Annotate(err, "cannot upload bootstrap tools")
 		}
 		filename := filepath.Join(builtTools.Dir, builtTools.StorageName)
 		selectedTools.URL = fmt.Sprintf("file://%s", filename)

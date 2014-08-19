@@ -40,7 +40,7 @@ func makeMachineConfig(c *gc.C) *cloudinit.MachineConfig {
 		CloudInitOutputLog: environs.CloudInitOutputLog,
 		Tools: &tools.Tools{
 			Version: version.MustParseBinary("1.2.3-quantal-amd64"),
-			URL:     "file://" + c.MkDir(),
+			URL:     "http://testing.invalid/tools.tar.gz",
 		},
 		MongoInfo: &authentication.MongoInfo{
 			Info: mongo.Info{

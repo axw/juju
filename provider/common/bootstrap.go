@@ -189,6 +189,12 @@ var FinishBootstrap = func(ctx environs.BootstrapContext, client ssh.Client, ins
 	if err != nil {
 		return err
 	}
+	return ConfigureMachine(ctx, client, addr, machineConfig)
+}
+
+// ConfigureMachine configures and installs Juju on
+// the specified host over SSH.
+func ConfigureMachine(ctx environs.BootstrapContext, client ssh.Client, host string, machineConfig *cloudinit.MachineConfig) error {
 	// Bootstrap is synchronous, and will spawn a subprocess
 	// to complete the procedure. If the user hits Ctrl-C,
 	// SIGINT is sent to the foreground process attached to
@@ -205,7 +211,7 @@ var FinishBootstrap = func(ctx environs.BootstrapContext, client ssh.Client, ins
 	}
 	script := shell.DumpFileOnErrorScript(machineConfig.CloudInitOutputLog) + configScript
 	return sshinit.RunConfigureScript(script, sshinit.ConfigureParams{
-		Host:           "ubuntu@" + addr,
+		Host:           "ubuntu@" + host,
 		Client:         client,
 		Config:         cloudcfg,
 		ProgressWriter: ctx.GetStderr(),

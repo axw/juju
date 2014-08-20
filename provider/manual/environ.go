@@ -54,6 +54,7 @@ const (
 
 var (
 	logger                                       = loggo.GetLogger("juju.provider.manual")
+	manualCheckProvisioned                       = manual.CheckProvisioned
 	manualDetectSeriesAndHardwareCharacteristics = manual.DetectSeriesAndHardwareCharacteristics
 )
 
@@ -124,7 +125,14 @@ func (e *manualEnviron) Bootstrap(
 		return "", "", nil, err
 	}
 
-	// TODO(axw) check host is not provisioned.
+	provisioned, err := manualCheckProvisioned(host)
+	if err != nil {
+		return "", "", nil, errors.Annotate(err, "failed to check provisioned status")
+	}
+	if provisioned {
+		return "", "", nil, manual.ErrProvisioned
+	}
+
 	hc, series, err := manualDetectSeriesAndHardwareCharacteristics(host)
 	if err != nil {
 		return "", "", nil, err
@@ -138,11 +146,13 @@ func (e *manualEnviron) Bootstrap(
 	finalize := func(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
 		mcfg.InstanceId = BootstrapInstanceId
 		mcfg.HardwareCharacteristics = &hc
+		if err := environs.FinishMachineConfig(mcfg, e.Config()); err != nil {
+			return err
+		}
 		for k, v := range agentEnv {
 			mcfg.AgentEnvironment[k] = v
 		}
-		inst := manualBootstrapInstance{host}
-		return common.FinishBootstrap(ctx, ssh.DefaultClient, inst, mcfg)
+		return common.ConfigureMachine(ctx, ssh.DefaultClient, host, mcfg)
 	}
 	return *hc.Arch, series, finalize, nil
 }

@@ -13,13 +13,13 @@ import (
 
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
-	"github.com/juju/juju/environs/manual"
 	"github.com/juju/juju/environs/storage"
 	"github.com/juju/juju/environs/tools"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/juju/arch"
 	coretesting "github.com/juju/juju/testing"
 	coretools "github.com/juju/juju/tools"
+	"github.com/juju/juju/version"
 )
 
 type environSuite struct {
@@ -58,13 +58,13 @@ func (s *environSuite) TestInstances(c *gc.C) {
 	c.Assert(err, gc.Equals, environs.ErrNoInstances)
 	c.Assert(instances, gc.HasLen, 0)
 
-	ids = append(ids, manual.BootstrapInstanceId)
+	ids = append(ids, BootstrapInstanceId)
 	instances, err = s.env.Instances(ids)
 	c.Assert(err, gc.IsNil)
 	c.Assert(instances, gc.HasLen, 1)
 	c.Assert(instances[0], gc.NotNil)
 
-	ids = append(ids, manual.BootstrapInstanceId)
+	ids = append(ids, BootstrapInstanceId)
 	instances, err = s.env.Instances(ids)
 	c.Assert(err, gc.IsNil)
 	c.Assert(instances, gc.HasLen, 2)
@@ -187,22 +187,30 @@ func (s *bootstrapSuite) SetUpTest(c *gc.C) {
 }
 
 func (s *bootstrapSuite) TestBootstrapClearsUseSSHStorage(c *gc.C) {
-	s.PatchValue(&manualBootstrap, func(manual.BootstrapArgs) error {
-		return nil
-	})
 	s.PatchValue(&manualDetectSeriesAndHardwareCharacteristics, func(string) (instance.HardwareCharacteristics, string, error) {
-		return instance.HardwareCharacteristics{}, "precise", nil
+		arch := arch.ARM64
+		return instance.HardwareCharacteristics{Arch: &arch}, "precise", nil
 	})
-	s.PatchValue(&commonEnsureBootstrapTools, func(environs.BootstrapContext, environs.Environ, string, *string) (coretools.List, error) {
-		return nil, nil
+	s.PatchValue(&manualCheckProvisioned, func(string) (bool, error) {
+		return false, nil
 	})
 
 	// use-sshstorage is initially true.
 	cfg := s.env.Config()
 	c.Assert(cfg.UnknownAttrs()["use-sshstorage"], gc.Equals, true)
 
-	err := s.env.Bootstrap(coretesting.Context(c), environs.BootstrapParams{})
+	targetArch, targetSeries, _, err := s.env.Bootstrap(
+		coretesting.Context(c), environs.BootstrapParams{
+			AvailableTools: coretools.List{
+				&coretools.Tools{
+					Version: version.MustParseBinary("1.19.0-precise-arm64"),
+				},
+			},
+		},
+	)
 	c.Assert(err, gc.IsNil)
+	c.Assert(targetArch, gc.Equals, arch.ARM64)
+	c.Assert(targetSeries, gc.Equals, "precise")
 
 	// Bootstrap must set use-sshstorage to false within the environment.
 	cfg = s.env.Config()
@@ -265,7 +273,7 @@ func (s *stateServerInstancesSuite) TestStateServerInstances(c *gc.C) {
 		instances, err := s.env.StateServerInstances()
 		if test.expectedErr == "" {
 			c.Assert(err, gc.IsNil)
-			c.Assert(instances, gc.DeepEquals, []instance.Id{manual.BootstrapInstanceId})
+			c.Assert(instances, gc.DeepEquals, []instance.Id{BootstrapInstanceId})
 		} else {
 			c.Assert(err, gc.ErrorMatches, test.expectedErr)
 			c.Assert(instances, gc.HasLen, 0)
@@ -296,5 +304,5 @@ func (s *stateServerInstancesSuite) TestStateServerInstancesInternal(c *gc.C) {
 	testing.PatchExecutable(c, s, "ssh", "#!/bin/sh\nhead -n1 > /dev/null; echo abc >&2; exit 1")
 	instances, err := env.StateServerInstances()
 	c.Assert(err, gc.IsNil)
-	c.Assert(instances, gc.DeepEquals, []instance.Id{manual.BootstrapInstanceId})
+	c.Assert(instances, gc.DeepEquals, []instance.Id{BootstrapInstanceId})
 }

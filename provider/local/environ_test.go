@@ -14,6 +14,7 @@ import (
 	jc "github.com/juju/testing/checkers"
 	gc "launchpad.net/gocheck"
 
+	coreCloudinit "github.com/juju/juju/cloudinit"
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/container"
 	"github.com/juju/juju/container/lxc"
@@ -308,7 +309,18 @@ func (s *localJujuTestSuite) TestBootstrapRemoveLeftovers(c *gc.C) {
 	err = ioutil.WriteFile(cloudInitOutputLog, []byte("ohai"), 0644)
 	c.Assert(err, gc.IsNil)
 
-	s.testBootstrap(c, cfg)
+	s.PatchValue(local.ExecuteCloudConfig, func(environs.BootstrapContext, *cloudinit.MachineConfig, *coreCloudinit.Config) error {
+		return fmt.Errorf("failed to execute cloud-config")
+	})
+
+	_, finalizer := s.testBootstrap(c, cfg)
+	mcfg := environs.NewBootstrapMachineConfig(constraints.Value{}, "system-key")
+	mcfg.Tools = &coretools.Tools{
+		Version: version.Current,
+		URL:     "http://invalid.testing/tools.tar.gz",
+	}
+	err = finalizer(coretesting.Context(c), mcfg)
+	c.Assert(err, gc.ErrorMatches, "failed to execute cloud-config")
 	c.Assert(logThings, jc.DoesNotExist)
 	c.Assert(cloudInitOutputLog, jc.DoesNotExist)
 	c.Assert(filepath.Join(rootDir, "log"), jc.IsSymlink)

@@ -189,7 +189,10 @@ func (env *localEnviron) finishBootstrap(ctx environs.BootstrapContext, mcfg *cl
 	if err := cloudinit.ConfigureJuju(mcfg, cloudcfg); err != nil {
 		return err
 	}
+	return executeCloudConfig(ctx, mcfg, cloudcfg)
+}
 
+var executeCloudConfig = func(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig, cloudcfg *coreCloudinit.Config) error {
 	// Finally, convert cloud-config to a script and execute it.
 	configScript, err := sshinit.ConfigureScript(cloudcfg)
 	if err != nil {

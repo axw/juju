@@ -16,6 +16,7 @@ var (
 	CheckLocalPort              = &checkLocalPort
 	DetectAptProxies            = &detectAptProxies
 	EnvironsFinishMachineConfig = &environsFinishMachineConfig
+	ExecuteCloudConfig          = &executeCloudConfig
 	Provider                    = providerInstance
 	UserCurrent                 = &userCurrent
 )

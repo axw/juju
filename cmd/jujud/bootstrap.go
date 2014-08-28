@@ -206,7 +206,7 @@ func (c *BootstrapCommand) Run(_ *cmd.Context) error {
 	defer st.Close()
 
 	// Populate the tools catalogue.
-	if err := c.populateTools(env); err != nil {
+	if err := c.populateTools(st, env); err != nil {
 		return err
 	}
 
@@ -293,7 +293,7 @@ func (c *BootstrapCommand) startMongo(addrs []network.Address, agentConfig agent
 // and updates the tools metadata.
 //
 // TODO(axw) store tools in gridfs, catalogue in state.
-func (c *BootstrapCommand) populateTools(env environs.Environ) error {
+func (c *BootstrapCommand) populateTools(st *state.State, env environs.Environ) error {
 	agentConfig := c.CurrentConfig()
 	dataDir := agentConfig.DataDir()
 	tools, err := agenttools.ReadTools(dataDir, version.Current)
@@ -337,17 +337,28 @@ func (c *BootstrapCommand) populateTools(env environs.Environ) error {
 		return err
 	}
 
-	// Until we catalogue tools in state, we clone the tools
+	// Until we store tools in state, we clone the tools
 	// for each of the supported series of the same OS.
-	otherSeries := version.OSSupportedSeries(version.Current.OS)
+	osSeries := version.OSSupportedSeries(version.Current.OS)
 	_, err = sync.SyncBuiltTools(stor, &sync.BuiltTools{
 		Version:     tools.Version,
 		Dir:         tempDir,
 		StorageName: envtools.StorageName(tools.Version),
 		Sha256Hash:  tools.SHA256,
 		Size:        tools.Size,
-	}, otherSeries...)
-	return err
+	}, osSeries...)
+	if err != nil {
+		return err
+	}
+	for _, series := range osSeries {
+		tools := tools
+		tools.Version.Series = series
+		logger.Debugf("Adding tools: %v", tools.Version)
+		if err := st.AddTools(tools); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // yamlBase64Value implements gnuflag.Value on a map[string]interface{}.

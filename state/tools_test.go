@@ -10,24 +10,15 @@ import (
 	jc "github.com/juju/testing/checkers"
 	gc "launchpad.net/gocheck"
 
-	"github.com/juju/juju/state"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
 
 type tooler interface {
+	lifer
 	AgentTools() (*tools.Tools, error)
 	SetAgentVersion(v version.Binary) error
-	Life() state.Life
 	Refresh() error
-	Destroy() error
-	EnsureDead() error
-}
-
-var _ = gc.Suite(&ToolsSuite{})
-
-type ToolsSuite struct {
-	ConnSuite
 }
 
 func newTools(vers, url string) *tools.Tools {
@@ -65,17 +56,38 @@ func testAgentTools(c *gc.C, obj tooler, agent string) {
 	})
 }
 
-func (s *ToolsSuite) TestMachineAgentTools(c *gc.C) {
-	m, err := s.State.AddMachine("quantal", state.JobHostUnits)
-	c.Assert(err, gc.IsNil)
-	testAgentTools(c, m, "machine 0")
+var _ = gc.Suite(&ToolsSuite{})
+
+type ToolsSuite struct {
+	ConnSuite
 }
 
-func (s *ToolsSuite) TestUnitAgentTools(c *gc.C) {
-	charm := s.AddTestingCharm(c, "dummy")
-	svc := s.AddTestingService(c, "wordpress", charm)
-	unit, err := svc.AddUnit()
+func (s *ToolsSuite) TestAddTools(c *gc.C) {
+	currentTools := &tools.Tools{
+		Version: version.Current,
+		Size:    123,
+		SHA256:  "abcdef",
+	}
+	err := s.State.AddTools(currentTools)
 	c.Assert(err, gc.IsNil)
-	preventUnitDestroyRemove(c, unit)
-	testAgentTools(c, unit, `unit "wordpress/0"`)
+	t, err := s.State.Tools(version.Current)
+	c.Assert(err, gc.IsNil)
+	c.Assert(*t, gc.Equals, *currentTools)
+	err = s.State.AddTools(currentTools)
+	c.Assert(err, jc.Satisfies, errors.IsAlreadyExists)
+}
+
+func (s *ToolsSuite) TestReplaceTools(c *gc.C) {
+	currentTools := &tools.Tools{
+		Version: version.Current,
+		Size:    123,
+		SHA256:  "abcdef",
+	}
+	for i := 0; i < 2; i++ {
+		err := s.State.ReplaceTools(currentTools)
+		c.Assert(err, gc.IsNil)
+		t, err := s.State.Tools(version.Current)
+		c.Assert(err, gc.IsNil)
+		c.Assert(*t, gc.Equals, *currentTools)
+	}
 }

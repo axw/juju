@@ -19,7 +19,6 @@ import (
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/environs"
-	"github.com/juju/juju/environs/filestorage"
 	"github.com/juju/juju/environs/sync"
 	envtools "github.com/juju/juju/environs/tools"
 	"github.com/juju/juju/tools"
@@ -226,30 +225,6 @@ func (h *toolsUploadHandler) handleUpload(r io.Reader, toolsVersion version.Bina
 
 // uploadToStorage uploads the tools from the specified directory to environment storage.
 func (h *toolsUploadHandler) uploadToStorage(uploadedTools *tools.Tools, toolsDir, toolsFilename string) (*tools.Tools, bool, error) {
-	// SyncTools requires simplestreams metadata to find the tools to upload.
-	stor, err := filestorage.NewFileStorageWriter(toolsDir)
-	if err != nil {
-		return nil, false, errors.Annotate(err, "cannot create metadata storage")
-	}
-	// Generate metadata for each series of the same OS as the uploaded tools.
-	// The URL for each fake series record points to the same tools tarball.
-	allToolsMetadata := []*tools.Tools{uploadedTools}
-	osSeries := version.OSSupportedSeries(uploadedTools.Version.OS)
-	for _, series := range osSeries {
-		vers := uploadedTools.Version
-		vers.Series = series
-		allToolsMetadata = append(allToolsMetadata, &tools.Tools{
-			Version: vers,
-			URL:     uploadedTools.URL,
-			Size:    uploadedTools.Size,
-			SHA256:  uploadedTools.SHA256,
-		})
-	}
-	err = envtools.MergeAndWriteMetadata(stor, allToolsMetadata, false)
-	if err != nil {
-		return nil, false, errors.Annotate(err, "cannot get environment config")
-	}
-
 	// Create the environment so we can get the storage to which we upload the tools.
 	envConfig, err := h.state.EnvironConfig()
 	if err != nil {
@@ -268,9 +243,32 @@ func (h *toolsUploadHandler) uploadToStorage(uploadedTools *tools.Tools, toolsDi
 		Size:        uploadedTools.Size,
 		Sha256Hash:  uploadedTools.SHA256,
 	}
+	osSeries := version.OSSupportedSeries(uploadedTools.Version.OS)
 	uploadedTools, err = sync.SyncBuiltTools(env.Storage(), builtTools, osSeries...)
 	if err != nil {
 		return nil, false, err
 	}
+
+	// Record the tools in state.
+	for _, series := range osSeries {
+		vers := uploadedTools.Version
+		addTools := h.state.AddTools
+		if series == vers.Series {
+			// Always prefer the information in
+			// actual tools, rather than aliases.
+			addTools = h.state.ReplaceTools
+		} else {
+			vers.Series = series
+		}
+		err := addTools(&tools.Tools{
+			Version: vers,
+			Size:    uploadedTools.Size,
+			SHA256:  uploadedTools.SHA256,
+		})
+        if err != nil && !errors.IsAlreadyExists(err) {
+			return nil, false, err
+		}
+	}
+
 	return uploadedTools, !envConfig.SSLHostnameVerification(), nil
 }

@@ -340,7 +340,7 @@ func SyncBuiltTools(stor storage.Storage, builtTools *BuiltTools, fakeSeries ...
 	syncContext := &SyncContext{
 		Source:              builtTools.Dir,
 		TargetToolsFinder:   StorageToolsFinder{stor},
-		TargetToolsUploader: StorageToolsUploader{stor, false},
+		TargetToolsUploader: StorageToolsUploader{stor, false, false},
 		AllVersions:         true,
 		Dev:                 builtTools.Version.IsDev(),
 		MajorVersion:        builtTools.Version.Major,
@@ -377,8 +377,9 @@ func (f StorageToolsFinder) FindTools(major int) (coretools.List, error) {
 // writes tools to the provided storage and then writes merged
 // metadata, optionally with mirrors.
 type StorageToolsUploader struct {
-	Storage      storage.Storage
-	WriteMirrors envtools.ShouldWriteMirrors
+	Storage       storage.Storage
+	WriteMetadata bool
+	WriteMirrors  envtools.ShouldWriteMirrors
 }
 
 func (u StorageToolsUploader) UploadTools(tools *coretools.Tools, data []byte) error {
@@ -386,6 +387,9 @@ func (u StorageToolsUploader) UploadTools(tools *coretools.Tools, data []byte) e
 	if err := u.Storage.Put(toolsName, bytes.NewReader(data), int64(len(data))); err != nil {
 		return err
 	}
+    if !u.WriteMetadata {
+        return nil
+    }
 	err := envtools.MergeAndWriteMetadata(u.Storage, coretools.List{tools}, u.WriteMirrors)
 	if err != nil {
 		logger.Errorf("error writing tools metadata: %v", err)

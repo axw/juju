@@ -28,6 +28,10 @@ type EnvironConfigGetter interface {
 	EnvironConfig() (*config.Config, error)
 }
 
+type ToolsSource interface {
+	AllTools() (coretools.List, error)
+}
+
 // ToolsGetter implements a common Tools method for use by various
 // facades.
 type ToolsGetter struct {
@@ -170,23 +174,43 @@ func (t *ToolsSetter) setOneAgentVersion(tag names.Tag, vers version.Binary, can
 }
 
 // FindTools returns a List containing all tools matching the given parameters.
-func FindTools(e EnvironConfigGetter, args params.FindToolsParams) (params.FindToolsResult, error) {
-	result := params.FindToolsResult{}
-	// Get the existing environment config from the state.
-	envConfig, err := e.EnvironConfig()
+func FindTools(t ToolsSource, args params.FindToolsParams) (params.FindToolsResult, error) {
+	var result params.FindToolsResult
+	all, err := t.AllTools()
 	if err != nil {
 		return result, err
 	}
-	env, err := environs.New(envConfig)
-	if err != nil {
-		return result, err
+	list, err := findMatchingTools(all, args)
+	if err == coretools.ErrNoMatches {
+		err = errors.NewNotFound(err, "tools not found")
 	}
+	result.List = list
+	result.Error = ServerError(err)
+	return result, nil
+}
+
+func findMatchingTools(list coretools.List, args params.FindToolsParams) (coretools.List, error) {
 	filter := coretools.Filter{
 		Number: args.Number,
 		Arch:   args.Arch,
 		Series: args.Series,
 	}
-	result.List, err = envtoolsFindTools(env, args.MajorVersion, args.MinorVersion, filter, envtools.DoNotAllowRetry)
-	result.Error = ServerError(err)
-	return result, nil
+	list, err := list.Match(filter)
+	if err != nil {
+		return nil, err
+	}
+	var matching coretools.List
+	for _, tools := range matching {
+		if args.MajorVersion > 0 && tools.Version.Major != args.MajorVersion {
+			continue
+		}
+		if args.MinorVersion != -1 && tools.Version.Minor != args.MinorVersion {
+			continue
+		}
+		matching = append(matching, tools)
+	}
+	if len(matching) == 0 {
+		return nil, coretools.ErrNoMatches
+	}
+	return matching, nil
 }

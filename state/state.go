@@ -67,6 +67,7 @@ const (
 	stateServersC      = "stateServers"
 	openedPortsC       = "openedPorts"
 	metricsC           = "metrics"
+	toolsC             = "tools"
 
 	// This collection is used just for storing metadata.
 	backupsMetaC = "backupsmetadata"

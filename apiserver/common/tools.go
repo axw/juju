@@ -200,7 +200,7 @@ func findMatchingTools(list coretools.List, args params.FindToolsParams) (coreto
 		return nil, err
 	}
 	var matching coretools.List
-	for _, tools := range matching {
+	for _, tools := range list {
 		if args.MajorVersion > 0 && tools.Version.Major != args.MajorVersion {
 			continue
 		}

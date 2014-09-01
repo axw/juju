@@ -47,9 +47,11 @@ func MachineConfig(st *state.State, machineId, nonce, dataDir string) (*cloudini
 		return nil, errors.New("no agent version set in environment configuration")
 	}
 	findToolsResult, err := common.FindTools(st, params.FindToolsParams{
-		Number: agentVersion,
-		Series: machine.Series(),
-		Arch:   *hc.Arch,
+		Number:       agentVersion,
+		MajorVersion: -1,
+		MinorVersion: -1,
+		Series:       machine.Series(),
+		Arch:         *hc.Arch,
 	})
 	if err != nil {
 		return nil, err

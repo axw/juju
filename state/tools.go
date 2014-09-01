@@ -18,6 +18,7 @@ type toolsDoc struct {
 	Version version.Binary `bson:"version"`
 	Size    int64          `bson:"size"`
 	SHA256  string         `bson:"sha256,omitempty"`
+	URL     string         `bson:"url"`
 }
 
 // AddTools adds the specified tools to the catalogue,
@@ -50,6 +51,7 @@ func (st *State) addTools(tools *tools.Tools, replace bool) error {
 				"$set", bson.D{
 					{"size", tools.Size},
 					{"sha256", tools.SHA256},
+					{"url", tools.URL},
 				},
 			}},
 		})
@@ -81,11 +83,11 @@ func (st *State) AllTools() (tools.List, error) {
 
 func (st *State) MatchingTools(filter tools.Filter) (tools.List, error) {
 	// TODO(axw) do this more efficiently
-    all, err := st.AllTools()
-    if err != nil {
-        return nil, err
-    }
-    return all.Match(filter) 
+	all, err := st.AllTools()
+	if err != nil {
+		return nil, err
+	}
+	return all.Match(filter)
 }
 
 // Tools returns the *tools.Tools for the specified version
@@ -108,6 +110,7 @@ func toolsDocToTools(doc *toolsDoc) *tools.Tools {
 		Version: doc.Version,
 		Size:    doc.Size,
 		SHA256:  doc.SHA256,
+		URL:     doc.URL,
 	}
 }
 
@@ -117,5 +120,6 @@ func toolsToToolsDoc(tools *tools.Tools) *toolsDoc {
 		Version: tools.Version,
 		Size:    tools.Size,
 		SHA256:  tools.SHA256,
+		URL:     tools.URL,
 	}
 }

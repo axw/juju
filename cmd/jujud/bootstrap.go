@@ -292,7 +292,7 @@ func (c *BootstrapCommand) startMongo(addrs []network.Address, agentConfig agent
 // populateTools stores uploaded tools in provider storage
 // and updates the tools metadata.
 //
-// TODO(axw) store tools in gridfs, catalogue in state.
+// TODO(axw) store tools in gridfs.
 func (c *BootstrapCommand) populateTools(st *state.State, env environs.Environ) error {
 	agentConfig := c.CurrentConfig()
 	dataDir := agentConfig.DataDir()

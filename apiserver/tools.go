@@ -118,21 +118,12 @@ func (h *toolsDownloadHandler) processGet(r *http.Request) (*tools.Tools, utils.
 	if err != nil {
 		return nil, false, err
 	}
-	env, err := environs.New(cfg)
+	tools, err := h.state.Tools(version)
 	if err != nil {
 		return nil, false, err
 	}
-	filter := tools.Filter{
-		Number: version.Number,
-		Series: version.Series,
-		Arch:   version.Arch,
-	}
-	tools, err := envtools.FindTools(env, version.Major, version.Minor, filter, false)
-	if err != nil {
-		return nil, false, errors.Annotate(err, "failed to find tools")
-	}
 	verify := utils.SSLHostnameVerification(cfg.SSLHostnameVerification())
-	return tools[0], verify, nil
+	return tools, verify, nil
 }
 
 // sendTools streams the tools tarball to the client.
@@ -265,7 +256,7 @@ func (h *toolsUploadHandler) uploadToStorage(uploadedTools *tools.Tools, toolsDi
 			Size:    uploadedTools.Size,
 			SHA256:  uploadedTools.SHA256,
 		})
-        if err != nil && !errors.IsAlreadyExists(err) {
+		if err != nil && !errors.IsAlreadyExists(err) {
 			return nil, false, err
 		}
 	}

@@ -300,59 +300,15 @@ func (c *BootstrapCommand) populateTools(st *state.State, env environs.Environ) 
 	if err != nil {
 		return err
 	}
-	if !strings.HasPrefix(tools.URL, "file://") {
-		// Nothing to do since the tools were not uploaded.
-		return nil
-	}
-
-	// This is a hack: providers using localstorage (local, manual)
-	// can't use storage during bootstrap as the localstorage worker
-	// isn't running. Use filestorage instead.
-	var stor storage.Storage
-	storageDir := agentConfig.Value(agent.StorageDir)
-	if storageDir != "" {
-		stor, err = filestorage.NewFileStorageWriter(storageDir)
-		if err != nil {
-			return err
-		}
-	} else {
-		stor = env.Storage()
-	}
-
-	// Create a temporary directory to contain source and cloned tools.
-	tempDir, err := ioutil.TempDir("", "juju-sync-tools")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tempDir)
-	destTools := filepath.Join(tempDir, filepath.FromSlash(envtools.StorageName(tools.Version)))
-	if err := os.MkdirAll(filepath.Dir(destTools), 0700); err != nil {
-		return err
-	}
 	srcTools := filepath.Join(
 		agenttools.SharedToolsDir(dataDir, version.Current),
 		"tools.tar.gz",
 	)
-	if err := utils.CopyFile(destTools, srcTools); err != nil {
-		return err
-	}
-
-	// Until we store tools in state, we clone the tools
-	// for each of the supported series of the same OS.
 	osSeries := version.OSSupportedSeries(version.Current.OS)
-	_, err = sync.SyncBuiltTools(stor, &sync.BuiltTools{
-		Version:     tools.Version,
-		Dir:         tempDir,
-		StorageName: envtools.StorageName(tools.Version),
-		Sha256Hash:  tools.SHA256,
-		Size:        tools.Size,
-	}, osSeries...)
-	if err != nil {
-		return err
-	}
 	for _, series := range osSeries {
 		tools := tools
 		tools.Version.Series = series
+		tools.URL = toolsURL
 		logger.Debugf("Adding tools: %v", tools.Version)
 		if err := st.AddTools(tools); err != nil {
 			return err

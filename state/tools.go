@@ -4,122 +4,143 @@
 package state
 
 import (
+	"fmt"
+	"io"
+
+	"github.com/juju/blobstore"
 	"github.com/juju/errors"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mgo.v2/txn"
 
-	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
 
-type toolsDoc struct {
+type toolsMetadataDoc struct {
 	Id      string         `bson:"_id"`
 	Version version.Binary `bson:"version"`
 	Size    int64          `bson:"size"`
 	SHA256  string         `bson:"sha256,omitempty"`
-	URL     string         `bson:"url"`
 }
 
-// AddTools adds the specified tools to the catalogue,
-// failing if there already exist tools with the
-// specified version.
-func (st *State) AddTools(tools *tools.Tools) error {
-	return st.addTools(tools, false)
+// ToolsMetadata describes a Juju tools tarball.
+type ToolsMetadata struct {
+	Version version.Binary
+	Size    int64
+	SHA256  string
 }
 
-// ReplaceTools adds the specified tools to the catalogue,
-// replacing any existing tools with the specified version.
-// If there are no existing tools with the specified version,
-// a new entry will be created.
-func (st *State) ReplaceTools(tools *tools.Tools) error {
-	return st.addTools(tools, true)
+func toolsPath(v version.Binary) string {
+	return fmt.Sprintf("tools-%s", v)
 }
 
-func (st *State) addTools(tools *tools.Tools, replace bool) error {
-	doc := toolsToToolsDoc(tools)
+// AddToolsMetadata adds the tools metadata to the catalogue,
+// failing if there already exist metadata with the specified
+// version.
+func (st *State) AddTools(v version.Binary, r io.Reader, size int64, sha256 string) error {
+	environ, err := st.Environment()
+	if err != nil {
+		return err
+	}
+	uuid := environ.UUID()
+
+	// TODO(axw) ensure tools aren't overwritten
+	ms := st.getManagedStorage(uuid)
+	if err := ms.PutForEnvironment(uuid, toolsPath(v), r, size); err != nil {
+		return err
+	}
+
+	doc := toolsMetadataDoc{
+		Id:      v.String(),
+		Version: v,
+		Size:    size,
+		SHA256:  sha256,
+	}
 	ops := []txn.Op{{
 		C:      toolsC,
 		Id:     doc.Id,
 		Insert: &doc,
+		Assert: txn.DocMissing,
 	}}
-	if replace {
-		ops = append(ops, txn.Op{
-			C:  toolsC,
-			Id: doc.Id,
-			Update: bson.D{{
-				"$set", bson.D{
-					{"size", tools.Size},
-					{"sha256", tools.SHA256},
-					{"url", tools.URL},
-				},
-			}},
-		})
-	} else {
-		ops[0].Assert = txn.DocMissing
-	}
-	err := st.runTransaction(ops)
+	err = st.runTransaction(ops)
 	if err == txn.ErrAborted {
-		return errors.AlreadyExistsf("%v tools", tools.Version)
+		return errors.AlreadyExistsf("%v tools metadata", v)
 	}
 	return err
 }
 
-// AllTools returns the full list of tools in the catalogue.
-// The URL fields will not be populated.
-func (st *State) AllTools() (tools.List, error) {
+// Tools returns the ToolsMetadata and tools tarball contents
+// for the specified version if it exists, else an error
+// satisfying errors.IsNotFound.
+func (st *State) Tools(v version.Binary) (ToolsMetadata, io.Reader, error) {
+	metadata, err := st.toolsMetadata(v)
+	if err != nil {
+		return ToolsMetadata{}, nil, err
+	}
+	tools, err := st.toolsTarball(v)
+	if err != nil {
+		return ToolsMetadata{}, nil, err
+	}
+	return metadata, tools, nil
+}
+
+func (st *State) toolsMetadata(v version.Binary) (ToolsMetadata, error) {
 	toolsCollection, closer := st.getCollection(toolsC)
 	defer closer()
-	var docs []toolsDoc
+	var doc toolsMetadataDoc
+	err := toolsCollection.Find(bson.D{{"_id", v.String()}}).One(&doc)
+	if err == mgo.ErrNotFound {
+		return ToolsMetadata{}, errors.NotFoundf("%v tools metadata", v)
+	} else if err != nil {
+		return ToolsMetadata{}, err
+	}
+	return ToolsMetadata{
+		Version: doc.Version,
+		Size:    doc.Size,
+		SHA256:  doc.SHA256,
+	}, nil
+}
+
+func (st *State) toolsTarball(v version.Binary) (io.Reader, error) {
+	environ, err := st.Environment()
+	if err != nil {
+		return nil, err
+	}
+	uuid := environ.UUID()
+	ms := st.getManagedStorage(uuid)
+	r, _, err := ms.GetForEnvironment(uuid, toolsPath(v))
+	if err != nil {
+		return nil, err
+	}
+	return r, err
+}
+
+// AllToolsMetadata returns metadata for the full list of tools in
+// the catalogue.
+func (st *State) AllToolsMetadata() ([]ToolsMetadata, error) {
+	toolsCollection, closer := st.getCollection(toolsC)
+	defer closer()
+	var docs []toolsMetadataDoc
 	if err := toolsCollection.Find(nil).All(&docs); err != nil {
 		return nil, err
 	}
-	list := make(tools.List, len(docs))
+	list := make([]ToolsMetadata, len(docs))
 	for i, doc := range docs {
-		list[i] = toolsDocToTools(&doc)
+		metadata := ToolsMetadata{
+			Version: doc.Version,
+			Size:    doc.Size,
+			SHA256:  doc.SHA256,
+		}
+		list[i] = metadata
 	}
 	return list, nil
 }
 
-func (st *State) MatchingTools(filter tools.Filter) (tools.List, error) {
-	// TODO(axw) do this more efficiently
-	all, err := st.AllTools()
-	if err != nil {
-		return nil, err
-	}
-	return all.Match(filter)
-}
-
-// Tools returns the *tools.Tools for the specified version
-// if it exists, else an error satisfying errors.IsNotFound.
-func (st *State) Tools(version version.Binary) (*tools.Tools, error) {
-	toolsCollection, closer := st.getCollection(toolsC)
-	defer closer()
-	var doc toolsDoc
-	err := toolsCollection.Find(bson.D{{"_id", version.String()}}).One(&doc)
-	if err == mgo.ErrNotFound {
-		return nil, errors.NotFoundf("%v tools", version)
-	} else if err != nil {
-		return nil, err
-	}
-	return toolsDocToTools(&doc), nil
-}
-
-func toolsDocToTools(doc *toolsDoc) *tools.Tools {
-	return &tools.Tools{
-		Version: doc.Version,
-		Size:    doc.Size,
-		SHA256:  doc.SHA256,
-		URL:     doc.URL,
-	}
-}
-
-func toolsToToolsDoc(tools *tools.Tools) *toolsDoc {
-	return &toolsDoc{
-		Id:      tools.Version.String(),
-		Version: tools.Version,
-		Size:    tools.Size,
-		SHA256:  tools.SHA256,
-		URL:     tools.URL,
-	}
+func (st *State) getManagedStorage(uuid string) blobstore.ManagedStorage {
+	// TODO(axw) create a ManagedStorage wrapper which does all this under
+	// the hood, and copies/closes a session as part of each method call.
+	session := st.MongoSession()
+	rs := blobstore.NewGridFS(st.db.Name, uuid, session)
+	db := session.DB(blobstoreDB)
+	return blobstore.NewManagedStorage(db, rs)
 }

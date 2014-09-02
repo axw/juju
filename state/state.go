@@ -77,6 +77,10 @@ const (
 	txnsC   = "txns"
 
 	AdminUser = "admin"
+
+	// blobstoreDB is the database name used to back environment
+	// storage.
+	blobstoreDB = "blobstore"
 )
 
 // State represents the state of an environment

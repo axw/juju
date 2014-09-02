@@ -21,6 +21,7 @@ type toolsMetadataDoc struct {
 	Version version.Binary `bson:"version"`
 	Size    int64          `bson:"size"`
 	SHA256  string         `bson:"sha256,omitempty"`
+	Path    string         `bson:"path"`
 }
 
 // ToolsMetadata describes a Juju tools tarball.
@@ -30,41 +31,79 @@ type ToolsMetadata struct {
 	SHA256  string
 }
 
-func toolsPath(v version.Binary) string {
-	return fmt.Sprintf("tools-%s", v)
+// toolsPath returns the storage path for the specified
+// tools.
+func toolsPath(v version.Binary, hash string) string {
+	return fmt.Sprintf("tools-%s-%s", v, hash)
 }
 
-// AddToolsMetadata adds the tools metadata to the catalogue,
-// failing if there already exist metadata with the specified
-// version.
-func (st *State) AddTools(v version.Binary, r io.Reader, size int64, sha256 string) error {
+// AddTools adds the tools tarball and metadata into state,
+// failing if there already exist tools with the specified
+// version, replacing existing metadata if any exist with
+// the specified version.
+func (st *State) AddTools(r io.Reader, metadata ToolsMetadata) error {
 	environ, err := st.Environment()
 	if err != nil {
 		return err
 	}
 	uuid := environ.UUID()
 
-	// TODO(axw) ensure tools aren't overwritten
-	ms := st.getManagedStorage(uuid)
-	if err := ms.PutForEnvironment(uuid, toolsPath(v), r, size); err != nil {
+	// Add the tools tarball to storage.
+	storage := st.getManagedStorage(uuid)
+	path := toolsPath(metadata.Version, metadata.SHA256)
+	if err := storage.PutForEnvironment(uuid, path, r, metadata.Size); err != nil {
 		return err
 	}
 
+	// Add or replace metadata.
 	doc := toolsMetadataDoc{
-		Id:      v.String(),
-		Version: v,
-		Size:    size,
-		SHA256:  sha256,
+		Id:      metadata.Version.String(),
+		Version: metadata.Version,
+		Size:    metadata.Size,
+		SHA256:  metadata.SHA256,
+		Path:    path,
 	}
 	ops := []txn.Op{{
 		C:      toolsC,
 		Id:     doc.Id,
 		Insert: &doc,
+	}, {
+		C:  toolsC,
+		Id: doc.Id,
+		Update: bson.D{{
+			"$set", bson.D{
+				{"size", metadata.Size},
+				{"sha256", metadata.SHA256},
+				{"path", path},
+			},
+		}},
+	}}
+	return st.runTransaction(ops)
+}
+
+// AddToolsAlias adds an alias for the tools with the specified version,
+// failing if metadata already exists for the alias version.
+func (st *State) AddToolsAlias(alias, version version.Binary) error {
+	existingDoc, err := st.toolsMetadata(version)
+	if err != nil {
+		return err
+	}
+	newDoc := toolsMetadataDoc{
+		Id:      alias.String(),
+		Version: alias,
+		Size:    existingDoc.Size,
+		SHA256:  existingDoc.SHA256,
+		Path:    existingDoc.Path,
+	}
+	ops := []txn.Op{{
+		C:      toolsC,
+		Id:     newDoc.Id,
 		Assert: txn.DocMissing,
+		Insert: &newDoc,
 	}}
 	err = st.runTransaction(ops)
 	if err == txn.ErrAborted {
-		return errors.AlreadyExistsf("%v tools metadata", v)
+		return errors.AlreadyExistsf("%v tools metadata", alias)
 	}
 	return err
 }
@@ -73,42 +112,43 @@ func (st *State) AddTools(v version.Binary, r io.Reader, size int64, sha256 stri
 // for the specified version if it exists, else an error
 // satisfying errors.IsNotFound.
 func (st *State) Tools(v version.Binary) (ToolsMetadata, io.Reader, error) {
-	metadata, err := st.toolsMetadata(v)
+	metadataDoc, err := st.toolsMetadata(v)
 	if err != nil {
 		return ToolsMetadata{}, nil, err
 	}
-	tools, err := st.toolsTarball(v)
+	tools, err := st.toolsTarball(metadataDoc.Path)
 	if err != nil {
 		return ToolsMetadata{}, nil, err
+	}
+	metadata := ToolsMetadata{
+		Version: metadataDoc.Version,
+		Size:    metadataDoc.Size,
+		SHA256:  metadataDoc.SHA256,
 	}
 	return metadata, tools, nil
 }
 
-func (st *State) toolsMetadata(v version.Binary) (ToolsMetadata, error) {
+func (st *State) toolsMetadata(v version.Binary) (toolsMetadataDoc, error) {
 	toolsCollection, closer := st.getCollection(toolsC)
 	defer closer()
 	var doc toolsMetadataDoc
 	err := toolsCollection.Find(bson.D{{"_id", v.String()}}).One(&doc)
 	if err == mgo.ErrNotFound {
-		return ToolsMetadata{}, errors.NotFoundf("%v tools metadata", v)
+		return doc, errors.NotFoundf("%v tools metadata", v)
 	} else if err != nil {
-		return ToolsMetadata{}, err
+		return doc, err
 	}
-	return ToolsMetadata{
-		Version: doc.Version,
-		Size:    doc.Size,
-		SHA256:  doc.SHA256,
-	}, nil
+	return doc, nil
 }
 
-func (st *State) toolsTarball(v version.Binary) (io.Reader, error) {
+func (st *State) toolsTarball(path string) (io.Reader, error) {
 	environ, err := st.Environment()
 	if err != nil {
 		return nil, err
 	}
 	uuid := environ.UUID()
 	ms := st.getManagedStorage(uuid)
-	r, _, err := ms.GetForEnvironment(uuid, toolsPath(v))
+	r, _, err := ms.GetForEnvironment(uuid, path)
 	if err != nil {
 		return nil, err
 	}

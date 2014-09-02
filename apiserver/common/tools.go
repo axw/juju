@@ -29,7 +29,7 @@ type EnvironConfigGetter interface {
 }
 
 type ToolsSource interface {
-	AllTools() (coretools.List, error)
+	AllToolsMetadata() ([]state.ToolsMetadata, error)
 }
 
 // ToolsGetter implements a common Tools method for use by various
@@ -176,11 +176,11 @@ func (t *ToolsSetter) setOneAgentVersion(tag names.Tag, vers version.Binary, can
 // FindTools returns a List containing all tools matching the given parameters.
 func FindTools(t ToolsSource, args params.FindToolsParams) (params.FindToolsResult, error) {
 	var result params.FindToolsResult
-	all, err := t.AllTools()
+	allMetadata, err := t.AllToolsMetadata()
 	if err != nil {
 		return result, err
 	}
-	list, err := findMatchingTools(all, args)
+	list, err := findMatchingTools(allMetadata, args)
 	if err == coretools.ErrNoMatches {
 		err = errors.NewNotFound(err, "tools not found")
 	}
@@ -189,7 +189,24 @@ func FindTools(t ToolsSource, args params.FindToolsParams) (params.FindToolsResu
 	return result, nil
 }
 
-func findMatchingTools(list coretools.List, args params.FindToolsParams) (coretools.List, error) {
+// ToolsURL returns a URL for the apiserver-provided tools
+// that can be used to distinguish them from tools obtained
+// provided via other sources.
+ func ToolsURL(v version.Binary) string {
+	return fmt.Sprintf("apiserver://tools/%s", v)
+}
+
+func findMatchingTools(metadata []state.ToolsMetadata, args params.FindToolsParams) (coretools.List, error) {
+	list := make(coretools.List, len(metadata))
+	for i, m := range metadata {
+		tools := &coretools.Tools{
+			Version: m.Version,
+			Size:    m.Size,
+			SHA256:  m.SHA256,
+			URL:     ToolsURL(m.Version),
+		}
+		list[i] = tools
+	}
 	filter := coretools.Filter{
 		Number: args.Number,
 		Arch:   args.Arch,

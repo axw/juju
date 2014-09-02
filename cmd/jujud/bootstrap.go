@@ -6,17 +6,14 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
-	"github.com/juju/utils"
 	goyaml "gopkg.in/yaml.v1"
 	"launchpad.net/gnuflag"
 
@@ -26,10 +23,6 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/filestorage"
-	"github.com/juju/juju/environs/storage"
-	"github.com/juju/juju/environs/sync"
-	envtools "github.com/juju/juju/environs/tools"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
@@ -291,8 +284,6 @@ func (c *BootstrapCommand) startMongo(addrs []network.Address, agentConfig agent
 
 // populateTools stores uploaded tools in provider storage
 // and updates the tools metadata.
-//
-// TODO(axw) store tools in gridfs.
 func (c *BootstrapCommand) populateTools(st *state.State, env environs.Environ) error {
 	agentConfig := c.CurrentConfig()
 	dataDir := agentConfig.DataDir()
@@ -300,17 +291,33 @@ func (c *BootstrapCommand) populateTools(st *state.State, env environs.Environ) 
 	if err != nil {
 		return err
 	}
-	srcTools := filepath.Join(
+	f, err := os.Open(filepath.Join(
 		agenttools.SharedToolsDir(dataDir, version.Current),
 		"tools.tar.gz",
-	)
-	osSeries := version.OSSupportedSeries(version.Current.OS)
+	))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	metadata := state.ToolsMetadata{
+		Version: tools.Version,
+		Size:    tools.Size,
+		SHA256:  tools.SHA256,
+	}
+	if err := st.AddTools(f, metadata); err != nil {
+		return err
+	}
+
+	osSeries := version.OSSupportedSeries(tools.Version.OS)
 	for _, series := range osSeries {
-		tools := tools
-		tools.Version.Series = series
-		tools.URL = toolsURL
-		logger.Debugf("Adding tools: %v", tools.Version)
-		if err := st.AddTools(tools); err != nil {
+		if series == metadata.Version.Series {
+			continue
+		}
+		vers := metadata.Version
+		vers.Series = series
+		logger.Debugf("Adding tools: %v", vers)
+		if err := st.AddToolsAlias(vers, metadata.Version); err != nil {
 			return err
 		}
 	}

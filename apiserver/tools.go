@@ -50,6 +50,7 @@ func (h *toolsDownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			h.sendError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		defer toolsReader.Close()
 		h.sendTools(w, http.StatusOK, toolsReader)
 	default:
 		h.sendError(w, http.StatusMethodNotAllowed, fmt.Sprintf("unsupported method: %q", r.Method))
@@ -104,7 +105,7 @@ func (h *toolsHandler) sendError(w http.ResponseWriter, statusCode int, message 
 }
 
 // processGet handles a tools GET request.
-func (h *toolsDownloadHandler) processGet(r *http.Request) (io.Reader, error) {
+func (h *toolsDownloadHandler) processGet(r *http.Request) (io.ReadCloser, error) {
 	version, err := version.ParseBinary(r.URL.Query().Get(":version"))
 	if err != nil {
 		return nil, err

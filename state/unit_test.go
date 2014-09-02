@@ -1478,10 +1478,6 @@ func (s *UnitSuite) TestAnnotationRemovalForUnit(c *gc.C) {
 }
 
 func (s *UnitSuite) TestUnitAgentTools(c *gc.C) {
-	charm := s.AddTestingCharm(c, "dummy")
-	svc := s.AddTestingService(c, "wordpress", charm)
-	unit, err := svc.AddUnit()
-	c.Assert(err, gc.IsNil)
-	preventUnitDestroyRemove(c, unit)
-	testAgentTools(c, unit, `unit "wordpress/0"`)
+	preventUnitDestroyRemove(c, s.unit)
+	testAgentTools(c, s.unit, `unit "wordpress/0"`)
 }

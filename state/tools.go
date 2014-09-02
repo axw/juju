@@ -49,7 +49,8 @@ func (st *State) AddTools(r io.Reader, metadata ToolsMetadata) error {
 	uuid := environ.UUID()
 
 	// Add the tools tarball to storage.
-	storage := st.getManagedStorage(uuid)
+	storage, session := st.getManagedStorage(uuid)
+	defer session.Close()
 	path := toolsPath(metadata.Version, metadata.SHA256)
 	if err := storage.PutForEnvironment(uuid, path, r, metadata.Size); err != nil {
 		return err
@@ -111,7 +112,7 @@ func (st *State) AddToolsAlias(alias, version version.Binary) error {
 // Tools returns the ToolsMetadata and tools tarball contents
 // for the specified version if it exists, else an error
 // satisfying errors.IsNotFound.
-func (st *State) Tools(v version.Binary) (ToolsMetadata, io.Reader, error) {
+func (st *State) Tools(v version.Binary) (ToolsMetadata, io.ReadCloser, error) {
 	metadataDoc, err := st.toolsMetadata(v)
 	if err != nil {
 		return ToolsMetadata{}, nil, err
@@ -141,18 +142,19 @@ func (st *State) toolsMetadata(v version.Binary) (toolsMetadataDoc, error) {
 	return doc, nil
 }
 
-func (st *State) toolsTarball(path string) (io.Reader, error) {
+func (st *State) toolsTarball(path string) (io.ReadCloser, error) {
 	environ, err := st.Environment()
 	if err != nil {
 		return nil, err
 	}
 	uuid := environ.UUID()
-	ms := st.getManagedStorage(uuid)
-	r, _, err := ms.GetForEnvironment(uuid, path)
+	storage, session := st.getManagedStorage(uuid)
+	r, _, err := storage.GetForEnvironment(uuid, path)
 	if err != nil {
+		session.Close()
 		return nil, err
 	}
-	return r, err
+	return &storageReadCloser{r, session}, err
 }
 
 // AllToolsMetadata returns metadata for the full list of tools in
@@ -176,11 +178,25 @@ func (st *State) AllToolsMetadata() ([]ToolsMetadata, error) {
 	return list, nil
 }
 
-func (st *State) getManagedStorage(uuid string) blobstore.ManagedStorage {
-	// TODO(axw) create a ManagedStorage wrapper which does all this under
-	// the hood, and copies/closes a session as part of each method call.
-	session := st.MongoSession()
+// storageReadCloser wraps an io.ReadCloser and an mgo.Session,
+// and closes both when Close is called.
+type storageReadCloser struct {
+	io.ReadCloser
+	session *mgo.Session
+}
+
+func (s *storageReadCloser) Close() error {
+	err := s.ReadCloser.Close()
+	s.session.Close()
+	return err
+}
+
+// getManagedStorage returns a blobstore.ManagedStorage, and an associated
+// mgo.Session that must be closed when the user is finished with the
+// ManagedStorage.
+func (st *State) getManagedStorage(uuid string) (blobstore.ManagedStorage, *mgo.Session) {
+	session := st.MongoSession().Copy()
 	rs := blobstore.NewGridFS(st.db.Name, uuid, session)
 	db := session.DB(blobstoreDB)
-	return blobstore.NewManagedStorage(db, rs)
+	return blobstore.NewManagedStorage(db, rs), session
 }

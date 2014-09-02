@@ -1996,5 +1996,5 @@ func (s *MachineSuite) TestWatchInterfacesDiesOnStateClose(c *gc.C) {
 func (s *MachineSuite) TestMachineAgentTools(c *gc.C) {
 	m, err := s.State.AddMachine("quantal", state.JobHostUnits)
 	c.Assert(err, gc.IsNil)
-	testAgentTools(c, m, "machine 0")
+	testAgentTools(c, m, "machine "+m.Id())
 }

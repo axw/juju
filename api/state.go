@@ -12,6 +12,7 @@ import (
 	"github.com/juju/juju/api/agent"
 	"github.com/juju/juju/api/base"
 	"github.com/juju/juju/api/charmrevisionupdater"
+	"github.com/juju/juju/api/common"
 	"github.com/juju/juju/api/deployer"
 	"github.com/juju/juju/api/environment"
 	"github.com/juju/juju/api/firewaller"
@@ -151,7 +152,8 @@ func (st *State) Agent() *agent.State {
 
 // Upgrader returns access to the Upgrader API
 func (st *State) Upgrader() *upgrader.State {
-	return upgrader.NewState(st)
+	toolsDownloader := common.NewToolsDownloader(st.serverRoot)
+	return upgrader.NewState(st, toolsDownloader)
 }
 
 // Deployer returns access to the Deployer API

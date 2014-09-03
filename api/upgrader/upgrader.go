@@ -6,9 +6,8 @@ package upgrader
 import (
 	"fmt"
 
-	"github.com/juju/utils"
-
 	"github.com/juju/juju/api/base"
+	"github.com/juju/juju/api/common"
 	"github.com/juju/juju/api/watcher"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/tools"
@@ -17,13 +16,17 @@ import (
 
 // State provides access to an upgrader worker's view of the state.
 type State struct {
+	common.ToolsDownloader
 	facade base.FacadeCaller
 }
 
 // NewState returns a version of the state that provides functionality
 // required by the upgrader worker.
-func NewState(caller base.APICaller) *State {
-	return &State{base.NewFacadeCaller(caller, "Upgrader")}
+func NewState(caller base.APICaller, td common.ToolsDownloader) *State {
+	return &State{
+		facade:          base.NewFacadeCaller(caller, "Upgrader"),
+		ToolsDownloader: td,
+	}
 }
 
 // SetVersion sets the tools version associated with the entity with
@@ -72,7 +75,7 @@ func (st *State) DesiredVersion(tag string) (version.Number, error) {
 
 // Tools returns the agent tools that should run on the given entity,
 // along with a flag whether to disable SSL hostname verification.
-func (st *State) Tools(tag string) (*tools.Tools, utils.SSLHostnameVerification, error) {
+func (st *State) Tools(tag string) (*tools.Tools, error) {
 	var results params.ToolsResults
 	args := params.Entities{
 		Entities: []params.Entity{{Tag: tag}},
@@ -80,21 +83,17 @@ func (st *State) Tools(tag string) (*tools.Tools, utils.SSLHostnameVerification,
 	err := st.facade.FacadeCall("Tools", args, &results)
 	if err != nil {
 		// TODO: Not directly tested
-		return nil, false, err
+		return nil, err
 	}
 	if len(results.Results) != 1 {
 		// TODO: Not directly tested
-		return nil, false, fmt.Errorf("expected 1 result, got %d", len(results.Results))
+		return nil, fmt.Errorf("expected 1 result, got %d", len(results.Results))
 	}
 	result := results.Results[0]
 	if err := result.Error; err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	hostnameVerification := utils.VerifySSLHostnames
-	if result.DisableSSLHostnameVerification {
-		hostnameVerification = utils.NoVerifySSLHostnames
-	}
-	return result.Tools, hostnameVerification, nil
+	return result.Tools, nil
 }
 
 func (st *State) WatchAPIVersion(agentTag string) (watcher.NotifyWatcher, error) {

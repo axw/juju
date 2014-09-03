@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/juju/cmd"
+	"github.com/juju/errors"
 	"launchpad.net/gnuflag"
 
 	"github.com/juju/juju/api"
@@ -308,7 +309,7 @@ func (context *upgradeContext) validate() (err error) {
 		// If not completely specified already, pick a single tools version.
 		filter := coretools.Filter{Number: context.chosen, Released: !context.chosen.IsDev()}
 		if context.tools, err = context.tools.Match(filter); err != nil {
-			return err
+			return errors.NewNotFound(err, "tools not found")
 		}
 		context.chosen, context.tools = context.tools.Newest()
 	}

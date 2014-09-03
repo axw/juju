@@ -5,43 +5,38 @@ package common
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/juju/errors"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
-	envtools "github.com/juju/juju/environs/tools"
 	"github.com/juju/juju/state"
 	coretools "github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 	"github.com/juju/names"
 )
 
-var envtoolsFindTools = envtools.FindTools
-
-type EntityFinderEnvironConfigGetter interface {
-	state.EntityFinder
-	EnvironConfigGetter
-}
-
-type EnvironConfigGetter interface {
-	EnvironConfig() (*config.Config, error)
-}
-
 type ToolsSource interface {
 	AllToolsMetadata() ([]state.ToolsMetadata, error)
+}
+
+type ToolsGetterInterface interface {
+	state.EntityFinder
+	ToolsSource
+	EnvironConfig() (*config.Config, error)
 }
 
 // ToolsGetter implements a common Tools method for use by various
 // facades.
 type ToolsGetter struct {
-	st         EntityFinderEnvironConfigGetter
+	st         ToolsGetterInterface
 	getCanRead GetAuthFunc
 }
 
 // NewToolsGetter returns a new ToolsGetter. The GetAuthFunc will be
 // used on each invocation of Tools to determine current permissions.
-func NewToolsGetter(st EntityFinderEnvironConfigGetter, getCanRead GetAuthFunc) *ToolsGetter {
+func NewToolsGetter(st ToolsGetterInterface, getCanRead GetAuthFunc) *ToolsGetter {
 	return &ToolsGetter{
 		st:         st,
 		getCanRead: getCanRead,
@@ -61,10 +56,6 @@ func (t *ToolsGetter) Tools(args params.Entities) (params.ToolsResults, error) {
 	if err != nil {
 		return result, err
 	}
-	// SSLHostnameVerification defaults to true, so we need to
-	// invert that, for backwards-compatibility (older versions
-	// will have DisableSSLHostnameVerification: false by default).
-	disableSSLHostnameVerification := !cfg.SSLHostnameVerification()
 	env, err := environs.New(cfg)
 	if err != nil {
 		return result, errors.Trace(err)
@@ -78,7 +69,6 @@ func (t *ToolsGetter) Tools(args params.Entities) (params.ToolsResults, error) {
 		agentTools, err := t.oneAgentTools(canRead, tag, agentVersion, env)
 		if err == nil {
 			result.Results[i].Tools = agentTools
-			result.Results[i].DisableSSLHostnameVerification = disableSSLHostnameVerification
 		}
 		result.Results[i].Error = ServerError(err)
 	}
@@ -115,10 +105,24 @@ func (t *ToolsGetter) oneAgentTools(canRead AuthFunc, tag names.Tag, agentVersio
 	if err != nil {
 		return nil, err
 	}
-	// TODO(jam): Avoid searching the provider for every machine
-	// that wants to upgrade. The information could just be cached
-	// in state, or even in the API servers
-	return envtools.FindExactTools(env, agentVersion, existingTools.Version.Series, existingTools.Version.Arch)
+	allMetadata, err := t.st.AllToolsMetadata()
+	if err != nil {
+		return nil, err
+	}
+	list, err := findMatchingTools(allMetadata, params.FindToolsParams{
+		Number:       agentVersion,
+		MajorVersion: -1,
+		MinorVersion: -1,
+		Series:       existingTools.Version.Series,
+		Arch:         existingTools.Version.Arch,
+	})
+	if err == coretools.ErrNoMatches {
+		err = errors.NewNotFound(err, "tools not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return list[0], nil
 }
 
 // ToolsSetter implements a common Tools method for use by various
@@ -192,7 +196,7 @@ func FindTools(t ToolsSource, args params.FindToolsParams) (params.FindToolsResu
 // ToolsURL returns a URL for the apiserver-provided tools
 // that can be used to distinguish them from tools obtained
 // provided via other sources.
- func ToolsURL(v version.Binary) string {
+func ToolsURL(v version.Binary) string {
 	return fmt.Sprintf("apiserver://tools/%s", v)
 }
 
@@ -207,6 +211,7 @@ func findMatchingTools(metadata []state.ToolsMetadata, args params.FindToolsPara
 		}
 		list[i] = tools
 	}
+	sort.Sort(list)
 	filter := coretools.Filter{
 		Number: args.Number,
 		Arch:   args.Arch,

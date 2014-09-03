@@ -14,6 +14,8 @@ import (
 	"github.com/juju/juju/version"
 )
 
+var facadeCall = base.FacadeCaller.FacadeCall
+
 // State provides access to the Machiner API facade.
 type State struct {
 	*common.EnvironWatcher
@@ -56,7 +58,7 @@ func (st *State) Machine(tag names.MachineTag) (*Machine, error) {
 // the current environment.
 func (st *State) WatchEnvironMachines() (watcher.StringsWatcher, error) {
 	var result params.StringsWatchResult
-	err := st.facade.FacadeCall("WatchEnvironMachines", nil, &result)
+	err := facadeCall(st.facade, "WatchEnvironMachines", nil, &result)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +71,7 @@ func (st *State) WatchEnvironMachines() (watcher.StringsWatcher, error) {
 
 func (st *State) WatchMachineErrorRetry() (watcher.NotifyWatcher, error) {
 	var result params.NotifyWatchResult
-	err := st.facade.FacadeCall("WatchMachineErrorRetry", nil, &result)
+	err := facadeCall(st.facade, "WatchMachineErrorRetry", nil, &result)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +85,7 @@ func (st *State) WatchMachineErrorRetry() (watcher.NotifyWatcher, error) {
 // StateAddresses returns the list of addresses used to connect to the state.
 func (st *State) StateAddresses() ([]string, error) {
 	var result params.StringsResult
-	err := st.facade.FacadeCall("StateAddresses", nil, &result)
+	err := facadeCall(st.facade, "StateAddresses", nil, &result)
 	if err != nil {
 		return nil, err
 	}
@@ -93,14 +95,14 @@ func (st *State) StateAddresses() ([]string, error) {
 // ContainerManagerConfig returns information from the environment config that is
 // needed for configuring the container manager.
 func (st *State) ContainerManagerConfig(args params.ContainerManagerConfigParams) (result params.ContainerManagerConfig, err error) {
-	err = st.facade.FacadeCall("ContainerManagerConfig", args, &result)
+	err = facadeCall(st.facade, "ContainerManagerConfig", args, &result)
 	return result, err
 }
 
 // ContainerConfig returns information from the environment config that is
 // needed for container cloud-init.
 func (st *State) ContainerConfig() (result params.ContainerConfig, err error) {
-	err = st.facade.FacadeCall("ContainerConfig", nil, &result)
+	err = facadeCall(st.facade, "ContainerConfig", nil, &result)
 	return result, err
 }
 
@@ -108,7 +110,7 @@ func (st *State) ContainerConfig() (result params.ContainerConfig, err error) {
 // for those machines which have transient provisioning errors.
 func (st *State) MachinesWithTransientErrors() ([]*Machine, []params.StatusResult, error) {
 	var results params.StatusResults
-	err := st.facade.FacadeCall("MachinesWithTransientErrors", nil, &results)
+	err := facadeCall(st.facade, "MachinesWithTransientErrors", nil, &results)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -139,7 +141,7 @@ func (st *State) FindTools(v version.Number, series string, arch *string) (tools
 		args.Arch = *arch
 	}
 	var result params.FindToolsResult
-	if err := st.facade.FacadeCall("FindTools", args, &result); err != nil {
+	if err := facadeCall(st.facade, "FindTools", args, &result); err != nil {
 		return nil, err
 	}
 	if result.Error != nil {

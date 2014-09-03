@@ -499,7 +499,6 @@ type VersionResults struct {
 // Tools() API call.
 type ToolsResult struct {
 	Tools                          *tools.Tools
-	DisableSSLHostnameVerification bool
 	Error                          *Error
 }
 

@@ -16,13 +16,11 @@ import (
 
 	"github.com/juju/juju/cmd/envcmd"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/filestorage"
-	"github.com/juju/juju/environs/storage"
 	"github.com/juju/juju/environs/sync"
 	envtesting "github.com/juju/juju/environs/testing"
-	envtools "github.com/juju/juju/environs/tools"
 	toolstesting "github.com/juju/juju/environs/tools/testing"
 	"github.com/juju/juju/juju/testing"
+	"github.com/juju/juju/state"
 	coretesting "github.com/juju/juju/testing"
 	"github.com/juju/juju/version"
 )
@@ -118,7 +116,7 @@ var upgradeJujuTests = []struct {
 	tools:          []string{"2.8.2-quantal-amd64"},
 	currentVersion: "3.2.0-quantal-amd64",
 	agentVersion:   "2.8.2",
-	expectErr:      "no matching tools available",
+	expectErr:      "tools not found: no matching tools available",
 }, {
 	about:          "latest current release matching CLI, major version, no matching tools",
 	tools:          []string{"3.3.0-quantal-amd64"},
@@ -168,35 +166,35 @@ var upgradeJujuTests = []struct {
 	currentVersion: "3.0.0-quantal-amd64",
 	agentVersion:   "3.0.0",
 	args:           []string{"--version", "3.2.0"},
-	expectErr:      "no tools available",
+	expectErr:      "tools not found: no matching tools available",
 }, {
 	about:          "specified version, no matching major version",
 	tools:          []string{"4.2.0-quantal-amd64"},
 	currentVersion: "3.0.0-quantal-amd64",
 	agentVersion:   "3.0.0",
 	args:           []string{"--version", "3.2.0"},
-	expectErr:      "no matching tools available",
+	expectErr:      "tools not found: no matching tools available",
 }, {
 	about:          "specified version, no matching minor version",
 	tools:          []string{"3.4.0-quantal-amd64"},
 	currentVersion: "3.0.0-quantal-amd64",
 	agentVersion:   "3.0.0",
 	args:           []string{"--version", "3.2.0"},
-	expectErr:      "no matching tools available",
+	expectErr:      "tools not found: no matching tools available",
 }, {
 	about:          "specified version, no matching patch version",
 	tools:          []string{"3.2.5-quantal-amd64"},
 	currentVersion: "3.0.0-quantal-amd64",
 	agentVersion:   "3.0.0",
 	args:           []string{"--version", "3.2.0"},
-	expectErr:      "no matching tools available",
+	expectErr:      "tools not found: no matching tools available",
 }, {
 	about:          "specified version, no matching build version",
 	tools:          []string{"3.2.0.2-quantal-amd64"},
 	currentVersion: "3.0.0-quantal-amd64",
 	agentVersion:   "3.0.0",
 	args:           []string{"--version", "3.2.0"},
-	expectErr:      "no matching tools available",
+	expectErr:      "tools not found: no matching tools available",
 }, {
 	about:          "major version downgrade to incompatible version",
 	tools:          []string{"3.2.0-quantal-amd64"},
@@ -310,11 +308,12 @@ func (s *UpgradeJujuSuite) TestUpgradeJuju(c *gc.C) {
 		for i, v := range test.tools {
 			versions[i] = version.MustParseBinary(v)
 		}
-		if len(versions) > 0 {
-			envtesting.MustUploadFakeToolsVersions(s.Environ.Storage(), versions...)
-			stor, err := filestorage.NewFileStorageWriter(toolsDir)
+		for _, v := range versions {
+			err := s.State.AddTools(
+				strings.NewReader("jujud contents "+v.String()),
+				state.ToolsMetadata{Version: v},
+			)
 			c.Assert(err, gc.IsNil)
-			envtesting.MustUploadFakeToolsVersions(stor, versions...)
 		}
 
 		err = com.Run(coretesting.Context(c))
@@ -337,7 +336,7 @@ func (s *UpgradeJujuSuite) TestUpgradeJuju(c *gc.C) {
 			uploaded = strings.Replace(uploaded, "%LTS%", config.LatestLtsSeries(), 1)
 
 			vers := version.MustParseBinary(uploaded)
-			r, err := storage.Get(s.Environ.Storage(), envtools.StorageName(vers))
+			_, r, err := s.State.Tools(vers)
 			if !c.Check(err, gc.IsNil) {
 				continue
 			}
@@ -400,7 +399,7 @@ func (s *UpgradeJujuSuite) TestUpgradeJujuWithRealUpload(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 	vers := version.Current
 	vers.Build = 1
-	_, err = envtools.FindExactTools(s.Environ, vers.Number, vers.Series, vers.Arch)
+	_, err = s.State.ToolsMetadata(vers)
 	c.Assert(err, gc.IsNil)
 }
 
@@ -471,11 +470,12 @@ upgrade to this version by running
 		for i, v := range test.tools {
 			versions[i] = version.MustParseBinary(v)
 		}
-		if len(versions) > 0 {
-			envtesting.MustUploadFakeToolsVersions(s.Environ.Storage(), versions...)
-			stor, err := filestorage.NewFileStorageWriter(toolsDir)
+		for _, v := range versions {
+			err := s.State.AddTools(strings.NewReader(""), state.ToolsMetadata{Version: v})
+			//envtesting.MustUploadFakeToolsVersions(s.Environ.Storage(), versions...)
+			//stor, err := filestorage.NewFileStorageWriter(toolsDir)
 			c.Assert(err, gc.IsNil)
-			envtesting.MustUploadFakeToolsVersions(stor, versions...)
+			//envtesting.MustUploadFakeToolsVersions(stor, versions...)
 		}
 
 		ctx := coretesting.Context(c)

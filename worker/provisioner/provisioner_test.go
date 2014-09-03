@@ -26,7 +26,6 @@ import (
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/imagemetadata"
 	"github.com/juju/juju/environs/simplestreams"
-	envtesting "github.com/juju/juju/environs/testing"
 	"github.com/juju/juju/environs/tools"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/juju/testing"
@@ -439,10 +438,8 @@ func (s *ProvisionerSuite) TestConstraints(c *gc.C) {
 
 func (s *ProvisionerSuite) TestPossibleTools(c *gc.C) {
 
-	// Clear out all tools, and set a current version that does not match the
+	// Set a current version that does not match the
 	// agent-version in the environ config.
-	envStorage := s.Environ.Storage()
-	envtesting.RemoveFakeTools(c, envStorage)
 	currentVersion := version.MustParseBinary("1.2.3-quantal-arm64")
 	s.PatchValue(&version.Current, currentVersion)
 
@@ -453,14 +450,14 @@ func (s *ProvisionerSuite) TestPossibleTools(c *gc.C) {
 	availableVersions := []version.Binary{
 		currentVersion, compatibleVersion, ignoreVersion1, ignoreVersion2,
 	}
-	envtesting.AssertUploadFakeToolsVersions(c, envStorage, availableVersions...)
+	for _, v := range availableVersions {
+		err := s.State.AddTools(strings.NewReader(""), state.ToolsMetadata{Version: v})
+		c.Assert(err, gc.IsNil)
+	}
 
 	// Extract the tools that we expect to actually match.
-	expectedList, err := tools.FindTools(s.Environ, -1, -1, coretools.Filter{
-		Number: currentVersion.Number,
-		Series: currentVersion.Series,
-	}, tools.DoNotAllowRetry)
-	c.Assert(err, gc.IsNil)
+	//expectedList, err := tools.FindInstanceTools(s.Environ, currentVersion.Number, currentVersion.Series, nil)
+	//c.Assert(err, gc.IsNil)
 
 	// Create the machine and check the tools that get passed into StartInstance.
 	machine, err := s.BackingState.AddOneMachine(state.MachineTemplate{

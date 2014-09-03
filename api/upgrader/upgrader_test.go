@@ -4,17 +4,16 @@
 package upgrader_test
 
 import (
+	"strings"
 	stdtesting "testing"
 
 	"github.com/juju/errors"
 	jc "github.com/juju/testing/checkers"
-	"github.com/juju/utils"
 	gc "launchpad.net/gocheck"
 
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/api/upgrader"
 	"github.com/juju/juju/apiserver/params"
-	envtesting "github.com/juju/juju/environs/testing"
 	"github.com/juju/juju/juju/testing"
 	"github.com/juju/juju/state"
 	statetesting "github.com/juju/juju/state/testing"
@@ -52,7 +51,7 @@ func (s *machineUpgraderSuite) SetUpTest(c *gc.C) {
 // Note: This is really meant as a unit-test, this isn't a test that should
 //       need all of the setup we have for this test suite
 func (s *machineUpgraderSuite) TestNew(c *gc.C) {
-	upgrader := upgrader.NewState(s.stateAPI)
+	upgrader := upgrader.NewState(s.stateAPI, nil)
 	c.Assert(upgrader, gc.NotNil)
 }
 
@@ -82,14 +81,14 @@ func (s *machineUpgraderSuite) TestSetVersion(c *gc.C) {
 }
 
 func (s *machineUpgraderSuite) TestToolsWrongMachine(c *gc.C) {
-	tools, _, err := s.st.Tools("machine-42")
+	tools, err := s.st.Tools("machine-42")
 	c.Assert(err, gc.ErrorMatches, "permission denied")
 	c.Assert(err, jc.Satisfies, params.IsCodeUnauthorized)
 	c.Assert(tools, gc.IsNil)
 }
 
 func (s *machineUpgraderSuite) TestToolsNotMachine(c *gc.C) {
-	tools, _, err := s.st.Tools("foo-42")
+	tools, err := s.st.Tools("foo-42")
 	c.Assert(err, gc.ErrorMatches, "permission denied")
 	c.Assert(err, jc.Satisfies, params.IsCodeUnauthorized)
 	c.Assert(tools, gc.IsNil)
@@ -99,22 +98,15 @@ func (s *machineUpgraderSuite) TestTools(c *gc.C) {
 	cur := version.Current
 	curTools := &tools.Tools{Version: cur, URL: ""}
 	curTools.Version.Minor++
+	err := s.State.AddTools(strings.NewReader(""), state.ToolsMetadata{Version: cur})
+	c.Assert(err, gc.IsNil)
 	s.rawMachine.SetAgentVersion(cur)
 	// Upgrader.Tools returns the *desired* set of tools, not the currently
 	// running set. We want to be upgraded to cur.Version
-	stateTools, hostnameVerification, err := s.st.Tools(s.rawMachine.Tag().String())
+	stateTools, err := s.st.Tools(s.rawMachine.Tag().String())
 	c.Assert(err, gc.IsNil)
 	c.Assert(stateTools.Version, gc.Equals, cur)
 	c.Assert(stateTools.URL, gc.Not(gc.Equals), "")
-	c.Assert(hostnameVerification, gc.Equals, utils.VerifySSLHostnames)
-
-	envtesting.SetSSLHostnameVerification(c, s.State, false)
-
-	stateTools, hostnameVerification, err = s.st.Tools(s.rawMachine.Tag().String())
-	c.Assert(err, gc.IsNil)
-	c.Assert(stateTools.Version, gc.Equals, cur)
-	c.Assert(stateTools.URL, gc.Not(gc.Equals), "")
-	c.Assert(hostnameVerification, gc.Equals, utils.NoVerifySSLHostnames)
 }
 
 func (s *machineUpgraderSuite) TestWatchAPIVersion(c *gc.C) {

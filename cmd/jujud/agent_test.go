@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	stderrors "errors"
 	"fmt"
 	"net"
@@ -284,6 +285,18 @@ func (s *agentSuite) SetUpSuite(c *gc.C) {
 func (s *agentSuite) TearDownSuite(c *gc.C) {
 	s.JujuConnSuite.TearDownSuite(c)
 	worker.RestartDelay = s.oldRestartDelay
+}
+
+func (s *agentSuite) addTools(c *gc.C, v ...version.Binary) {
+	for _, v := range v {
+		tgz, checksum := envtesting.MakeFakeTools(v)
+		err := s.State.AddTools(bytes.NewReader(tgz), state.ToolsMetadata{
+			Version: v,
+			Size:    int64(len(tgz)),
+			SHA256:  checksum,
+		})
+		c.Assert(err, gc.IsNil)
+	}
 }
 
 // primeAgent writes the configuration file and tools with version vers

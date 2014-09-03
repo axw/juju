@@ -6,6 +6,7 @@ package manual_test
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	jc "github.com/juju/testing/checkers"
 	"github.com/juju/utils/shell"
@@ -18,9 +19,9 @@ import (
 	"github.com/juju/juju/cloudinit/sshinit"
 	"github.com/juju/juju/environs/cloudinit"
 	"github.com/juju/juju/environs/manual"
-	envtesting "github.com/juju/juju/environs/testing"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/juju/testing"
+	"github.com/juju/juju/state"
 	"github.com/juju/juju/version"
 )
 
@@ -42,6 +43,15 @@ func (s *provisionerSuite) getArgs(c *gc.C) manual.ProvisionMachineArgs {
 	}
 }
 
+func (s *provisionerSuite) addTools(c *gc.C, series, arch string) {
+	cfg := s.Environ.Config()
+	number, ok := cfg.AgentVersion()
+	c.Assert(ok, jc.IsTrue)
+	binVersion := version.MustParseBinary(fmt.Sprintf("%s-%s-%s", number, series, arch))
+	err := s.State.AddTools(strings.NewReader(""), state.ToolsMetadata{Version: binVersion})
+	c.Assert(err, gc.IsNil)
+}
+
 func (s *provisionerSuite) TestProvisionMachine(c *gc.C) {
 	const series = "precise"
 	const arch = "amd64"
@@ -51,7 +61,6 @@ func (s *provisionerSuite) TestProvisionMachine(c *gc.C) {
 	hostname := args.Host
 	args.Host = "ubuntu@" + args.Host
 
-	envtesting.RemoveTools(c, s.Environ.Storage())
 	defer fakeSSH{
 		Series:             series,
 		Arch:               arch,
@@ -63,11 +72,7 @@ func (s *provisionerSuite) TestProvisionMachine(c *gc.C) {
 	c.Assert(err, jc.Satisfies, params.IsCodeNotFound)
 	c.Assert(machineId, gc.Equals, "")
 
-	cfg := s.Environ.Config()
-	number, ok := cfg.AgentVersion()
-	c.Assert(ok, jc.IsTrue)
-	binVersion := version.Binary{number, series, arch, operatingSystem}
-	envtesting.AssertUploadFakeToolsVersions(c, s.Environ.Storage(), binVersion)
+	s.addTools(c, series, arch)
 
 	for i, errorCode := range []int{255, 0} {
 		c.Logf("test %d: code %d", i, errorCode)
@@ -119,6 +124,8 @@ func (s *provisionerSuite) TestProvisionMachine(c *gc.C) {
 func (s *provisionerSuite) TestFinishMachineConfig(c *gc.C) {
 	const series = "precise"
 	const arch = "amd64"
+	s.addTools(c, series, arch)
+
 	defer fakeSSH{
 		Series:         series,
 		Arch:           arch,
@@ -143,6 +150,8 @@ func (s *provisionerSuite) TestFinishMachineConfig(c *gc.C) {
 func (s *provisionerSuite) TestProvisioningScript(c *gc.C) {
 	const series = "precise"
 	const arch = "amd64"
+	s.addTools(c, series, arch)
+
 	defer fakeSSH{
 		Series:         series,
 		Arch:           arch,

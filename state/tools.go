@@ -129,6 +129,21 @@ func (st *State) Tools(v version.Binary) (ToolsMetadata, io.ReadCloser, error) {
 	return metadata, tools, nil
 }
 
+// ToolsMetadata returns the ToolsMetadata for the specified version
+// if it exists, else an error satisfying errors.IsNotFound.
+func (st *State) ToolsMetadata(v version.Binary) (ToolsMetadata, error) {
+	metadataDoc, err := st.toolsMetadata(v)
+	if err != nil {
+		return ToolsMetadata{}, err
+	}
+	metadata := ToolsMetadata{
+		Version: metadataDoc.Version,
+		Size:    metadataDoc.Size,
+		SHA256:  metadataDoc.SHA256,
+	}
+	return metadata, nil
+}
+
 func (st *State) toolsMetadata(v version.Binary) (toolsMetadataDoc, error) {
 	toolsCollection, closer := st.getCollection(toolsC)
 	defer closer()

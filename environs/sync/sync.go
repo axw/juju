@@ -387,9 +387,9 @@ func (u StorageToolsUploader) UploadTools(tools *coretools.Tools, data []byte) e
 	if err := u.Storage.Put(toolsName, bytes.NewReader(data), int64(len(data))); err != nil {
 		return err
 	}
-    if !u.WriteMetadata {
-        return nil
-    }
+	if !u.WriteMetadata {
+		return nil
+	}
 	err := envtools.MergeAndWriteMetadata(u.Storage, coretools.List{tools}, u.WriteMirrors)
 	if err != nil {
 		logger.Errorf("error writing tools metadata: %v", err)

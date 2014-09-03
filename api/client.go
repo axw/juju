@@ -765,6 +765,18 @@ func (c *Client) UploadTools(r io.Reader, vers version.Binary) (*tools.Tools, er
 	return jsonResponse.Tools, nil
 }
 
+// DownloadTools gets the tools with the specified version from the API server.
+func (c *Client) DownloadTools(v version.Binary) (io.ReadCloser, error) {
+	url := fmt.Sprintf("%s/tools/%s", c.st.serverRoot, v)
+	// The reader MUST verify the tools' hash, so there is no
+	// need to validate the peer. We cannot anyway: see http://pad.lv/1261780.
+	resp, err := utils.GetNonValidatingHTTPClient().Get(url)
+	if err != nil {
+		return nil, errors.Annotate(err, "cannot download tools")
+	}
+	return resp.Body, nil
+}
+
 // APIHostPorts returns a slice of network.HostPort for each API server.
 func (c *Client) APIHostPorts() ([][]network.HostPort, error) {
 	var result params.APIHostPortsResult

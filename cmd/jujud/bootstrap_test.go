@@ -536,7 +536,7 @@ func (s *BootstrapSuite) TestSystemIdentityWritten(c *gc.C) {
 
 func (s *BootstrapSuite) TestDownloadedToolsMetadata(c *gc.C) {
 	// Tools downloaded by cloud-init script.
-	s.testToolsMetadata(c, false)
+	s.testToolsMetadata(c)
 }
 
 func (s *BootstrapSuite) TestUploadedToolsMetadata(c *gc.C) {
@@ -545,41 +545,52 @@ func (s *BootstrapSuite) TestUploadedToolsMetadata(c *gc.C) {
 		Version: version.Current,
 		URL:     "file:///does/not/matter",
 	})
-	s.testToolsMetadata(c, true)
+	s.testToolsMetadata(c)
 }
 
-func (s *BootstrapSuite) testToolsMetadata(c *gc.C, exploded bool) {
+func (s *BootstrapSuite) testToolsMetadata(c *gc.C) {
 	provider, err := environs.Provider(s.envcfg.Type())
 	c.Assert(err, gc.IsNil)
 	env, err := provider.Open(s.envcfg)
 	c.Assert(err, gc.IsNil)
-	oldMetadata, err := envtools.ReadMetadata(env.Storage())
-	c.Assert(err, gc.IsNil)
+	envtesting.RemoveFakeToolsMetadata(c, env.Storage())
 
 	_, cmd, err := s.initBootstrapCommand(c, nil, "--env-config", s.b64yamlEnvcfg, "--instance-id", string(s.instanceId))
 	c.Assert(err, gc.IsNil)
 	err = cmd.Run(nil)
 	c.Assert(err, gc.IsNil)
 
-	newMetadata, err := envtools.ReadMetadata(env.Storage())
+	// We don't write metadata at bootstrap anymore.
+	simplestreamsMetadata, err := envtools.ReadMetadata(env.Storage())
 	c.Assert(err, gc.IsNil)
-	if !exploded {
-		c.Assert(newMetadata, gc.HasLen, len(oldMetadata))
-	} else {
-		// new metadata should have more tools.
-		c.Assert(len(newMetadata), jc.GreaterThan, len(oldMetadata))
-		var expectedSeries set.Strings
-		for _, series := range version.SupportedSeries() {
-			os, err := version.GetOSFromSeries(series)
-			c.Assert(err, gc.IsNil)
-			if os == version.Ubuntu {
-				expectedSeries.Add(series)
-			}
+	c.Assert(simplestreamsMetadata, gc.HasLen, 0)
+
+	// The tools should have been added to state, and
+	// exploded into each of the supported series of
+	// the same operating system.
+	st, err := state.Open(&mongo.MongoInfo{
+		Info: mongo.Info{
+			Addrs:  []string{gitjujutesting.MgoServer.Addr()},
+			CACert: testing.CACert,
+		},
+		Password: testPasswordHash(),
+	}, mongo.DefaultDialOpts(), environs.NewStatePolicy())
+	c.Assert(err, gc.IsNil)
+	defer st.Close()
+
+	var expectedSeries set.Strings
+	for _, series := range version.SupportedSeries() {
+		os, err := version.GetOSFromSeries(series)
+		c.Assert(err, gc.IsNil)
+		if os == version.Ubuntu {
+			expectedSeries.Add(series)
 		}
-		c.Assert(newMetadata, gc.HasLen, expectedSeries.Size())
-		for _, m := range newMetadata {
-			c.Assert(expectedSeries.Contains(m.Release), jc.IsTrue)
-		}
+	}
+	metadata, err := st.AllToolsMetadata()
+	c.Assert(err, gc.IsNil)
+	c.Assert(metadata, gc.HasLen, expectedSeries.Size())
+	for _, m := range metadata {
+		c.Assert(expectedSeries.Contains(m.Version.Series), jc.IsTrue)
 	}
 }
 

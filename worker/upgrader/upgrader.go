@@ -4,13 +4,11 @@
 package upgrader
 
 import (
-	"fmt"
-	"net/http"
 	"time"
 
+	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
-	"github.com/juju/utils"
 	"launchpad.net/tomb"
 
 	"github.com/juju/juju/agent"
@@ -20,6 +18,8 @@ import (
 	coretools "github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
+
+var downloadTools = (*upgrader.State).DownloadTools
 
 // retryAfter returns a channel that receives a value
 // when a failed download should be retried.
@@ -116,10 +116,9 @@ func (u *Upgrader) loop() error {
 	// that we attempt an upgrade even if other workers are dying
 	// all around us.
 	var (
-		dying                <-chan struct{}
-		wantTools            *coretools.Tools
-		wantVersion          version.Number
-		hostnameVerification utils.SSLHostnameVerification
+		dying       <-chan struct{}
+		wantTools   *coretools.Tools
+		wantVersion version.Number
 	)
 	for {
 		select {
@@ -158,12 +157,8 @@ func (u *Upgrader) loop() error {
 			return u.newUpgradeReadyError(wantVersionBinary)
 		}
 
-		// Check if tools are available for download.
-		//
-		// TODO(dimitern) 2013-10-03 bug #1234715
-		// Add a testing HTTPS storage to verify the
-		// disableSSLHostnameVerification behavior here.
-		wantTools, hostnameVerification, err = u.st.Tools(u.tag.String())
+		// Get tools metadata.
+		wantTools, err = u.st.Tools(u.tag.String())
 		if err != nil {
 			// Not being able to lookup Tools is considered fatal
 			return err
@@ -173,7 +168,7 @@ func (u *Upgrader) loop() error {
 		// repeatedly (causing the agent to be stopped), as long
 		// as we have got as far as this, we will still be able to
 		// upgrade the agent.
-		err := u.ensureTools(wantTools, hostnameVerification)
+		err := u.ensureTools(wantTools)
 		if err == nil {
 			return u.newUpgradeReadyError(wantTools.Version)
 		}
@@ -202,20 +197,16 @@ func (u *Upgrader) newUpgradeReadyError(newVersion version.Binary) *UpgradeReady
 	}
 }
 
-func (u *Upgrader) ensureTools(agentTools *coretools.Tools, hostnameVerification utils.SSLHostnameVerification) error {
-	logger.Infof("fetching tools from %q", agentTools.URL)
-	client := utils.GetHTTPClient(hostnameVerification)
-	resp, err := client.Get(agentTools.URL)
+func (u *Upgrader) ensureTools(agentTools *coretools.Tools) error {
+	logger.Infof("fetching tools")
+	r, err := downloadTools(u.st, agentTools.Version)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad HTTP response: %v", resp.Status)
-	}
-	err = agenttools.UnpackTools(u.dataDir, agentTools, resp.Body)
+	defer r.Close()
+	err = agenttools.UnpackTools(u.dataDir, agentTools, r)
 	if err != nil {
-		return fmt.Errorf("cannot unpack tools: %v", err)
+		return errors.Annotate(err, "cannot unpack tools")
 	}
 	logger.Infof("unpacked tools %s to %s", agentTools.Version, u.dataDir)
 	return nil

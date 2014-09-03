@@ -4,6 +4,8 @@
 package upgrader_test
 
 import (
+	"strings"
+
 	"github.com/juju/errors"
 	"github.com/juju/names"
 	jc "github.com/juju/testing/checkers"
@@ -13,7 +15,6 @@ import (
 	"github.com/juju/juju/apiserver/params"
 	apiservertesting "github.com/juju/juju/apiserver/testing"
 	"github.com/juju/juju/apiserver/upgrader"
-	envtesting "github.com/juju/juju/environs/testing"
 	jujutesting "github.com/juju/juju/juju/testing"
 	"github.com/juju/juju/state"
 	statetesting "github.com/juju/juju/state/testing"
@@ -153,6 +154,9 @@ func (s *upgraderSuite) TestToolsForAgent(c *gc.C) {
 	err := s.rawMachine.SetAgentVersion(version.Current)
 	c.Assert(err, gc.IsNil)
 
+	err = s.State.AddTools(strings.NewReader(""), state.ToolsMetadata{Version: version.Current})
+	c.Assert(err, gc.IsNil)
+
 	args := params.Entities{Entities: []params.Entity{agent}}
 	results, err := s.upgrader.Tools(args)
 	c.Assert(err, gc.IsNil)
@@ -164,14 +168,6 @@ func (s *upgraderSuite) TestToolsForAgent(c *gc.C) {
 		c.Check(agentTools.Version, gc.DeepEquals, cur)
 	}
 	assertTools()
-	c.Check(results.Results[0].DisableSSLHostnameVerification, jc.IsFalse)
-
-	envtesting.SetSSLHostnameVerification(c, s.State, false)
-
-	results, err = s.upgrader.Tools(args)
-	c.Assert(err, gc.IsNil)
-	assertTools()
-	c.Check(results.Results[0].DisableSSLHostnameVerification, jc.IsTrue)
 }
 
 func (s *upgraderSuite) TestSetToolsNothing(c *gc.C) {

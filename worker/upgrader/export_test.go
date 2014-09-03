@@ -3,17 +3,8 @@
 
 package upgrader
 
-import (
-	"github.com/juju/utils"
-
-	"github.com/juju/juju/tools"
-)
-
 var (
 	RetryAfter           = &retryAfter
 	AllowedTargetVersion = allowedTargetVersion
+	DownloadTools        = &downloadTools
 )
-
-func EnsureTools(u *Upgrader, agentTools *tools.Tools, hostnameVerification utils.SSLHostnameVerification) error {
-	return u.ensureTools(agentTools, hostnameVerification)
-}

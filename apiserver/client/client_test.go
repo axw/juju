@@ -27,7 +27,6 @@ import (
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/manual"
 	envstorage "github.com/juju/juju/environs/storage"
-	toolstesting "github.com/juju/juju/environs/tools/testing"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/provider/dummy"
@@ -47,6 +46,11 @@ type Killer interface {
 }
 
 var _ = gc.Suite(&clientSuite{})
+
+func (s *clientSuite) SetUpTest(c *gc.C) {
+	s.baseSuite.SetUpTest(c)
+	s.AddToolsToState(c)
+}
 
 func (s *clientSuite) TestClientStatus(c *gc.C) {
 	s.setUpScenario(c)
@@ -1650,7 +1654,9 @@ func (s *clientSuite) TestClientFindTools(c *gc.C) {
 	result, err := s.APIState.Client().FindTools(2, -1, "", "")
 	c.Assert(err, gc.IsNil)
 	c.Assert(result.Error, jc.Satisfies, params.IsCodeNotFound)
-	toolstesting.UploadToStorage(c, s.Environ.Storage(), version.MustParseBinary("2.12.0-precise-amd64"))
+	s.State.AddTools(strings.NewReader(""), state.ToolsMetadata{
+		Version: version.MustParseBinary("2.12.0-precise-amd64"),
+	})
 	result, err = s.APIState.Client().FindTools(2, 12, "precise", "amd64")
 	c.Assert(err, gc.IsNil)
 	c.Assert(result.Error, gc.IsNil)

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/juju/errors"
@@ -239,6 +240,25 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	s.Environ = environ
+}
+
+// AddToolsToState adds tools entries to state.
+func (s *JujuConnSuite) AddToolsToState(c *gc.C) {
+	preferredVersion := version.Current
+	preferredVersion.Series = "precise"
+	preferredVersion.Arch = "amd64"
+	versions := PreferredDefaultVersions(s.Environ.Config(), preferredVersion)
+	versions = append(versions, version.Current)
+	for _, v := range versions {
+		content := v.String()
+		hash := fmt.Sprintf("sha256(%s)", content)
+		err := s.State.AddTools(strings.NewReader(content), state.ToolsMetadata{
+			Version: v,
+			Size:    int64(len(content)),
+			SHA256:  hash,
+		})
+		c.Assert(err, gc.IsNil)
+	}
 }
 
 var redialStrategy = utils.AttemptStrategy{

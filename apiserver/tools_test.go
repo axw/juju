@@ -4,7 +4,6 @@
 package apiserver_test
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -16,7 +15,6 @@ import (
 	gc "launchpad.net/gocheck"
 
 	"github.com/juju/juju/apiserver/params"
-	envtesting "github.com/juju/juju/environs/testing"
 	"github.com/juju/juju/environs/tools"
 	toolstesting "github.com/juju/juju/environs/tools/testing"
 	"github.com/juju/juju/state"
@@ -121,16 +119,14 @@ func (s *toolsSuite) TestUpload(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	// Check the response.
-	stor := s.Environ.Storage()
-	toolsURL, err := stor.URL(tools.StorageName(vers))
-	c.Assert(err, gc.IsNil)
-	expectedTools[0].URL = toolsURL
+	expectedTools[0].URL = fmt.Sprintf("apiserver://tools/%s", vers)
 	s.assertUploadResponse(c, resp, expectedTools[0])
 
 	// Check the contents.
-	r, err := stor.Get(tools.StorageName(vers))
+	_, r, err := s.State.Tools(vers)
 	c.Assert(err, gc.IsNil)
 	uploadedData, err := ioutil.ReadAll(r)
+	r.Close()
 	c.Assert(err, gc.IsNil)
 	expectedData, err := ioutil.ReadFile(toolPath)
 	c.Assert(err, gc.IsNil)
@@ -146,10 +142,7 @@ func (s *toolsSuite) TestUploadAllowsTopLevelPath(c *gc.C) {
 	resp, err := s.uploadRequest(c, url.String(), true, toolPath)
 	c.Assert(err, gc.IsNil)
 	// Check the response.
-	stor := s.Environ.Storage()
-	toolsURL, err := stor.URL(tools.StorageName(vers))
-	c.Assert(err, gc.IsNil)
-	expectedTools[0].URL = toolsURL
+	expectedTools[0].URL = fmt.Sprintf("apiserver://tools/%s", vers)
 	s.assertUploadResponse(c, resp, expectedTools[0])
 }
 
@@ -163,10 +156,7 @@ func (s *toolsSuite) TestUploadAllowsEnvUUIDPath(c *gc.C) {
 	resp, err := s.uploadRequest(c, url.String(), true, toolPath)
 	c.Assert(err, gc.IsNil)
 	// Check the response.
-	stor := s.Environ.Storage()
-	toolsURL, err := stor.URL(tools.StorageName(vers))
-	c.Assert(err, gc.IsNil)
-	expectedTools[0].URL = toolsURL
+	expectedTools[0].URL = fmt.Sprintf("apiserver://tools/%s", vers)
 	s.assertUploadResponse(c, resp, expectedTools[0])
 }
 
@@ -190,21 +180,19 @@ func (s *toolsSuite) TestUploadSeriesExpanded(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	// Check the response.
-	stor := s.Environ.Storage()
-	toolsURL, err := stor.URL(tools.StorageName(vers))
-	c.Assert(err, gc.IsNil)
-	expectedTools[0].URL = toolsURL
+	expectedTools[0].URL = fmt.Sprintf("apiserver://tools/%s", vers)
 	s.assertUploadResponse(c, resp, expectedTools[0])
 
 	// Check the contents.
+	expectedData, err := ioutil.ReadFile(toolPath)
+	c.Assert(err, gc.IsNil)
 	for _, series := range version.OSSupportedSeries(version.Ubuntu) {
 		toolsVersion := vers
 		toolsVersion.Series = series
-		r, err := stor.Get(tools.StorageName(toolsVersion))
+		_, r, err := s.State.Tools(toolsVersion)
 		c.Assert(err, gc.IsNil)
 		uploadedData, err := ioutil.ReadAll(r)
-		c.Assert(err, gc.IsNil)
-		expectedData, err := ioutil.ReadFile(toolPath)
+		r.Close()
 		c.Assert(err, gc.IsNil)
 		c.Assert(uploadedData, gc.DeepEquals, expectedData)
 	}
@@ -221,20 +209,14 @@ func (s *toolsSuite) TestDownloadTopLevelPath(c *gc.C) {
 }
 
 func (s *toolsSuite) testDownload(c *gc.C, uuid string) {
-	stor := s.Environ.Storage()
-	envtesting.RemoveTools(c, stor)
-	tools := envtesting.AssertUploadFakeToolsVersions(c, stor, version.Current)[0]
+	s.AddToolsToState(c)
 
-	resp, err := s.downloadRequest(c, tools.Version, uuid)
+	resp, err := s.downloadRequest(c, version.Current, uuid)
 	c.Assert(err, gc.IsNil)
 	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	c.Assert(err, gc.IsNil)
-	c.Assert(data, gc.HasLen, int(tools.Size))
-
-	hash := sha256.New()
-	hash.Write(data)
-	c.Assert(fmt.Sprintf("%x", hash.Sum(nil)), gc.Equals, tools.SHA256)
+	c.Assert(string(data), gc.Equals, version.Current.String())
 }
 
 func (s *toolsSuite) TestDownloadRejectsWrongEnvUUIDPath(c *gc.C) {

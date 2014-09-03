@@ -85,6 +85,8 @@ func (s *CommonProvisionerSuite) SetUpTest(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 	s.cfg = cfg
 
+	s.AddToolsToState(c)
+
 	// Create a machine for the dummy bootstrap instance,
 	// so the provisioner doesn't destroy it.
 	insts, err := s.Environ.Instances([]instance.Id{dummy.BootstrapInstanceId})
@@ -455,9 +457,16 @@ func (s *ProvisionerSuite) TestPossibleTools(c *gc.C) {
 		c.Assert(err, gc.IsNil)
 	}
 
-	// Extract the tools that we expect to actually match.
-	//expectedList, err := tools.FindInstanceTools(s.Environ, currentVersion.Number, currentVersion.Series, nil)
-	//c.Assert(err, gc.IsNil)
+	expectedList := coretools.List{
+		&coretools.Tools{
+			Version: compatibleVersion,
+			URL:     "apiserver://tools/1.2.3-quantal-amd64",
+		},
+		&coretools.Tools{
+			Version: currentVersion,
+			URL:     "apiserver://tools/1.2.3-quantal-arm64",
+		},
+	}
 
 	// Create the machine and check the tools that get passed into StartInstance.
 	machine, err := s.BackingState.AddOneMachine(state.MachineTemplate{
@@ -498,7 +507,7 @@ func (s *ProvisionerSuite) TestProvisionerSetsErrorStatusWhenNoToolsAreAvailable
 			continue
 		}
 		c.Assert(status, gc.Equals, params.StatusError)
-		c.Assert(info, gc.Equals, "no matching tools available")
+		c.Assert(info, gc.Equals, "tools not found: no matching tools available")
 		break
 	}
 

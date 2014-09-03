@@ -16,7 +16,6 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/juju/testing"
 	"github.com/juju/juju/network"
-	coretools "github.com/juju/juju/tools"
 )
 
 type machineConfigSuite struct {
@@ -24,6 +23,11 @@ type machineConfigSuite struct {
 }
 
 var _ = gc.Suite(&machineConfigSuite{})
+
+func (s *machineConfigSuite) SetUpTest(c *gc.C) {
+	s.JujuConnSuite.SetUpTest(c)
+	s.AddToolsToState(c)
+}
 
 func (s *machineConfigSuite) TestMachineConfig(c *gc.C) {
 	addrs := []network.Address{network.NewAddress("1.2.3.4", network.ScopeUnknown)}
@@ -81,5 +85,5 @@ func (s *machineConfigSuite) TestMachineConfigNoTools(c *gc.C) {
 	machines, err := s.APIState.Client().AddMachines([]params.AddMachineParams{apiParams})
 	c.Assert(err, gc.IsNil)
 	_, err = client.MachineConfig(s.State, machines[0].Machine, apiParams.Nonce, "")
-	c.Assert(err, gc.ErrorMatches, coretools.ErrNoMatches.Error())
+	c.Assert(err, gc.ErrorMatches, "tools not found: no matching tools available")
 }

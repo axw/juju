@@ -11,6 +11,7 @@ import (
 	"github.com/juju/juju/cmd/envcmd"
 	"github.com/juju/juju/environs/filestorage"
 	"github.com/juju/juju/environs/sync"
+	envtools "github.com/juju/juju/environs/tools"
 	"github.com/juju/juju/version"
 )
 
@@ -28,6 +29,7 @@ type SyncToolsCommand struct {
 	dev          bool
 	public       bool
 	source       string
+	stream       string
 	localDir     string
 	destination  string
 }
@@ -55,9 +57,10 @@ func (c *SyncToolsCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.BoolVar(&c.allVersions, "all", false, "copy all versions, not just the latest")
 	f.StringVar(&c.versionStr, "version", "", "copy a specific major[.minor] version")
 	f.BoolVar(&c.dryRun, "dry-run", false, "don't copy, just print what would be copied")
-	f.BoolVar(&c.dev, "dev", false, "consider development versions as well as released ones")
+	f.BoolVar(&c.dev, "dev", false, "consider development versions as well as released ones\n    DEPRECATED: use --stream instead")
 	f.BoolVar(&c.public, "public", false, "tools are for a public cloud, so generate mirrors information")
 	f.StringVar(&c.source, "source", "", "local source directory")
+	f.StringVar(&c.stream, "stream", "", "simplestreams stream for which to sync metadata")
 	f.StringVar(&c.localDir, "local-dir", "", "local destination directory")
 	f.StringVar(&c.destination, "destination", "", "local destination directory")
 }
@@ -73,6 +76,12 @@ func (c *SyncToolsCommand) Init(args []string) error {
 		if c.majorVersion, c.minorVersion, err = version.ParseMajorMinor(c.versionStr); err != nil {
 			return err
 		}
+	}
+	if c.dev {
+		c.stream = envtools.TestingStream
+	}
+	if c.stream == "" {
+		c.stream = envtools.ReleasedStream
 	}
 	return cmd.CheckEmpty(args)
 }
@@ -108,7 +117,7 @@ func (c *SyncToolsCommand) Run(ctx *cmd.Context) (resultErr error) {
 		MajorVersion: c.majorVersion,
 		MinorVersion: c.minorVersion,
 		DryRun:       c.dryRun,
-		Dev:          c.dev,
+		Stream:       c.stream,
 		Public:       c.public,
 		Source:       c.source,
 	}

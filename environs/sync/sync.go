@@ -43,8 +43,8 @@ type SyncContext struct {
 	// what would be coppied.
 	DryRun bool
 
-	// Dev controls the copy of development versions as well as released ones.
-	Dev bool
+	// Stream specifies the simplestreams stream to use (defaults to "Released").
+	Stream string
 
 	// Tools are being synced for a public cloud so include mirrors information.
 	Public bool
@@ -69,16 +69,26 @@ func SyncTools(syncContext *SyncContext) error {
 		if !syncContext.AllVersions {
 			syncContext.MinorVersion = version.Current.Minor
 		}
-	} else if !syncContext.Dev && syncContext.MinorVersion != -1 {
-		// If a major.minor version is specified, we allow dev versions.
-		// If Dev is already true, leave it alone.
-		syncContext.Dev = true
 	}
 
-	released := !syncContext.Dev && !version.Current.IsDev()
+	// If no stream has been specified, assume "released" for non-devel versions of Juju.
+	if syncContext.Stream == "" {
+		if !version.Current.IsDev() {
+			syncContext.Stream = envtools.ReleasedStream
+		} else {
+			syncContext.Stream = envtools.TestingStream
+		}
+	}
 	sourceTools, err := envtools.FindToolsForCloud(
 		[]simplestreams.DataSource{sourceDataSource}, simplestreams.CloudSpec{},
-		syncContext.MajorVersion, syncContext.MinorVersion, coretools.Filter{Released: released})
+		syncContext.Stream, syncContext.MajorVersion, syncContext.MinorVersion, coretools.Filter{})
+	// For backwards compatibility with cloud storage, if there are no tools in the specified stream,
+	// double check the release stream.
+	if err == envtools.ErrNoTools && syncContext.Stream != envtools.ReleasedStream {
+		sourceTools, err = envtools.FindToolsForCloud(
+			[]simplestreams.DataSource{sourceDataSource}, simplestreams.CloudSpec{},
+			envtools.ReleasedStream, syncContext.MajorVersion, syncContext.MinorVersion, coretools.Filter{})
+	}
 	if err != nil {
 		return err
 	}
@@ -120,7 +130,7 @@ func SyncTools(syncContext *SyncContext) error {
 		if syncContext.Public {
 			writeMirrors = envtools.WriteMirrors
 		}
-		err = envtools.MergeAndWriteMetadata(targetStorage, targetTools, writeMirrors)
+		err = envtools.MergeAndWriteMetadata(targetStorage, syncContext.Stream, targetTools, writeMirrors)
 		if err != nil {
 			return err
 		}
@@ -249,7 +259,7 @@ func cloneToolsForSeries(toolsInfo *BuiltTools, series ...string) error {
 		return err
 	}
 	logger.Debugf("generating tools metadata")
-	return envtools.MergeAndWriteMetadata(metadataStore, targetTools, false)
+	return envtools.MergeAndWriteMetadata(metadataStore, "released", targetTools, false)
 }
 
 // BuiltTools contains metadata for a tools tarball resulting from
@@ -329,11 +339,15 @@ func SyncBuiltTools(stor storage.Storage, builtTools *BuiltTools, fakeSeries ...
 	if err := cloneToolsForSeries(builtTools, fakeSeries...); err != nil {
 		return nil, err
 	}
+	stream := envtools.ReleasedStream
+	if builtTools.Version.IsDev() {
+		stream = envtools.TestingStream
+	}
 	syncContext := &SyncContext{
 		Source:       builtTools.Dir,
 		Target:       stor,
 		AllVersions:  true,
-		Dev:          builtTools.Version.IsDev(),
+		Stream:       stream,
 		MajorVersion: builtTools.Version.Major,
 		MinorVersion: -1,
 	}

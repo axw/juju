@@ -69,7 +69,7 @@ func (s *ToolsFixture) UploadFakeTools(c *gc.C, stor storage.Storage) {
 
 // RemoveFakeToolsMetadata deletes the fake simplestreams tools metadata from the supplied storage.
 func RemoveFakeToolsMetadata(c *gc.C, stor storage.Storage) {
-	files := []string{simplestreams.UnsignedIndex("v1"), envtools.ProductMetadataPath}
+	files := []string{simplestreams.UnsignedIndex("v1"), envtools.ProductMetadataPath("released")}
 	for _, file := range files {
 		toolspath := path.Join("tools", file)
 		err := stor.Remove(toolspath)
@@ -153,7 +153,7 @@ func UploadFakeToolsVersions(stor storage.Storage, versions ...version.Binary) (
 			agentTools[i] = t
 		}
 	}
-	if err := envtools.MergeAndWriteMetadata(stor, agentTools, envtools.DoNotWriteMirrors); err != nil {
+	if err := envtools.MergeAndWriteMetadata(stor, "released", agentTools, envtools.DoNotWriteMirrors); err != nil {
 		return nil, err
 	}
 	return agentTools, nil
@@ -163,7 +163,7 @@ func UploadFakeToolsVersions(stor storage.Storage, versions ...version.Binary) (
 func AssertUploadFakeToolsVersions(c *gc.C, stor storage.Storage, versions ...version.Binary) []*coretools.Tools {
 	agentTools, err := UploadFakeToolsVersions(stor, versions...)
 	c.Assert(err, gc.IsNil)
-	err = envtools.MergeAndWriteMetadata(stor, agentTools, envtools.DoNotWriteMirrors)
+	err = envtools.MergeAndWriteMetadata(stor, "released", agentTools, envtools.DoNotWriteMirrors)
 	c.Assert(err, gc.IsNil)
 	return agentTools
 }
@@ -178,7 +178,7 @@ func MustUploadFakeToolsVersions(stor storage.Storage, versions ...version.Binar
 		}
 		agentTools[i] = t
 	}
-	err := envtools.MergeAndWriteMetadata(stor, agentTools, envtools.DoNotWriteMirrors)
+	err := envtools.MergeAndWriteMetadata(stor, "released", agentTools, envtools.DoNotWriteMirrors)
 	if err != nil {
 		panic(err)
 	}
@@ -332,16 +332,16 @@ var BootstrapToolsTests = []BootstrapToolsTest{
 		Available:     VAll,
 		CliVersion:    V100p64,
 		DefaultSeries: "precise",
-		Expect:        V100p,
+		Expect:        append(V100p, V1001p64),
 	}, {
 		Info:          "released cli: cli Arch ignored",
-		Available:     VAll,
+		Available:     V100p,
 		CliVersion:    V100p32,
 		DefaultSeries: "precise",
 		Expect:        V100p,
 	}, {
 		Info:          "released cli: cli series ignored",
-		Available:     VAll,
+		Available:     append(V100p, V100q64),
 		CliVersion:    V100q64,
 		DefaultSeries: "precise",
 		Expect:        V100p,
@@ -351,12 +351,6 @@ var BootstrapToolsTests = []BootstrapToolsTest{
 		CliVersion:    V120p64,
 		DefaultSeries: "quantal",
 		Expect:        V120q,
-	}, {
-		Info:          "released cli: ignore close dev match",
-		Available:     V100Xall,
-		CliVersion:    V100p64,
-		DefaultSeries: "precise",
-		Expect:        V100p,
 	}, {
 		Info:          "released cli: filter by arch constraints",
 		Available:     V120all,
@@ -439,12 +433,6 @@ var BootstrapToolsTests = []BootstrapToolsTest{
 		Info:          "released cli: ignore dev tools 2",
 		Available:     V110all,
 		CliVersion:    V120p64,
-		DefaultSeries: "precise",
-		Err:           noToolsMessage,
-	}, {
-		Info:          "released cli: ignore dev tools 3",
-		Available:     []version.Binary{V1001p64},
-		CliVersion:    V100p64,
 		DefaultSeries: "precise",
 		Err:           noToolsMessage,
 	}, {

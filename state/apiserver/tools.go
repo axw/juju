@@ -167,7 +167,7 @@ func (h *toolsHandler) uploadToStorage(uploadedTools *tools.Tools, toolsDir,
 			SHA256:  uploadedTools.SHA256,
 		})
 	}
-	err = envtools.MergeAndWriteMetadata(stor, allToolsMetadata, false)
+	err = envtools.MergeAndWriteMetadata(stor, "released", allToolsMetadata, false)
 	if err != nil {
 		return nil, false, fmt.Errorf("cannot get environment config: %v", err)
 	}

@@ -219,8 +219,20 @@ func (s *bootstrapSuite) TestBootstrapTools(c *gc.C) {
 	}
 }
 
-func (s *bootstrapSuite) TestBootstrapNoTools(c *gc.C) {
-	env := newEnviron("foo", useDefaultKeys, nil)
+func (s *bootstrapSuite) TestBootstrapNoToolsNonReleaseStream(c *gc.C) {
+	env := newEnviron("foo", useDefaultKeys, map[string]interface{}{
+		"tools-stream": "proposed"})
+	s.setDummyStorage(c, env)
+	envtesting.RemoveFakeTools(c, env.Storage())
+	err := bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{})
+	// bootstrap.Bootstrap leaves it to the provider to
+	// locate bootstrap tools.
+	c.Assert(err, gc.IsNil)
+}
+
+func (s *bootstrapSuite) TestBootstrapNoToolsDevelopmentConfig(c *gc.C) {
+	env := newEnviron("foo", useDefaultKeys, map[string]interface{}{
+		"development": true})
 	s.setDummyStorage(c, env)
 	envtesting.RemoveFakeTools(c, env.Storage())
 	err := bootstrap.Bootstrap(coretesting.Context(c), env, environs.BootstrapParams{})

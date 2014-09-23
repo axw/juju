@@ -93,7 +93,7 @@ var syncToolsCommandTests = []struct {
 		args:        []string{"-e", "test-target", "--all", "--dev"},
 		sctx: &sync.SyncContext{
 			AllVersions: true,
-			Dev:         true,
+			Stream:      "testing",
 		},
 	},
 	{
@@ -126,12 +126,15 @@ func (s *syncToolsSuite) TestSyncToolsCommand(c *gc.C) {
 		targetEnv, err := environs.PrepareFromName("test-target", nullContext(c), s.configStore)
 		c.Assert(err, gc.IsNil)
 		called := false
+		if test.sctx.Stream == "" {
+			test.sctx.Stream = "released"
+		}
 		syncTools = func(sctx *sync.SyncContext) error {
 			c.Assert(sctx.AllVersions, gc.Equals, test.sctx.AllVersions)
 			c.Assert(sctx.MajorVersion, gc.Equals, test.sctx.MajorVersion)
 			c.Assert(sctx.MinorVersion, gc.Equals, test.sctx.MinorVersion)
 			c.Assert(sctx.DryRun, gc.Equals, test.sctx.DryRun)
-			c.Assert(sctx.Dev, gc.Equals, test.sctx.Dev)
+			c.Assert(sctx.Stream, gc.Equals, test.sctx.Stream)
 			c.Assert(sctx.Public, gc.Equals, test.sctx.Public)
 			c.Assert(sctx.Source, gc.Equals, test.sctx.Source)
 			c.Assert(dummy.IsSameStorage(sctx.Target, targetEnv.Storage()), jc.IsTrue)
@@ -152,7 +155,7 @@ func (s *syncToolsSuite) TestSyncToolsCommandTargetDirectory(c *gc.C) {
 	syncTools = func(sctx *sync.SyncContext) error {
 		c.Assert(sctx.AllVersions, gc.Equals, false)
 		c.Assert(sctx.DryRun, gc.Equals, false)
-		c.Assert(sctx.Dev, gc.Equals, false)
+		c.Assert(sctx.Stream, gc.Equals, "released")
 		c.Assert(sctx.Source, gc.Equals, "")
 		url, err := sctx.Target.URL("")
 		c.Assert(err, gc.IsNil)
@@ -173,7 +176,7 @@ func (s *syncToolsSuite) TestSyncToolsCommandDeprecatedDestination(c *gc.C) {
 	syncTools = func(sctx *sync.SyncContext) error {
 		c.Assert(sctx.AllVersions, gc.Equals, false)
 		c.Assert(sctx.DryRun, gc.Equals, false)
-		c.Assert(sctx.Dev, gc.Equals, false)
+		c.Assert(sctx.Stream, gc.Equals, "released")
 		c.Assert(sctx.Source, gc.Equals, "")
 		url, err := sctx.Target.URL("")
 		c.Assert(err, gc.IsNil)

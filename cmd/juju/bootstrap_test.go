@@ -131,7 +131,7 @@ func (s *BootstrapSuite) runAllowRetriesTest(c *gc.C, test bootstrapRetryTest) {
 			toolsVersions = append(toolsVersions, testVersion)
 		}
 	}
-	resetJujuHome(c)
+	resetJujuHome(c, "peckham")
 	sourceDir := createToolsSource(c, toolsVersions)
 	s.PatchValue(&envtools.DefaultBaseURL, sourceDir)
 
@@ -178,7 +178,7 @@ type bootstrapTest struct {
 func (test bootstrapTest) run(c *gc.C) {
 	// Create home with dummy provider and remove all
 	// of its envtools.
-	env := resetJujuHome(c)
+	env := resetJujuHome(c, "peckham")
 
 	if test.version != "" {
 		useVersion := strings.Replace(test.version, "%LTS%", config.LatestLtsSeries(), 1)
@@ -375,7 +375,7 @@ var bootstrapTests = []bootstrapTest{{
 }}
 
 func (s *BootstrapSuite) TestBootstrapTwice(c *gc.C) {
-	env := resetJujuHome(c)
+	env := resetJujuHome(c, "devenv")
 	defaultSeriesVersion := version.Current
 	defaultSeriesVersion.Series = config.PreferredSeries(env.Config())
 	// Force a dev version by having an odd minor version number.
@@ -384,10 +384,10 @@ func (s *BootstrapSuite) TestBootstrapTwice(c *gc.C) {
 	defaultSeriesVersion.Minor = 11
 	s.PatchValue(&version.Current, defaultSeriesVersion)
 
-	_, err := coretesting.RunCommand(c, envcmd.Wrap(&BootstrapCommand{}))
+	_, err := coretesting.RunCommand(c, envcmd.Wrap(&BootstrapCommand{}), "-e", "devenv")
 	c.Assert(err, gc.IsNil)
 
-	_, err = coretesting.RunCommand(c, envcmd.Wrap(&BootstrapCommand{}))
+	_, err = coretesting.RunCommand(c, envcmd.Wrap(&BootstrapCommand{}), "-e", "devenv")
 	c.Assert(err, gc.ErrorMatches, "environment is already bootstrapped")
 }
 
@@ -407,7 +407,7 @@ func (s *BootstrapSuite) checkSeriesArg(c *gc.C, argVariant string) *cmd.Context
 	s.PatchValue(&getBootstrapFuncs, func() BootstrapInterface {
 		return _bootstrap
 	})
-	resetJujuHome(c)
+	resetJujuHome(c, "peckham")
 
 	ctx, err := coretesting.RunCommand(c, envcmd.Wrap(&BootstrapCommand{}), "--upload-tools", argVariant, "foo,bar")
 
@@ -420,7 +420,8 @@ func (s *BootstrapSuite) checkSeriesArg(c *gc.C, argVariant string) *cmd.Context
 // error to propagate back up to the user.
 func (s *BootstrapSuite) TestBootstrapPropagatesEnvErrors(c *gc.C) {
 
-	env := resetJujuHome(c)
+	const envName = "devenv"
+	env := resetJujuHome(c, envName)
 	defaultSeriesVersion := version.Current
 	defaultSeriesVersion.Series = config.PreferredSeries(env.Config())
 	// Force a dev version by having a non zero build number.
@@ -429,7 +430,6 @@ func (s *BootstrapSuite) TestBootstrapPropagatesEnvErrors(c *gc.C) {
 	defaultSeriesVersion.Build = 1234
 	s.PatchValue(&version.Current, defaultSeriesVersion)
 
-	const envName = "peckham"
 	_, err := coretesting.RunCommand(c, envcmd.Wrap(&BootstrapCommand{}), "-e", envName)
 	c.Assert(err, gc.IsNil)
 
@@ -445,7 +445,7 @@ func (s *BootstrapSuite) TestBootstrapPropagatesEnvErrors(c *gc.C) {
 }
 
 func (s *BootstrapSuite) TestBootstrapJenvWarning(c *gc.C) {
-	env := resetJujuHome(c)
+	env := resetJujuHome(c, "peckham")
 	defaultSeriesVersion := version.Current
 	defaultSeriesVersion.Series = config.PreferredSeries(env.Config())
 	// Force a dev version by having an odd minor version number.
@@ -471,7 +471,7 @@ func (s *BootstrapSuite) TestBootstrapJenvWarning(c *gc.C) {
 
 func (s *BootstrapSuite) TestInvalidLocalSource(c *gc.C) {
 	s.PatchValue(&version.Current.Number, version.MustParse("1.2.0"))
-	env := resetJujuHome(c)
+	env := resetJujuHome(c, "peckham")
 
 	// Bootstrap the environment with an invalid source.
 	// The command returns with an error.
@@ -519,7 +519,7 @@ func checkImageMetadata(c *gc.C, stor storage.StorageReader, expected []*imageme
 
 func (s *BootstrapSuite) TestUploadLocalImageMetadata(c *gc.C) {
 	sourceDir, expected := createImageMetadata(c)
-	env := resetJujuHome(c)
+	env := resetJujuHome(c, "peckham")
 
 	// Bootstrap the environment with the valid source.
 	// Force a dev version by having an odd minor version number.
@@ -539,7 +539,7 @@ func (s *BootstrapSuite) TestUploadLocalImageMetadata(c *gc.C) {
 
 func (s *BootstrapSuite) TestValidateConstraintsCalledWithMetadatasource(c *gc.C) {
 	sourceDir, _ := createImageMetadata(c)
-	resetJujuHome(c)
+	resetJujuHome(c, "peckham")
 
 	// Bootstrap the environment with the valid source.
 	// Force a dev version by having an odd minor version number.
@@ -581,7 +581,7 @@ func (s *BootstrapSuite) TestValidateConstraintsCalledWithoutMetadatasource(c *g
 		validateCalled++
 		return nil
 	})
-	resetJujuHome(c)
+	resetJujuHome(c, "peckham")
 	_, err := coretesting.RunCommand(
 		c, envcmd.Wrap(&BootstrapCommand{}), "--constraints", "mem=4G")
 	c.Assert(err, gc.IsNil)
@@ -591,7 +591,7 @@ func (s *BootstrapSuite) TestValidateConstraintsCalledWithoutMetadatasource(c *g
 func (s *BootstrapSuite) TestAutoSyncLocalSource(c *gc.C) {
 	sourceDir := createToolsSource(c, vAll)
 	s.PatchValue(&version.Current.Number, version.MustParse("1.2.0"))
-	env := resetJujuHome(c)
+	env := resetJujuHome(c, "peckham")
 
 	// Bootstrap the environment with the valid source.
 	// The bootstrapping has to show no error, because the tools
@@ -619,7 +619,7 @@ func (s *BootstrapSuite) setupAutoUploadTest(c *gc.C, vers, series string) envir
 
 	// Create home with dummy provider and remove all
 	// of its envtools.
-	return resetJujuHome(c)
+	return resetJujuHome(c, "peckham")
 }
 
 func (s *BootstrapSuite) TestAutoUploadAfterFailedSync(c *gc.C) {
@@ -687,7 +687,7 @@ func (s *BootstrapSuite) TestMissingToolsUploadFailedError(c *gc.C) {
 }
 
 func (s *BootstrapSuite) TestBootstrapDestroy(c *gc.C) {
-	resetJujuHome(c)
+	resetJujuHome(c, "peckham")
 	devVersion := version.Current
 	// Force a dev version by having an odd minor version number.
 	// This is because we have not uploaded any tools and auto
@@ -714,7 +714,7 @@ func (s *BootstrapSuite) TestBootstrapDestroy(c *gc.C) {
 }
 
 func (s *BootstrapSuite) TestBootstrapKeepBroken(c *gc.C) {
-	resetJujuHome(c)
+	resetJujuHome(c, "peckham")
 	devVersion := version.Current
 	// Force a dev version by having a non zero build number.
 	// This is because we have not uploaded any tools and auto
@@ -751,12 +751,12 @@ func createToolsSource(c *gc.C, versions []version.Binary) string {
 		versionStrings[i] = vers.String()
 	}
 	source := c.MkDir()
-	toolstesting.MakeTools(c, source, "releases", versionStrings)
+	toolstesting.MakeTools(c, source, "releases", "released", versionStrings)
 	return source
 }
 
 // resetJujuHome restores an new, clean Juju home environment without tools.
-func resetJujuHome(c *gc.C) environs.Environ {
+func resetJujuHome(c *gc.C, envName string) environs.Environ {
 	jenvDir := gitjujutesting.HomePath(".juju", "environments")
 	err := os.RemoveAll(jenvDir)
 	c.Assert(err, gc.IsNil)
@@ -764,7 +764,7 @@ func resetJujuHome(c *gc.C) environs.Environ {
 	dummy.Reset()
 	store, err := configstore.Default()
 	c.Assert(err, gc.IsNil)
-	env, err := environs.PrepareFromName("peckham", nullContext(c), store)
+	env, err := environs.PrepareFromName(envName, nullContext(c), store)
 	c.Assert(err, gc.IsNil)
 	envtesting.RemoveAllTools(c, env)
 	return env

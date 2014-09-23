@@ -19,7 +19,7 @@ import (
 
 var logger = loggo.GetLogger("juju.environs.tools")
 
-func makeToolsConstraint(cloudSpec simplestreams.CloudSpec, majorVersion, minorVersion int,
+func makeToolsConstraint(cloudSpec simplestreams.CloudSpec, stream string, majorVersion, minorVersion int,
 	filter coretools.Filter) (*ToolsConstraint, error) {
 
 	var toolsConstraint *ToolsConstraint
@@ -35,10 +35,10 @@ func makeToolsConstraint(cloudSpec simplestreams.CloudSpec, majorVersion, minorV
 			return nil, coretools.ErrNoMatches
 		}
 		toolsConstraint = NewVersionedToolsConstraint(filter.Number,
-			simplestreams.LookupParams{CloudSpec: cloudSpec})
+			simplestreams.LookupParams{CloudSpec: cloudSpec, Stream: stream})
 	} else {
-		toolsConstraint = NewGeneralToolsConstraint(majorVersion, minorVersion, filter.Released,
-			simplestreams.LookupParams{CloudSpec: cloudSpec})
+		toolsConstraint = NewGeneralToolsConstraint(majorVersion, minorVersion,
+			simplestreams.LookupParams{CloudSpec: cloudSpec, Stream: stream})
 	}
 	if filter.Arch != "" {
 		toolsConstraint.Arches = []string{filter.Arch}
@@ -104,18 +104,23 @@ func FindTools(cloudInst environs.ConfigGetter, majorVersion, minorVersion int,
 	if err != nil {
 		return nil, err
 	}
-	return FindToolsForCloud(sources, cloudSpec, majorVersion, minorVersion, filter)
+	stream := cloudInst.Config().ToolsStream()
+	// For backwards compatibility with the config "development" attribute.
+	if stream == "" || cloudInst.Config().Development() {
+		stream = TestingStream
+	}
+	return FindToolsForCloud(sources, cloudSpec, stream, majorVersion, minorVersion, filter)
 }
 
-// FindToolsForCloud returns a List containing all tools with a given
+// FindToolsForCloud returns a List containing all tools in the given stream, with a given
 // major.minor version number and cloudSpec, filtered by filter.
 // If minorVersion = -1, then only majorVersion is considered.
 // If no *available* tools have the supplied major.minor version number, or match the
 // supplied filter, the function returns a *NotFoundError.
-func FindToolsForCloud(sources []simplestreams.DataSource, cloudSpec simplestreams.CloudSpec,
+func FindToolsForCloud(sources []simplestreams.DataSource, cloudSpec simplestreams.CloudSpec, stream string,
 	majorVersion, minorVersion int, filter coretools.Filter) (list coretools.List, err error) {
 
-	toolsConstraint, err := makeToolsConstraint(cloudSpec, majorVersion, minorVersion, filter)
+	toolsConstraint, err := makeToolsConstraint(cloudSpec, stream, majorVersion, minorVersion, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +177,6 @@ type BootstrapToolsParams struct {
 // If a specific agent version is not requested, all tools matching the current major.minor version are chosen.
 func FindBootstrapTools(cloudInst environs.ConfigGetter, params BootstrapToolsParams) (list coretools.List, err error) {
 	// Construct a tools filter.
-	cfg := cloudInst.Config()
 	cliVersion := version.Current.Number
 	filter := coretools.Filter{
 		Series: params.Series,
@@ -182,10 +186,6 @@ func FindBootstrapTools(cloudInst environs.ConfigGetter, params BootstrapToolsPa
 		// If we already have an explicit agent version set, we're done.
 		filter.Number = *params.Version
 		return bootstrapFindTools(cloudInst, cliVersion.Major, cliVersion.Minor, filter, params.AllowRetry)
-	}
-	if dev := cliVersion.IsDev() || cfg.Development(); !dev {
-		logger.Infof("filtering tools by released version")
-		filter.Released = true
 	}
 	return bootstrapFindTools(cloudInst, cliVersion.Major, cliVersion.Minor, filter, params.AllowRetry)
 }

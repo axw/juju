@@ -63,6 +63,7 @@ func (s *SimpleStreamsToolsSuite) TearDownTest(c *gc.C) {
 func (s *SimpleStreamsToolsSuite) reset(c *gc.C, attrs map[string]interface{}) {
 	final := map[string]interface{}{
 		"tools-metadata-url": "file://" + s.customToolsDir,
+		"tools-stream":       "proposed",
 	}
 	for k, v := range attrs {
 		final[k] = v
@@ -82,11 +83,15 @@ func (s *SimpleStreamsToolsSuite) removeTools(c *gc.C) {
 }
 
 func (s *SimpleStreamsToolsSuite) uploadCustom(c *gc.C, verses ...version.Binary) map[version.Binary]string {
-	return toolstesting.UploadToDirectory(c, s.customToolsDir, verses...)
+	return s.uploadCustomStream(c, "proposed", verses...)
+}
+
+func (s *SimpleStreamsToolsSuite) uploadCustomStream(c *gc.C, stream string, verses ...version.Binary) map[version.Binary]string {
+	return toolstesting.UploadToDirectory(c, stream, s.customToolsDir, verses...)
 }
 
 func (s *SimpleStreamsToolsSuite) uploadPublic(c *gc.C, verses ...version.Binary) map[version.Binary]string {
-	return toolstesting.UploadToDirectory(c, s.publicToolsDir, verses...)
+	return toolstesting.UploadToDirectory(c, "proposed", s.publicToolsDir, verses...)
 }
 
 func (s *SimpleStreamsToolsSuite) resetEnv(c *gc.C, attrs map[string]interface{}) {
@@ -180,7 +185,7 @@ func (s *SimpleStreamsToolsSuite) TestFindTools(c *gc.C) {
 
 func (s *SimpleStreamsToolsSuite) TestFindToolsInControlBucket(c *gc.C) {
 	s.reset(c, nil)
-	custom := toolstesting.UploadToStorage(c, s.env.Storage(), envtesting.V110p...)
+	custom := toolstesting.UploadToStorage(c, s.env.Storage(), "proposed", envtesting.V110p...)
 	s.uploadPublic(c, envtesting.VAll...)
 	actual, err := envtools.FindTools(s.env, 1, 1, coretools.Filter{}, envtools.DoNotAllowRetry)
 	c.Assert(err, gc.IsNil)
@@ -232,7 +237,13 @@ func (s *SimpleStreamsToolsSuite) TestFindBootstrapTools(c *gc.C) {
 		}
 		s.reset(c, attrs)
 		version.Current = test.CliVersion
-		available := s.uploadCustom(c, test.Available...)
+
+		var available map[version.Binary]string
+		if test.Development {
+			available = s.uploadCustomStream(c, "testing", test.Available...)
+		} else {
+			available = s.uploadCustomStream(c, "proposed", test.Available...)
+		}
 
 		params := envtools.BootstrapToolsParams{
 			Version: agentVersion,

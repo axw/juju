@@ -294,7 +294,8 @@ func (context *upgradeContext) uploadTools1dot17(builtTools *sync.BuiltTools,
 	if err != nil {
 		return nil, err
 	}
-	return sync.SyncBuiltTools(env.Storage(), builtTools, series...)
+	stream := context.config.ToolsStream()
+	return sync.SyncBuiltTools(env.Storage(), stream, builtTools, series...)
 }
 
 // validate chooses an upgrade version, if one has not already been chosen,

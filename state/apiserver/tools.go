@@ -190,7 +190,8 @@ func (h *toolsHandler) uploadToStorage(uploadedTools *tools.Tools, toolsDir,
 		Size:        uploadedTools.Size,
 		Sha256Hash:  uploadedTools.SHA256,
 	}
-	uploadedTools, err = sync.SyncBuiltTools(env.Storage(), builtTools, fakeSeries...)
+	stream := envConfig.ToolsStream()
+	uploadedTools, err = sync.SyncBuiltTools(env.Storage(), stream, builtTools, fakeSeries...)
 	if err != nil {
 		return nil, false, err
 	}

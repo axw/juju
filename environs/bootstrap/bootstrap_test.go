@@ -209,11 +209,16 @@ func (s *bootstrapSuite) TestBootstrapTools(c *gc.C) {
 		}
 		unique := map[version.Number]bool{}
 		for _, expected := range test.Expect {
-			unique[expected.Number] = true
+			// bootstrap tools are expected to be compatible, but may not be
+			// *exactly* the same version: ignore build number.
+			number := expected.Number
+			number.Build = 0
+			unique[number] = true
 		}
 		for expectAgentVersion := range unique {
 			agentVersion, ok := env.Config().AgentVersion()
 			c.Check(ok, gc.Equals, true)
+			agentVersion.Build = 0
 			c.Check(agentVersion, gc.Equals, expectAgentVersion)
 		}
 	}

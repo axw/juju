@@ -238,13 +238,7 @@ func (s *SimpleStreamsToolsSuite) TestFindBootstrapTools(c *gc.C) {
 		s.reset(c, attrs)
 		version.Current = test.CliVersion
 
-		var available map[version.Binary]string
-		if test.Development {
-			available = s.uploadCustomStream(c, "testing", test.Available...)
-		} else {
-			available = s.uploadCustomStream(c, "proposed", test.Available...)
-		}
-
+		available := s.uploadCustomStream(c, "proposed", test.Available...)
 		params := envtools.BootstrapToolsParams{
 			Version: agentVersion,
 			Series:  test.DefaultSeries,
@@ -258,6 +252,7 @@ func (s *SimpleStreamsToolsSuite) TestFindBootstrapTools(c *gc.C) {
 			c.Check(err, jc.Satisfies, errors.IsNotFound)
 			continue
 		}
+
 		expect := map[version.Binary]string{}
 		for _, expected := range test.Expect {
 			expect[expected] = available[expected]

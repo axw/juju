@@ -59,10 +59,12 @@ func UploadTools(ctx environs.BootstrapContext, env environs.Environ, toolsArch 
 	stor := newInterruptibleStorage(env.Storage(), interruptStorage)
 
 	cfg := env.Config()
+	stream := cfg.ToolsStream()
 	explicitVersion := uploadVersion(version.Current.Number, nil)
 	uploadSeries := SeriesToUpload(cfg, bootstrapSeries)
-	ctx.Infof("uploading tools for series %s", uploadSeries)
-	tools, err := sync.Upload(stor, &explicitVersion, uploadSeries...)
+
+	ctx.Infof("uploading tools for series %s, %q stream", uploadSeries, stream)
+	tools, err := sync.Upload(stor, stream, &explicitVersion, uploadSeries...)
 	if err != nil {
 		return err
 	}

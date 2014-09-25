@@ -671,7 +671,7 @@ func (s *BootstrapSuite) TestMissingToolsError(c *gc.C) {
 		"environment(.|\n)*")
 }
 
-func uploadToolsAlwaysFails(stor storage.Storage, forceVersion *version.Number, series ...string) (*coretools.Tools, error) {
+func uploadToolsAlwaysFails(stor storage.Storage, stream string, forceVersion *version.Number, series ...string) (*coretools.Tools, error) {
 	return nil, fmt.Errorf("an error")
 }
 
@@ -682,12 +682,12 @@ func (s *BootstrapSuite) TestMissingToolsUploadFailedError(c *gc.C) {
 	ctx, err := coretesting.RunCommand(c, envcmd.Wrap(&BootstrapCommand{}))
 
 	c.Check(coretesting.Stderr(ctx), gc.Matches,
-		"uploading tools for series \\[precise raring .*\\]\n")
+		`uploading tools for series \[precise raring .*\], "released" stream`+"\n")
 	c.Check(err, gc.ErrorMatches, "cannot upload bootstrap tools: an error")
 }
 
 func (s *BootstrapSuite) TestBootstrapDestroy(c *gc.C) {
-	resetJujuHome(c, "peckham")
+	resetJujuHome(c, "devenv")
 	devVersion := version.Current
 	// Force a dev version by having an odd minor version number.
 	// This is because we have not uploaded any tools and auto
@@ -714,7 +714,7 @@ func (s *BootstrapSuite) TestBootstrapDestroy(c *gc.C) {
 }
 
 func (s *BootstrapSuite) TestBootstrapKeepBroken(c *gc.C) {
-	resetJujuHome(c, "peckham")
+	resetJujuHome(c, "devenv")
 	devVersion := version.Current
 	// Force a dev version by having a non zero build number.
 	// This is because we have not uploaded any tools and auto

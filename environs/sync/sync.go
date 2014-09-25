@@ -73,11 +73,7 @@ func SyncTools(syncContext *SyncContext) error {
 
 	// If no stream has been specified, assume "released" for non-devel versions of Juju.
 	if syncContext.Stream == "" {
-		if !version.Current.IsDev() {
-			syncContext.Stream = envtools.ReleasedStream
-		} else {
-			syncContext.Stream = envtools.TestingStream
-		}
+		syncContext.Stream = envtools.ReleasedStream
 	}
 	sourceTools, err := envtools.FindToolsForCloud(
 		[]simplestreams.DataSource{sourceDataSource}, simplestreams.CloudSpec{},
@@ -191,7 +187,7 @@ func copyOneToolsPackage(tool *coretools.Tools, dest storage.Storage) error {
 // UploadFunc is the type of Upload, which may be
 // reassigned to control the behaviour of tools
 // uploading.
-type UploadFunc func(stor storage.Storage, forceVersion *version.Number, series ...string) (*coretools.Tools, error)
+type UploadFunc func(stor storage.Storage, stream string, forceVersion *version.Number, series ...string) (*coretools.Tools, error)
 
 // Upload builds whatever version of github.com/juju/juju is in $GOPATH,
 // uploads it to the given storage, and returns a Tools instance describing
@@ -202,19 +198,19 @@ type UploadFunc func(stor storage.Storage, forceVersion *version.Number, series 
 // func exists only for development use cases.
 var Upload UploadFunc = upload
 
-func upload(stor storage.Storage, forceVersion *version.Number, fakeSeries ...string) (*coretools.Tools, error) {
+func upload(stor storage.Storage, stream string, forceVersion *version.Number, fakeSeries ...string) (*coretools.Tools, error) {
 	builtTools, err := BuildToolsTarball(forceVersion)
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(builtTools.Dir)
 	logger.Debugf("Uploading tools for %v", fakeSeries)
-	return SyncBuiltTools(stor, builtTools, fakeSeries...)
+	return SyncBuiltTools(stor, stream, builtTools, fakeSeries...)
 }
 
 // cloneToolsForSeries copies the built tools tarball into a tarball for the specified
 // series and generates corresponding metadata.
-func cloneToolsForSeries(toolsInfo *BuiltTools, series ...string) error {
+func cloneToolsForSeries(toolsInfo *BuiltTools, stream string, series ...string) error {
 	// Copy the tools to the target storage, recording a Tools struct for each one.
 	var targetTools coretools.List
 	targetTools = append(targetTools, &coretools.Tools{
@@ -259,7 +255,7 @@ func cloneToolsForSeries(toolsInfo *BuiltTools, series ...string) error {
 		return err
 	}
 	logger.Debugf("generating tools metadata")
-	return envtools.MergeAndWriteMetadata(metadataStore, "released", targetTools, false)
+	return envtools.MergeAndWriteMetadata(metadataStore, stream, targetTools, false)
 }
 
 // BuiltTools contains metadata for a tools tarball resulting from
@@ -335,13 +331,9 @@ func buildToolsTarball(forceVersion *version.Number) (builtTools *BuiltTools, er
 }
 
 // SyncBuiltTools copies to storage a tools tarball and cloned copies for each series.
-func SyncBuiltTools(stor storage.Storage, builtTools *BuiltTools, fakeSeries ...string) (*coretools.Tools, error) {
-	if err := cloneToolsForSeries(builtTools, fakeSeries...); err != nil {
+func SyncBuiltTools(stor storage.Storage, stream string, builtTools *BuiltTools, fakeSeries ...string) (*coretools.Tools, error) {
+	if err := cloneToolsForSeries(builtTools, stream, fakeSeries...); err != nil {
 		return nil, err
-	}
-	stream := envtools.ReleasedStream
-	if builtTools.Version.IsDev() {
-		stream = envtools.TestingStream
 	}
 	syncContext := &SyncContext{
 		Source:       builtTools.Dir,

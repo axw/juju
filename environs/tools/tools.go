@@ -105,10 +105,6 @@ func FindTools(cloudInst environs.ConfigGetter, majorVersion, minorVersion int,
 		return nil, err
 	}
 	stream := cloudInst.Config().ToolsStream()
-	// For backwards compatibility with the config "development" attribute.
-	if stream == "" || cloudInst.Config().Development() {
-		stream = TestingStream
-	}
 	return FindToolsForCloud(sources, cloudSpec, stream, majorVersion, minorVersion, filter)
 }
 

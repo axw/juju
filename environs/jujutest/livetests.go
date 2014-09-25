@@ -122,7 +122,7 @@ func (t *LiveTests) BootstrapOnce(c *gc.C) {
 	// we could connect to (actual live tests, rather than local-only)
 	cons := constraints.MustParse("mem=2G")
 	if t.CanOpenState {
-		_, err := sync.Upload(t.Env.Storage(), nil, coretesting.FakeDefaultSeries)
+		_, err := sync.Upload(t.Env.Storage(), envtools.ReleasedStream, nil, coretesting.FakeDefaultSeries)
 		c.Assert(err, gc.IsNil)
 	}
 	t.UploadFakeTools(c, t.Env.Storage())
@@ -706,7 +706,7 @@ func waitAgentTools(c *gc.C, w *toolsWaiter, expect version.Binary) *coretools.T
 // all the provided watchers upgrade to the requested version.
 func (t *LiveTests) checkUpgrade(c *gc.C, conn *juju.Conn, newVersion version.Binary, waiters ...*toolsWaiter) {
 	c.Logf("putting testing version of juju tools")
-	upgradeTools, err := sync.Upload(t.Env.Storage(), &newVersion.Number, newVersion.Series)
+	upgradeTools, err := sync.Upload(t.Env.Storage(), envtools.ReleasedStream, &newVersion.Number, newVersion.Series)
 	c.Assert(err, gc.IsNil)
 	// sync.Upload always returns tools for the series on which the tests are running.
 	// We are only interested in checking the version.Number below so need to fake the
@@ -897,7 +897,7 @@ func (t *LiveTests) TestBootstrapWithDefaultSeries(c *gc.C) {
 
 	defer envStorage.Remove(otherName)
 
-	_, err = sync.Upload(dummyStorage, &current.Number)
+	_, err = sync.Upload(dummyStorage, envtools.ReleasedStream, &current.Number)
 	c.Assert(err, gc.IsNil)
 
 	// This will only work while cross-compiling across releases is safe,

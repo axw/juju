@@ -136,7 +136,7 @@ func (c *ValidateImageMetadataCommand) Run(context *cmd.Context) error {
 		if err != nil {
 			return err
 		}
-		environ, err := c.prepare(context, store)
+		environ, err := c.open(store)
 		if err != nil {
 			return err
 		}

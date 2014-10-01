@@ -27,12 +27,12 @@ type ImageMetadataCommandBase struct {
 	envcmd.EnvCommandBase
 }
 
-func (c *ImageMetadataCommandBase) prepare(context *cmd.Context, store configstore.Storage) (environs.Environ, error) {
+func (c *ImageMetadataCommandBase) open(store configstore.Storage) (environs.Environ, error) {
 	cfg, err := c.Config(store)
 	if err != nil {
 		return nil, errors.Annotate(err, "could not get config from store")
 	}
-	return environs.Prepare(cfg, context, store)
+	return environs.New(cfg)
 }
 
 // ImageMetadataCommand is used to write out simplestreams image metadata information.
@@ -76,11 +76,11 @@ func (c *ImageMetadataCommand) SetFlags(f *gnuflag.FlagSet) {
 
 // setParams sets parameters based on the environment configuration
 // for those which have not been explicitly specified.
-func (c *ImageMetadataCommand) setParams(context *cmd.Context) error {
+func (c *ImageMetadataCommand) setParams() error {
 	c.privateStorage = "<private storage name>"
 	var environ environs.Environ
 	if store, err := configstore.Default(); err == nil {
-		if environ, err = c.prepare(context, store); err == nil {
+		if environ, err = c.open(store); err == nil {
 			logger.Infof("creating image metadata for environment %q", environ.Config().Name())
 			// If the user has not specified region and endpoint, try and get it from the environment.
 			if c.Region == "" || c.Endpoint == "" {
@@ -158,7 +158,7 @@ and set the value of image-metadata-url accordingly.
 `
 
 func (c *ImageMetadataCommand) Run(context *cmd.Context) error {
-	if err := c.setParams(context); err != nil {
+	if err := c.setParams(); err != nil {
 		return err
 	}
 	out := context.Stdout

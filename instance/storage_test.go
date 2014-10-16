@@ -17,6 +17,7 @@ func (s *StorageSuite) TestParseStorage(c *gc.C) {
 	parseStorageTests := []struct {
 		arg            string
 		expectProvider string
+		expectName     string
 		expectCount    int
 		expectSize     uint64
 		expectOptions  string
@@ -29,46 +30,55 @@ func (s *StorageSuite) TestParseStorage(c *gc.C) {
 		err: `failed to parse storage ":"`,
 	}, {
 		arg: "1M",
+		err: "storage name missing",
+	}, {
+		arg: "name:1M",
 		err: "storage provider missing",
 	}, {
-		arg:            "provider:1M",
+		arg:            "name:provider:1M",
+		expectName:     "name",
 		expectProvider: "provider",
 		expectCount:    1,
 		expectSize:     1,
 	}, {
-		arg:            "provider:1M:",
+		arg:            "name:provider:1M:",
+		expectName:     "name",
 		expectProvider: "provider",
 		expectCount:    1,
 		expectSize:     1,
 	}, {
-		arg:            "provider:1M:whatever options that please me",
+		arg:            "name:provider:1M:whatever options that please me",
+		expectName:     "name",
 		expectProvider: "provider",
 		expectCount:    1,
 		expectSize:     1,
 		expectOptions:  "whatever options that please me",
 	}, {
-		arg:            "p:1G",
+		arg:            "n:p:1G",
+		expectName:     "n",
 		expectProvider: "p",
 		expectCount:    1,
 		expectSize:     1024,
 	}, {
-		arg:            "p:0.5T",
+		arg:            "n:p:0.5T",
+		expectName:     "n",
 		expectProvider: "p",
 		expectCount:    1,
 		expectSize:     1024 * 512,
 	}, {
-		arg:            "p:3x0.125P",
+		arg:            "n:p:3x0.125P",
+		expectName:     "n",
 		expectProvider: "p",
 		expectCount:    3,
 		expectSize:     1024 * 1024 * 128,
 	}, {
-		arg: "p:0x100M",
+		arg: "n:p:0x100M",
 		err: "count must be a positive integer",
 	}, {
-		arg: "p:-1x100M",
+		arg: "n:p:-1x100M",
 		err: "count must be a positive integer",
 	}, {
-		arg: "p:-100M",
+		arg: "n:p:-100M",
 		err: "must be a non-negative float with optional M/G/T/P suffix",
 	}}
 
@@ -83,6 +93,7 @@ func (s *StorageSuite) TestParseStorage(c *gc.C) {
 				continue
 			}
 			c.Check(p, gc.DeepEquals, &instance.Storage{
+				Name:     t.expectName,
 				Provider: t.expectProvider,
 				Count:    t.expectCount,
 				Size:     t.expectSize,

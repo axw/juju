@@ -12,11 +12,11 @@ import (
 )
 
 const (
+	storageNameSnippet     = "[a-zA-Z][a-zA-Z0-9]*"
 	storageProviderSnippet = "[a-zA-Z][a-zA-Z0-9]*"
 	storageCountSnippet    = "-?[0-9]+"
-	//storageSizeSnippet     = "[:digit:]+(?:[.][:digit:]+)?[MGTP]?"
-	storageSizeSnippet    = "-?[0-9]+(?:\\.[0-9]+)?[MGTP]?"
-	storageOptionsSnippet = ".*"
+	storageSizeSnippet     = "-?[0-9]+(?:\\.[0-9]+)?[MGTP]?"
+	storageOptionsSnippet  = ".*"
 )
 
 // ErrStorageProviderMissing is an error that is returned from ParseStorage
@@ -25,6 +25,7 @@ var ErrStorageProviderMissing = fmt.Errorf("storage provider missing")
 
 var storageRE = regexp.MustCompile(
 	"^" +
+		"(?:(" + storageNameSnippet + "):)?" +
 		"(?:(" + storageProviderSnippet + "):)?" +
 		"(?:(" + storageCountSnippet + ")x)?" +
 		"(" + storageSizeSnippet + ")" +
@@ -36,6 +37,10 @@ var storageRE = regexp.MustCompile(
 // Storage consists of a required provider type, a size with optional
 // count (defaulting to 1), and provider-specific options.
 type Storage struct {
+	// Name is the storage name. This is not unique per storage
+	// instance, but identifies a charm storage desire.
+	Name string
+
 	// Provider is the storage provider type.
 	Provider string
 
@@ -50,15 +55,18 @@ type Storage struct {
 }
 
 func (s *Storage) String() string {
-	return fmt.Sprintf("%s:%dx%d:%s", s.Provider, s.Count, s.Size, s.Options)
+	return fmt.Sprintf("%s:%s:%dx%d:%s", s.Name, s.Provider, s.Count, s.Size, s.Options)
 }
 
 // ParseStorage attempts to parse the specified string and create a
 // corresponding Storage structure.
 //
 // The acceptable format for storage specifications is:
-//    PROVIDER:[COUNTx]SIZE[:OPTIONS]
+//    NAME:PROVIDER:[COUNTx]SIZE[:OPTIONS]
 // where
+//    NAME is a string starting with a letter of the alphabet,
+//    followed by zero or more alpha-numeric characters.
+//
 //    PROVIDER is a string starting with a letter of the alphabet,
 //    followed by zero or more alpha-numeric characters.
 //
@@ -76,21 +84,25 @@ func ParseStorage(s string) (*Storage, error) {
 		return nil, errors.Errorf("failed to parse storage %q", s)
 	}
 	if match[1] == "" {
+		return nil, errors.New("storage name missing")
+	}
+	if match[2] == "" {
 		return nil, ErrStorageProviderMissing
 	}
-	count, err := parseStorageCount(match[2])
+	count, err := parseStorageCount(match[3])
 	if err != nil {
 		return nil, err
 	}
-	size, err := parseSize(match[3])
+	size, err := parseSize(match[4])
 	if err != nil {
 		return nil, err
 	}
 	storage := Storage{
-		Provider: match[1],
+		Name:     match[1],
+		Provider: match[2],
 		Count:    count,
 		Size:     *size,
-		Options:  match[4],
+		Options:  match[5],
 	}
 	return &storage, nil
 }

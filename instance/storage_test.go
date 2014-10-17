@@ -15,75 +15,88 @@ var _ = gc.Suite(&StorageSuite{})
 
 func (s *StorageSuite) TestParseStorage(c *gc.C) {
 	parseStorageTests := []struct {
-		arg            string
-		expectProvider string
-		expectName     string
-		expectCount    int
-		expectSize     uint64
-		expectOptions  string
-		err            string
+		arg           string
+		expectSource  string
+		expectName    string
+		expectCount   int
+		expectSize    uint64
+		expectOptions string
+		err           string
 	}{{
 		arg: "",
-		err: `failed to parse storage ""`,
+		err: `storage name missing`,
 	}, {
 		arg: ":",
-		err: `failed to parse storage ":"`,
+		err: `storage name missing`,
 	}, {
 		arg: "1M",
 		err: "storage name missing",
 	}, {
-		arg: "name:1M",
-		err: "storage provider missing",
+		arg: "ebs:1M",
+		err: "storage name missing",
 	}, {
-		arg:            "name:provider:1M",
-		expectName:     "name",
-		expectProvider: "provider",
-		expectCount:    1,
-		expectSize:     1,
+		arg: "name=1M",
+		err: "storage source missing",
 	}, {
-		arg:            "name:provider:1M:",
-		expectName:     "name",
-		expectProvider: "provider",
-		expectCount:    1,
-		expectSize:     1,
+		arg:          "name=source:1M",
+		expectName:   "name",
+		expectSource: "source",
+		expectCount:  1,
+		expectSize:   1,
 	}, {
-		arg:            "name:provider:1M:whatever options that please me",
-		expectName:     "name",
-		expectProvider: "provider",
-		expectCount:    1,
-		expectSize:     1,
-		expectOptions:  "whatever options that please me",
+		arg: "name=source:1Msomejunk",
+		err: `invalid trailing data "somejunk": options must be preceded by ',' when size is specified`,
 	}, {
-		arg:            "n:p:1G",
-		expectName:     "n",
-		expectProvider: "p",
-		expectCount:    1,
-		expectSize:     1024,
+		arg:           "name=source:anyoldjunk",
+		expectName:    "name",
+		expectSource:  "source",
+		expectCount:   0,
+		expectSize:    0,
+		expectOptions: "anyoldjunk",
 	}, {
-		arg:            "n:p:0.5T",
-		expectName:     "n",
-		expectProvider: "p",
-		expectCount:    1,
-		expectSize:     1024 * 512,
+		arg:          "name=source:1M,",
+		expectName:   "name",
+		expectSource: "source",
+		expectCount:  1,
+		expectSize:   1,
 	}, {
-		arg:            "n:p:3x0.125P",
-		expectName:     "n",
-		expectProvider: "p",
-		expectCount:    3,
-		expectSize:     1024 * 1024 * 128,
+		arg:           "name=source:1M,whatever options that please me",
+		expectName:    "name",
+		expectSource:  "source",
+		expectCount:   1,
+		expectSize:    1,
+		expectOptions: "whatever options that please me",
 	}, {
-		arg: "n:p:0x100M",
+		arg:          "n=s:1G",
+		expectName:   "n",
+		expectSource: "s",
+		expectCount:  1,
+		expectSize:   1024,
+	}, {
+		arg:          "n=s:0.5T",
+		expectName:   "n",
+		expectSource: "s",
+		expectCount:  1,
+		expectSize:   1024 * 512,
+	}, {
+		arg:          "n=s:3x0.125P",
+		expectName:   "n",
+		expectSource: "s",
+		expectCount:  3,
+		expectSize:   1024 * 1024 * 128,
+	}, {
+		arg: "n=s:0x100M",
 		err: "count must be a positive integer",
 	}, {
-		arg: "n:p:-1x100M",
+		arg: "n=s:-1x100M",
 		err: "count must be a positive integer",
 	}, {
-		arg: "n:p:-100M",
+		arg: "n=s:-100M",
 		err: "must be a non-negative float with optional M/G/T/P suffix",
 	}}
 
 	for i, t := range parseStorageTests {
-		c.Logf("test %d: %s", i, t.arg)
+		c.Logf("test %d: %q", i, t.arg)
 		p, err := instance.ParseStorage(t.arg)
 		if t.err != "" {
 			c.Check(err, gc.ErrorMatches, t.err)
@@ -93,11 +106,11 @@ func (s *StorageSuite) TestParseStorage(c *gc.C) {
 				continue
 			}
 			c.Check(p, gc.DeepEquals, &instance.Storage{
-				Name:     t.expectName,
-				Provider: t.expectProvider,
-				Count:    t.expectCount,
-				Size:     t.expectSize,
-				Options:  t.expectOptions,
+				Name:    t.expectName,
+				Source:  t.expectSource,
+				Count:   t.expectCount,
+				Size:    t.expectSize,
+				Options: t.expectOptions,
 			})
 		}
 	}

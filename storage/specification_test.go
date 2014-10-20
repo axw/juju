@@ -1,7 +1,7 @@
 // Copyright 2014 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package instance_test
+package storage_test
 
 import (
 	gc "gopkg.in/check.v1"

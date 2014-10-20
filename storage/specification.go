@@ -1,7 +1,7 @@
 // Copyright 2014 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package instance
+package storage
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/juju/errors"
+	"github.com/juju/utils"
 )
 
 const (
@@ -98,12 +99,16 @@ func ParseStorage(s string) (*Storage, error) {
 	if match[2] == "" {
 		return nil, ErrStorageSourceMissing
 	}
-	sizeptr, err := parseSize(match[4])
-	if err != nil {
-		return nil, err
-	}
+
+	var size uint64
 	var count int
-	size := *sizeptr
+	var err error
+	if match[4] != "" {
+		size, err = utils.ParseSize(match[4])
+		if err != nil {
+			return nil, errors.Annotate(err, "failed to parse size")
+		}
+	}
 	options := match[5]
 
 	if size > 0 {

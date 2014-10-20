@@ -809,17 +809,17 @@ func (e *environ) ConstraintsValidator() (constraints.Validator, error) {
 }
 
 // StartInstance is specified in the InstanceBroker interface.
-func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Instance, *instance.HardwareCharacteristics, []network.Info, error) {
+func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.StartInstanceResult, error) {
 
 	defer delay()
 	machineId := args.MachineConfig.MachineId
 	logger.Infof("dummy startinstance, machine %s", machineId)
 	if err := e.checkBroken("StartInstance"); err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	estate, err := e.state()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	estate.mu.Lock()
 	defer estate.mu.Unlock()
@@ -832,16 +832,16 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Ins
 	}
 
 	if args.MachineConfig.MachineNonce == "" {
-		return nil, nil, nil, fmt.Errorf("cannot start instance: missing machine nonce")
+		return nil, fmt.Errorf("cannot start instance: missing machine nonce")
 	}
 	if _, ok := e.Config().CACert(); !ok {
-		return nil, nil, nil, fmt.Errorf("no CA certificate in environment configuration")
+		return nil, fmt.Errorf("no CA certificate in environment configuration")
 	}
 	if args.MachineConfig.MongoInfo.Tag != names.NewMachineTag(machineId) {
-		return nil, nil, nil, fmt.Errorf("entity tag must match started machine")
+		return nil, fmt.Errorf("entity tag must match started machine")
 	}
 	if args.MachineConfig.APIInfo.Tag != names.NewMachineTag(machineId) {
-		return nil, nil, nil, fmt.Errorf("entity tag must match started machine")
+		return nil, fmt.Errorf("entity tag must match started machine")
 	}
 	logger.Infof("would pick tools from %s", args.Tools)
 	series := args.Tools.OneSeries()
@@ -932,7 +932,11 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Ins
 		APIInfo:       args.MachineConfig.APIInfo,
 		Secret:        e.ecfg().secret(),
 	}
-	return i, hc, networkInfo, nil
+	return &environs.StartInstanceResult{
+		Instance:                i,
+		HardwareCharacteristics: hc,
+		NetworkInfo:             networkInfo,
+	}, nil
 }
 
 func (e *environ) StopInstances(ids ...instance.Id) error {

@@ -76,7 +76,7 @@ func Bootstrap(ctx environs.BootstrapContext, env environs.Environ, args environ
 	maybeSetBridge(machineConfig)
 
 	fmt.Fprintln(ctx.GetStderr(), "Launching instance")
-	inst, hw, _, err := env.StartInstance(environs.StartInstanceParams{
+	result, err := env.StartInstance(environs.StartInstanceParams{
 		Constraints:   args.Constraints,
 		Tools:         availableTools,
 		MachineConfig: machineConfig,
@@ -85,18 +85,18 @@ func Bootstrap(ctx environs.BootstrapContext, env environs.Environ, args environ
 	if err != nil {
 		return "", "", nil, fmt.Errorf("cannot start bootstrap instance: %v", err)
 	}
-	fmt.Fprintf(ctx.GetStderr(), " - %s\n", inst.Id())
+	fmt.Fprintf(ctx.GetStderr(), " - %s\n", result.Instance.Id())
 
 	finalize := func(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
-		mcfg.InstanceId = inst.Id()
-		mcfg.HardwareCharacteristics = hw
+		mcfg.InstanceId = result.Instance.Id()
+		mcfg.HardwareCharacteristics = result.HardwareCharacteristics
 		if err := environs.FinishMachineConfig(mcfg, env.Config()); err != nil {
 			return err
 		}
 		maybeSetBridge(mcfg)
-		return FinishBootstrap(ctx, client, inst, mcfg)
+		return FinishBootstrap(ctx, client, result.Instance, mcfg)
 	}
-	return *hw.Arch, series, finalize, nil
+	return *result.HardwareCharacteristics.Arch, series, finalize, nil
 }
 
 // FinishBootstrap completes the bootstrap process by connecting

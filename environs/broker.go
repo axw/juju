@@ -8,6 +8,7 @@ import (
 	"github.com/juju/juju/environs/cloudinit"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 )
 
@@ -30,6 +31,11 @@ type StartInstanceParams struct {
 	// instance should be started.
 	Placement string
 
+	// Storage is a slice of storage specifications that the
+	// provider should attempt to instantiate and attach to
+	// the instance.
+	Storage []*instance.Storage
+
 	// DistributionGroup, if non-nil, is a function
 	// that returns a slice of instance.Ids that belong
 	// to the same distribution group as the machine
@@ -39,16 +45,33 @@ type StartInstanceParams struct {
 	DistributionGroup func() ([]instance.Id, error)
 }
 
-// TODO(wallyworld) - we want this in the environs/instance package but import loops
-// stop that from being possible right now.
+// StartInstanceResult holds the result of an
+// InstanceBroker.StartInstance method call.
+type StartInstanceResult struct {
+	// Instance is an interface representing a cloud instance.
+	Instance instance.Instance
+
+	// HardwareCharacteristics represents the hardware characteristics
+	// of the newly created instance.
+	HardwareCharacteristics *instance.HardwareCharacteristics
+
+	// NetworkInfo contains information about configured networks.
+	NetworkInfo []network.Info
+
+	// BlockDevices maps block devices to corresponding storage names.
+	BlockDevices map[storage.BlockDeviceId]string
+}
+
+// TODO(wallyworld) - we want this in the environs/instance package but import
+// loops stop that from being possible right now.
 type InstanceBroker interface {
 	// StartInstance asks for a new instance to be created, associated with
-	// the provided config in machineConfig. The given config describes the juju
-	// state for the new instance to connect to. The config MachineNonce, which must be
-	// unique within an environment, is used by juju to protect against the
-	// consequences of multiple instances being started with the same machine
-	// id.
-	StartInstance(args StartInstanceParams) (instance.Instance, *instance.HardwareCharacteristics, []network.Info, error)
+	// the provided config in machineConfig. The given config describes the
+	// juju state for the new instance to connect to. The config MachineNonce,
+	// which must be unique within an environment, is used by juju to protect
+	// against the consequences of multiple instances being started with the
+	// same machine id.
+	StartInstance(args StartInstanceParams) (*StartInstanceResult, error)
 
 	// StopInstances shuts down the instances with the specified IDs.
 	// Unknown instance IDs are ignored, to enable idempotency.

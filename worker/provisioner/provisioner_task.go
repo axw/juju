@@ -566,7 +566,7 @@ func (task *provisionerTask) startMachine(
 	startInstanceParams environs.StartInstanceParams,
 ) error {
 
-	inst, metadata, networkInfo, err := task.broker.StartInstance(startInstanceParams)
+	result, err := task.broker.StartInstance(startInstanceParams)
 	if err != nil {
 		// If this is a retryable error, we retry once
 		if instance.IsRetryableCreationError(errors.Cause(err)) {
@@ -585,13 +585,15 @@ func (task *provisionerTask) startMachine(
 	}
 
 	nonce := startInstanceParams.MachineConfig.MachineNonce
-	networks, ifaces := task.prepareNetworkAndInterfaces(networkInfo)
+	networks, ifaces := task.prepareNetworkAndInterfaces(result.NetworkInfo)
+	inst := result.Instance
+	hardware := result.HardwareCharacteristics
 
-	err = machine.SetInstanceInfo(inst.Id(), nonce, metadata, networks, ifaces)
+	err = machine.SetInstanceInfo(inst.Id(), nonce, hardware, networks, ifaces)
 	if err != nil && params.IsCodeNotImplemented(err) {
 		return fmt.Errorf("cannot provision instance %v for machine %q with networks: not implemented", inst.Id(), machine)
 	} else if err == nil {
-		logger.Infof("started machine %s as instance %s with hardware %q, networks %v, interfaces %v", machine, inst.Id(), metadata, networks, ifaces)
+		logger.Infof("started machine %s as instance %s with hardware %q, networks %v, interfaces %v", machine, inst.Id(), hardware, networks, ifaces)
 		return nil
 	}
 	// We need to stop the instance right away here, set error status and go on.

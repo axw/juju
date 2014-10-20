@@ -654,15 +654,15 @@ func (e *environ) DistributeInstances(candidates, distributionGroup []instance.I
 var availabilityZoneAllocations = common.AvailabilityZoneAllocations
 
 // StartInstance is specified in the InstanceBroker interface.
-func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Instance, *instance.HardwareCharacteristics, []network.Info, error) {
+func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.StartInstanceResult, error) {
 	var availabilityZones []string
 	if args.Placement != "" {
 		placement, err := e.parsePlacement(args.Placement)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
 		if placement.availabilityZone.State != "available" {
-			return nil, nil, nil, fmt.Errorf("availability zone %q is %s", placement.availabilityZone.Name, placement.availabilityZone.State)
+			return nil, fmt.Errorf("availability zone %q is %s", placement.availabilityZone.Name, placement.availabilityZone.State)
 		}
 		availabilityZones = append(availabilityZones, placement.availabilityZone.Name)
 	}
@@ -676,28 +676,28 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Ins
 		if args.DistributionGroup != nil {
 			group, err = args.DistributionGroup()
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, err
 			}
 		}
 		zoneInstances, err := availabilityZoneAllocations(e, group)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
 		for _, z := range zoneInstances {
 			availabilityZones = append(availabilityZones, z.ZoneName)
 		}
 		if len(availabilityZones) == 0 {
-			return nil, nil, nil, fmt.Errorf("failed to determine availability zones")
+			return nil, fmt.Errorf("failed to determine availability zones")
 		}
 	}
 
 	if args.MachineConfig.HasNetworks() {
-		return nil, nil, nil, fmt.Errorf("starting instances with networks is not supported yet.")
+		return nil, fmt.Errorf("starting instances with networks is not supported yet.")
 	}
 	arches := args.Tools.Arches()
 	sources, err := environs.ImageMetadataSources(e)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	series := args.Tools.OneSeries()
@@ -709,31 +709,36 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Ins
 		Storage:     []string{ssdStorage, ebsStorage},
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	tools, err := args.Tools.Match(tools.Filter{Arch: spec.Image.Arch})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("chosen architecture %v not present in %v", spec.Image.Arch, arches)
+		return nil, fmt.Errorf("chosen architecture %v not present in %v", spec.Image.Arch, arches)
 	}
 
 	args.MachineConfig.Tools = tools[0]
 	if err := environs.FinishMachineConfig(args.MachineConfig, e.Config()); err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	userData, err := environs.ComposeUserData(args.MachineConfig, nil)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cannot make user data: %v", err)
+		return nil, fmt.Errorf("cannot make user data: %v", err)
 	}
 	logger.Debugf("ec2 user data; %d bytes", len(userData))
 	cfg := e.Config()
 	groups, err := e.setUpGroups(args.MachineConfig.MachineId, cfg.APIPort())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cannot set up groups: %v", err)
+		return nil, fmt.Errorf("cannot set up groups: %v", err)
 	}
 	var instResp *ec2.RunInstancesResp
 
-	device, diskSize := getDiskSize(args.Constraints)
+	blockDeviceMappings, err := getBlockDeviceMappings(args)
+	if err != nil {
+		return nil, errors.Annotate(err, "could not create block device mappings")
+	}
+	rootDiskSize := uint64(blockDeviceMappings[0].VolumeSize) * 1024
+
 	for _, availZone := range availabilityZones {
 		instResp, err = runInstances(e.ec2(), &ec2.RunInstances{
 			AvailZone:           availZone,
@@ -743,7 +748,7 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Ins
 			UserData:            userData,
 			InstanceType:        spec.InstanceType.Name,
 			SecurityGroups:      groups,
-			BlockDeviceMappings: []ec2.BlockDeviceMapping{device},
+			BlockDeviceMappings: blockDeviceMappings,
 		})
 		if isZoneConstrainedError(err) {
 			logger.Infof("%q is constrained, trying another availability zone", availZone)
@@ -752,10 +757,10 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Ins
 		}
 	}
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cannot run instances: %v", err)
+		return nil, fmt.Errorf("cannot run instances: %v", err)
 	}
 	if len(instResp.Instances) != 1 {
-		return nil, nil, nil, fmt.Errorf("expected 1 started instance, got %d", len(instResp.Instances))
+		return nil, fmt.Errorf("expected 1 started instance, got %d", len(instResp.Instances))
 	}
 
 	inst := &ec2Instance{
@@ -775,10 +780,13 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (instance.Ins
 		Mem:      &spec.InstanceType.Mem,
 		CpuCores: &spec.InstanceType.CpuCores,
 		CpuPower: spec.InstanceType.CpuPower,
-		RootDisk: &diskSize,
+		RootDisk: &rootDiskSize,
 		// Tags currently not supported by EC2
 	}
-	return inst, &hc, nil, nil
+	return &environs.StartInstanceResult{
+		Instance:                inst,
+		HardwareCharacteristics: &hc,
+	}, nil
 }
 
 var runInstances = _runInstances
@@ -806,29 +814,44 @@ func (e *environ) StopInstances(ids ...instance.Id) error {
 // minDiskSize is the minimum/default size (in megabytes) for ec2 root disks.
 const minDiskSize uint64 = 8 * 1024
 
-// getDiskSize translates a RootDisk constraint (or lackthereof) into a
-// BlockDeviceMapping request for EC2.  megs is the size in megabytes of
-// the disk that was requested.
-func getDiskSize(cons constraints.Value) (dvc ec2.BlockDeviceMapping, megs uint64) {
-	diskSize := minDiskSize
-
-	if cons.RootDisk != nil {
-		if *cons.RootDisk >= minDiskSize {
-			diskSize = *cons.RootDisk
+// getBlockDeviceMappings translates a StartInstanceParams into BlockDeviceMappings.
+// The first entry is always the root disk mapping.
+func getBlockDeviceMappings(args environs.StartInstanceParams) ([]ec2.BlockDeviceMapping, error) {
+	rootDiskSize := minDiskSize
+	if args.Constraints.RootDisk != nil {
+		if *args.Constraints.RootDisk >= minDiskSize {
+			rootDiskSize = *args.Constraints.RootDisk
 		} else {
-			logger.Infof("Ignoring root-disk constraint of %dM because it is smaller than the EC2 image size of %dM",
-				*cons.RootDisk, minDiskSize)
+			logger.Infof(
+				"Ignoring root-disk constraint of %dM because it is smaller than the EC2 image size of %dM",
+				*args.Constraints.RootDisk,
+				minDiskSize,
+			)
 		}
 	}
 
-	// AWS's volume size is in gigabytes, root-disk is in megabytes,
-	// so round up to the nearest gigabyte.
-	volsize := int64((diskSize + 1023) / 1024)
-	return ec2.BlockDeviceMapping{
-			DeviceName: "/dev/sda1",
-			VolumeSize: volsize,
-		},
-		uint64(volsize * 1024)
+	// AWS's volume size is in GiB, root-disk is in MiB;
+	// round up to the nearest GiB.
+	rootDiskSizeG := int64((rootDiskSize + 1023) / 1024)
+	rootDiskMapping := ec2.BlockDeviceMapping{
+		DeviceName: "/dev/sda1",
+		VolumeSize: rootDiskSizeG,
+	}
+
+	blockDeviceMappings := []ec2.BlockDeviceMapping{rootDiskMapping, {
+		VirtualName: "ephemeral0",
+		DeviceName:  "/dev/sdb",
+	}, {
+		VirtualName: "ephemeral1",
+		DeviceName:  "/dev/sdc",
+	}, {
+		VirtualName: "ephemeral2",
+		DeviceName:  "/dev/sdd",
+	}, {
+		VirtualName: "ephemeral3",
+		DeviceName:  "/dev/sde",
+	}}
+	return blockDeviceMappings, nil
 }
 
 // groupInfoByName returns information on the security group

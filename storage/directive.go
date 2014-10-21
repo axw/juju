@@ -20,7 +20,7 @@ const (
 	storageOptionsSnippet = ".*"
 )
 
-// ErrStorageSourceMissing is an error that is returned from ParseStorage
+// ErrStorageSourceMissing is an error that is returned from ParseDirective
 // if the source is unspecified.
 var ErrStorageSourceMissing = fmt.Errorf("storage source missing")
 
@@ -34,40 +34,62 @@ var storageRE = regexp.MustCompile(
 		"$",
 )
 
-// Storage defines a storage specification for creating storage.
-// Storage consists of a required source, an optional count and
-// size (count defaults to 1 if size is provided), and source-specific
-// options.
-type Storage struct {
+// Directive is a storage creation specification.
+type Directive struct {
 	// Name is the storage name. This is not unique per storage
-	// instance, but identifies a charm storage desire.
+	// instance, but is user-defined and associated with storage.
+	//
+	// Name is required.
 	Name string
 
-	// Source is the storage source.
+	// Source is the storage source (ebs, cinder, nfs, ...).
+	//
+	// Source is required.
 	Source string
 
-	// Count is the number of instances of the storage to create.
+	// Count is the number of instances of the store to acquire.
+	//
+	// Count is optional. Count will default to 1 if a size is
+	// specified, otherwise it will default to 0.
 	Count int
 
 	// Size is the size of the storage in MiB.
 	//
-	// For some types of storage, it is not meaningful to specify
-	// size (e.g. an NFS share); for others it is mandatory
-	// (e.g. an EBS volume).
+	// Size's optionality depends on the storage source. For some
+	// types of storage (e.g. an NFS share), it is not meaningful
+	// to specify a size; for others, it is necessary (e.g. EBS).
 	Size uint64
+
+	// Persistent indicates that the storage should be made persistent
+	// beyond the lifetime of the instance it is attached to. The user
+	// must explicitly remove or disown (from the environment) the store
+	// before the environment can be cleanly destroyed.
+	//
+	// Persistent cannot be directly specified by the user; it is
+	// set by Juju when combining a directive and a charm storage
+	// specification.
+	Persistent bool
 
 	// Options is source-specific options for storage creation.
 	Options string
 }
 
-func (s *Storage) String() string {
-	return fmt.Sprintf("%s:%s:%dx%d:%s", s.Name, s.Source, s.Count, s.Size, s.Options)
+func (s *Directive) String() string {
+	return fmt.Sprintf(
+		"%s:%s:%dx%d,persistent=%v,%s",
+		s.Name,
+		s.Source,
+		s.Count,
+		s.Size,
+		s.Persistent,
+		s.Options,
+	)
 }
 
-// ParseStorage attempts to parse the specified string and create a
-// corresponding Storage structure.
+// ParseDirective attempts to parse the string and create a
+// corresponding Directive structure.
 //
-// The acceptable format for storage specifications is:
+// The acceptable format for storage directives is:
 //    NAME=SOURCE:[[COUNTx]SIZE][,OPTIONS]
 // where
 //    NAME is an identifier for storage instances; multiple
@@ -88,7 +110,7 @@ func (s *Storage) String() string {
 //
 //    OPTIONS is the string remaining the colon (if any) that will
 //    be passed onto the storage source unmodified.
-func ParseStorage(s string) (*Storage, error) {
+func ParseDirective(s string) (*Directive, error) {
 	match := storageRE.FindStringSubmatch(s)
 	if match == nil {
 		return nil, errors.Errorf("failed to parse storage %q", s)
@@ -129,7 +151,7 @@ func ParseStorage(s string) (*Storage, error) {
 		}
 	}
 
-	storage := Storage{
+	storage := Directive{
 		Name:    match[1],
 		Source:  match[2],
 		Count:   count,
@@ -153,10 +175,10 @@ func parseStorageCount(count string) (int, error) {
 	return n, nil
 }
 
-// MustParseStorage attempts to parse the specified string and create
-// a corresponding Storage structure, panicking if an error occurs.
-func MustParseStorage(s string) *Storage {
-	storage, err := ParseStorage(s)
+// MustParseDirective attempts to parse the string and create a
+// corresponding Directive structure, panicking if an error occurs.
+func MustParseDirective(s string) *Directive {
+	storage, err := ParseDirective(s)
 	if err != nil {
 		panic(err)
 	}

@@ -6,22 +6,23 @@ package storage_test
 import (
 	gc "gopkg.in/check.v1"
 
-	"github.com/juju/juju/instance"
+	"github.com/juju/juju/storage"
 )
 
-type StorageSuite struct{}
+type DirectiveSuite struct{}
 
-var _ = gc.Suite(&StorageSuite{})
+var _ = gc.Suite(&DirectiveSuite{})
 
-func (s *StorageSuite) TestParseStorage(c *gc.C) {
+func (s *DirectiveSuite) TestParseDirective(c *gc.C) {
 	parseStorageTests := []struct {
-		arg           string
-		expectSource  string
-		expectName    string
-		expectCount   int
-		expectSize    uint64
-		expectOptions string
-		err           string
+		arg              string
+		expectSource     string
+		expectName       string
+		expectCount      int
+		expectSize       uint64
+		expectPersistent bool
+		expectOptions    string
+		err              string
 	}{{
 		arg: "",
 		err: `storage name missing`,
@@ -92,12 +93,12 @@ func (s *StorageSuite) TestParseStorage(c *gc.C) {
 		err: "count must be a positive integer",
 	}, {
 		arg: "n=s:-100M",
-		err: "must be a non-negative float with optional M/G/T/P suffix",
+		err: "failed to parse size: must be a non-negative float with optional M/G/T/P suffix",
 	}}
 
 	for i, t := range parseStorageTests {
 		c.Logf("test %d: %q", i, t.arg)
-		p, err := instance.ParseStorage(t.arg)
+		p, err := storage.ParseDirective(t.arg)
 		if t.err != "" {
 			c.Check(err, gc.ErrorMatches, t.err)
 			c.Check(p, gc.IsNil)
@@ -105,7 +106,7 @@ func (s *StorageSuite) TestParseStorage(c *gc.C) {
 			if !c.Check(err, gc.IsNil) {
 				continue
 			}
-			c.Check(p, gc.DeepEquals, &instance.Storage{
+			c.Check(p, gc.DeepEquals, &storage.Directive{
 				Name:    t.expectName,
 				Source:  t.expectSource,
 				Count:   t.expectCount,

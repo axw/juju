@@ -19,6 +19,7 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/provider"
+	"github.com/juju/juju/storage"
 )
 
 const bootstrapDoc = `
@@ -73,6 +74,7 @@ type BootstrapCommand struct {
 	seriesOld             []string
 	MetadataSource        string
 	Placement             string
+	Storage               []string
 	KeepBrokenEnvironment bool
 }
 
@@ -91,7 +93,8 @@ func (c *BootstrapCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.Var(newSeriesValue(nil, &c.seriesOld), "series", "see --upload-series (OBSOLETE)")
 	f.StringVar(&c.MetadataSource, "metadata-source", "", "local path to use as tools and/or metadata source")
 	f.StringVar(&c.Placement, "to", "", "a placement directive indicating an instance to bootstrap")
-	f.BoolVar(&c.KeepBrokenEnvironment, "keep-broken", false, "do not destroy the environment if bootstrap fails")
+	f.BoolVar(&c.KeepBrokenEnvironment, "keep-broken", false, "do not destory the environment if bootstrap fails")
+	f.Var(cmd.NewAppendStringsValue(&c.Storage), "storage", "storage specifications for the bootstrap instance")
 }
 
 func (c *BootstrapCommand) Init(args []string) (err error) {
@@ -242,9 +245,19 @@ func (c *BootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		c.UploadTools = true
 	}
 
+	storageDirectives := make([]*storage.Directive, len(c.Storage))
+	for i, str := range c.Storage {
+		spec, err := storage.ParseDirective(str)
+		if err != nil {
+			return errors.Annotate(err, "failed to parse storage directive")
+		}
+		storageDirectives[i] = spec
+	}
+
 	err = bootstrapFuncs.Bootstrap(envcmd.BootstrapContext(ctx), environ, bootstrap.BootstrapParams{
 		Constraints: c.Constraints,
 		Placement:   c.Placement,
+		Storage:     storageDirectives,
 		UploadTools: c.UploadTools,
 		MetadataDir: metadataDir,
 	})

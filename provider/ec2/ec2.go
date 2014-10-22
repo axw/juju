@@ -5,6 +5,7 @@ package ec2
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/provider/common"
 	"github.com/juju/juju/state"
+	blockstorage "github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 )
 
@@ -733,7 +735,7 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 	}
 	var instResp *ec2.RunInstancesResp
 
-	blockDeviceMappings, err := getBlockDeviceMappings(args)
+	blockDeviceMappings, err := getBlockDeviceMappings(&spec.InstanceType, args)
 	if err != nil {
 		return nil, errors.Annotate(err, "could not create block device mappings")
 	}
@@ -775,6 +777,19 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 		}
 	}
 
+	var blockDevices map[blockstorage.BlockDeviceId]string
+	if len(args.Storage) > 0 {
+		blockDevices = make(map[blockstorage.BlockDeviceId]string)
+		var n int
+		for _, directive := range args.Storage {
+			for i := 0; i < directive.Count; i++ {
+				deviceName := blockDeviceMappings[i+1].DeviceName
+				blockDevices[blockstorage.BlockDeviceId(deviceName)] = directive.Name
+				n++
+			}
+		}
+	}
+
 	hc := instance.HardwareCharacteristics{
 		Arch:     &spec.Image.Arch,
 		Mem:      &spec.InstanceType.Mem,
@@ -786,6 +801,7 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 	return &environs.StartInstanceResult{
 		Instance:                inst,
 		HardwareCharacteristics: &hc,
+		BlockDevices:            blockDevices,
 	}, nil
 }
 
@@ -811,12 +827,56 @@ func (e *environ) StopInstances(ids ...instance.Id) error {
 	return common.RemoveStateInstances(e.Storage(), ids...)
 }
 
-// minDiskSize is the minimum/default size (in megabytes) for ec2 root disks.
-const minDiskSize uint64 = 8 * 1024
+const (
+	// minDiskSize is the minimum/default size (in megabytes) for ec2 root disks.
+	minDiskSize uint64 = 8 * 1024
+
+	// deviceLetterMin is the first letter to use for EBS block device names.
+	deviceLetterMin = 'f'
+
+	// deviceLetterMax is the last letter to use for EBS block device names.
+	deviceLetterMax = 'p'
+
+	// deviceNumMax is the maximum value for trailing numbers on block device name.
+	deviceNumMax = 6
+
+	// iopsMin is the minimum IOPS value.
+	iopsMin = 100
+
+	// iopsMax is the maximum IOPS value.
+	iopsMax = 4000
+
+	// iopsSizeRatioMax is the maximum ratio of IOPS to size (in GiB).
+	iopsSizeRatioMax = 30
+)
+
+// blockDeviceNamer returns a function that cycles through block device names.
+//
+// See http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/block-device-mapping-concepts.html
+func blockDeviceNamer(numbers bool) func() (string, error) {
+	var n int
+	return func() (string, error) {
+		letter := deviceLetterMin + (n / deviceNumMax)
+		if letter > deviceLetterMax {
+			return "", errors.New("too many EBS block devices to attach")
+		}
+		device := "/dev/xvd" + string(letter)
+		if numbers {
+			device += string('1' + (n % deviceNumMax))
+		}
+		n++
+		return device, nil
+	}
+}
 
 // getBlockDeviceMappings translates a StartInstanceParams into BlockDeviceMappings.
-// The first entry is always the root disk mapping.
-func getBlockDeviceMappings(args environs.StartInstanceParams) ([]ec2.BlockDeviceMapping, error) {
+//
+// The first entry is always the root disk mapping, followed by storage devices
+// requested by the caller, and finally the instance stores.
+func getBlockDeviceMappings(
+	instanceType *instances.InstanceType,
+	args environs.StartInstanceParams,
+) ([]ec2.BlockDeviceMapping, error) {
 	rootDiskSize := minDiskSize
 	if args.Constraints.RootDisk != nil {
 		if *args.Constraints.RootDisk >= minDiskSize {
@@ -830,15 +890,71 @@ func getBlockDeviceMappings(args environs.StartInstanceParams) ([]ec2.BlockDevic
 		}
 	}
 
-	// AWS's volume size is in GiB, root-disk is in MiB;
-	// round up to the nearest GiB.
-	rootDiskSizeG := int64((rootDiskSize + 1023) / 1024)
 	rootDiskMapping := ec2.BlockDeviceMapping{
 		DeviceName: "/dev/sda1",
-		VolumeSize: rootDiskSizeG,
+		VolumeSize: int64(roundVolumeSize(rootDiskSize)),
 	}
 
-	blockDeviceMappings := []ec2.BlockDeviceMapping{rootDiskMapping, {
+	// For EBS volumes, Amazon recommends using /dev/sd[f-p][1-6] on
+	// Paravirtual machines, and /dev/sd[f-p] on HVM. We'll stick with
+	// that for now.
+	blockDeviceMappings := []ec2.BlockDeviceMapping{rootDiskMapping}
+	nextBlockDevice := blockDeviceNamer(*instanceType.VirtType == paravirtual)
+	for _, directive := range args.Storage {
+		if directive.Size == 0 {
+			return nil, errors.New("storage size must be specified")
+		}
+		volumeSize := roundVolumeSize(directive.Size)
+
+		volumeType := "standard"
+		var iops int
+		options := strings.Split(directive.Options, ",")
+		for _, option := range options {
+			switch option {
+			case "magnetic", "standard":
+				volumeType = "standard"
+			case "gp2", "ssd":
+				volumeType = "gp2"
+			default:
+				substrings := strings.SplitN(option, ":", 2)
+				if len(substrings) == 2 && (substrings[0] == "iops" || substrings[0] == "io1") {
+					var err error
+					iops, err = strconv.Atoi(substrings[1])
+					if err != nil {
+						return nil, errors.Errorf("invalid IOPS value %q", substrings[1])
+					}
+					if iops < iopsMin || iops > iopsMax {
+						return nil, errors.Errorf("%v IOPS is outside of the acceptable range [%v, %v]", iops, iopsMin, iopsMax)
+					}
+					if float64(iops)/float64(volumeSize) > iopsSizeRatioMax {
+						return nil, errors.Errorf("size must be at least %.2fG to achieve %d IOPS", float64(iops)/iopsSizeRatioMax, iops)
+					}
+					volumeType = "io1"
+				} else {
+					return nil, errors.Errorf("invalid storage option %q", option)
+				}
+			}
+		}
+
+		for i := 0; i < directive.Count; i++ {
+			deviceName, err := nextBlockDevice()
+			if err != nil {
+				return nil, err
+			}
+
+			mapping := ec2.BlockDeviceMapping{
+				DeviceName:          deviceName,
+				VolumeSize:          int64(volumeSize),
+				VolumeType:          volumeType,
+				IOPS:                int64(iops),
+				DeleteOnTermination: !directive.Persistent,
+			}
+			blockDeviceMappings = append(blockDeviceMappings, mapping)
+			logger.Infof("attaching volume: %+v", mapping)
+		}
+	}
+
+	blockDeviceMappings = append(blockDeviceMappings, []ec2.BlockDeviceMapping{{
 		VirtualName: "ephemeral0",
 		DeviceName:  "/dev/sdb",
 	}, {
@@ -850,8 +966,14 @@ func getBlockDeviceMappings(args environs.StartInstanceParams) ([]ec2.BlockDevic
 	}, {
 		VirtualName: "ephemeral3",
 		DeviceName:  "/dev/sde",
-	}}
+	}}...)
+
 	return blockDeviceMappings, nil
+}
+
+// AWS expects GiB, we work in MiB; round up to nearest G.
+func roundVolumeSize(m uint64) uint64 {
+	return (m + 1023) / 1024
 }
 
 // groupInfoByName returns information on the security group

@@ -10,10 +10,11 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs/cloudinit"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/storage"
+	envstorage "github.com/juju/juju/environs/storage"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 )
 
@@ -56,7 +57,7 @@ type EnvironProvider interface {
 // EnvironStorage implements storage access for an environment.
 type EnvironStorage interface {
 	// Storage returns storage specific to the environment.
-	Storage() storage.Storage
+	Storage() envstorage.Storage
 }
 
 // ConfigGetter implements access to an environment's configuration.
@@ -76,6 +77,8 @@ type BootstrapParams struct {
 	// Placement, if non-empty, holds an environment-specific placement
 	// directive used to choose the initial instance.
 	Placement string
+
+	Storage []*storage.Directive
 
 	// AvailableTools is a collection of tools which the Bootstrap method
 	// may use to decide which architecture/series to instantiate.

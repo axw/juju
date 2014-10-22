@@ -16,10 +16,11 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/imagemetadata"
 	"github.com/juju/juju/environs/simplestreams"
-	"github.com/juju/juju/environs/storage"
+	envstorage "github.com/juju/juju/environs/storage"
 	"github.com/juju/juju/environs/sync"
 	"github.com/juju/juju/environs/tools"
 	"github.com/juju/juju/network"
+	"github.com/juju/juju/storage"
 	coretools "github.com/juju/juju/tools"
 	"github.com/juju/juju/utils/ssh"
 	"github.com/juju/juju/version"
@@ -42,6 +43,9 @@ type BootstrapParams struct {
 	// Placement, if non-empty, holds an environment-specific placement
 	// directive used to choose the initial instance.
 	Placement string
+
+	// Storage is a set of storage directives.
+	Storage []*storage.Directive
 
 	// UploadTools reports whether we should upload the local tools and
 	// override the environment's specified agent-version.
@@ -120,6 +124,7 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 	arch, series, finalizer, err := environ.Bootstrap(ctx, environs.BootstrapParams{
 		Constraints:    args.Constraints,
 		Placement:      args.Placement,
+		Storage:        args.Storage,
 		AvailableTools: availableTools,
 	})
 	if err != nil {
@@ -235,7 +240,7 @@ func setPrivateMetadataSources(env environs.Environ, metadataDir string) ([]*ima
 	logger.Infof("Setting default tools and image metadata sources: %s", metadataDir)
 	tools.DefaultBaseURL = metadataDir
 
-	imageMetadataDir := filepath.Join(metadataDir, storage.BaseImagesPath)
+	imageMetadataDir := filepath.Join(metadataDir, envstorage.BaseImagesPath)
 	if _, err := os.Stat(imageMetadataDir); err != nil {
 		if !os.IsNotExist(err) {
 			return nil, errors.Annotate(err, "cannot access image metadata")

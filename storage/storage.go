@@ -7,6 +7,6 @@ import "launchpad.net/loggo"
 
 var logger = loggo.GetLogger("juju.storage")
 
-// BlockDeviceId is an identifier for block devices; either a device name
-// (/dev/sdX) or a partition UUID.
+// BlockDeviceId is an identifier for block devices; a device name
+// (/dev/sdX), LABEL, or UUID.
 type BlockDeviceId string

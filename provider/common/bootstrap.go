@@ -81,6 +81,7 @@ func Bootstrap(ctx environs.BootstrapContext, env environs.Environ, args environ
 		Tools:         availableTools,
 		MachineConfig: machineConfig,
 		Placement:     args.Placement,
+		Storage:       args.Storage,
 	})
 	if err != nil {
 		return "", "", nil, fmt.Errorf("cannot start bootstrap instance: %v", err)

@@ -31,10 +31,9 @@ type StartInstanceParams struct {
 	// instance should be started.
 	Placement string
 
-	// Storage is a slice of storage specifications that the
-	// provider should attempt to instantiate and attach to
-	// the instance.
-	Storage []*instance.Storage
+	// Storage is a slice of storage directives that the
+	// provider must instantiate and attach to the instance.
+	Storage []*storage.Directive
 
 	// DistributionGroup, if non-nil, is a function
 	// that returns a slice of instance.Ids that belong

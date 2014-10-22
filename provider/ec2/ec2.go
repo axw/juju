@@ -783,7 +783,8 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 		var n int
 		for _, directive := range args.Storage {
 			for i := 0; i < directive.Count; i++ {
-				deviceName := blockDeviceMappings[i+1].DeviceName
+				deviceName := blockDeviceMappings[n+1].DeviceName
+				deviceName = renamedDevicePrefix + deviceName[len(devicePrefix):]
 				blockDevices[blockstorage.BlockDeviceId(deviceName)] = directive.Name
 				n++
 			}
@@ -831,6 +832,14 @@ const (
 	// minDiskSize is the minimum/default size (in megabytes) for ec2 root disks.
 	minDiskSize uint64 = 8 * 1024
 
+	// devicePrefix is the prefix for device names.
+	devicePrefix = "/dev/sd"
+
+	// renamedDevicePrefix is the prefix for device names after they have
+	// been renamed. This should replace "devicePrefix" in the device name
+	// specified by Juju.
+	renamedDevicePrefix = "/dev/xvd"
+
 	// deviceLetterMin is the first letter to use for EBS block device names.
 	deviceLetterMin = 'f'
 
@@ -860,7 +869,7 @@ func blockDeviceNamer(numbers bool) func() (string, error) {
 		if letter > deviceLetterMax {
 			return "", errors.New("too many EBS block devices to attach")
 		}
-		device := "/dev/xvd" + string(letter)
+		device := devicePrefix + string(letter)
 		if numbers {
 			device += string('1' + (n % deviceNumMax))
 		}

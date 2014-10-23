@@ -263,21 +263,29 @@ func (w *ubuntuConfigure) ConfigureJuju() error {
 		if cons != "" {
 			cons = " --constraints " + shquote(cons)
 		}
+
 		var hardware string
 		if w.mcfg.HardwareCharacteristics != nil {
 			if hardware = w.mcfg.HardwareCharacteristics.String(); hardware != "" {
 				hardware = " --hardware " + shquote(hardware)
 			}
 		}
+
+		var blockDevices string
+		if len(w.mcfg.BlockDevices) > 0 {
+			blockDevices = " --block-devices " + shquote(base64yaml(w.mcfg.BlockDevices))
+		}
+
 		w.conf.AddRunCmd(cloudinit.LogProgressCmd("Bootstrapping Juju machine agent"))
 		w.conf.AddScripts(
 			// The bootstrapping is always run with debug on.
 			w.mcfg.jujuTools() + "/jujud bootstrap-state" +
 				" --data-dir " + shquote(w.mcfg.DataDir) +
-				" --env-config " + shquote(base64yaml(w.mcfg.Config)) +
+				" --env-config " + shquote(base64yaml(w.mcfg.Config.AllAttrs())) +
 				" --instance-id " + shquote(string(w.mcfg.InstanceId)) +
 				hardware +
 				cons +
+				blockDevices +
 				metadataDir +
 				" --debug",
 		)

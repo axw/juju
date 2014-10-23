@@ -54,6 +54,7 @@ import (
 	"github.com/juju/juju/worker/charmrevisionworker"
 	"github.com/juju/juju/worker/cleaner"
 	"github.com/juju/juju/worker/deployer"
+	"github.com/juju/juju/worker/diskmanager"
 	"github.com/juju/juju/worker/firewaller"
 	"github.com/juju/juju/worker/instancepoller"
 	"github.com/juju/juju/worker/localstorage"
@@ -485,6 +486,10 @@ func (a *MachineAgent) APIWorker() (worker.Worker, error) {
 	})
 	a.startWorkerAfterUpgrade(runner, "rsyslog", func() (worker.Worker, error) {
 		return newRsyslogConfigWorker(st.Rsyslog(), agentConfig, rsyslogMode)
+	})
+	a.startWorkerAfterUpgrade(runner, "diskmanager", func() (worker.Worker, error) {
+		tag := agentConfig.Tag().(names.MachineTag)
+		return diskmanager.NewDiskManager(st.DiskManager(), tag)
 	})
 
 	// Start networker depending on configuration and job.

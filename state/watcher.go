@@ -2140,3 +2140,67 @@ func (w *rebootWatcher) loop() error {
 		}
 	}
 }
+
+// blockDevicesWatcher notifies about changes to all block devices attached to
+// a machine. Changes include adding, removing and updating devices.
+type blockDevicesWatcher struct {
+	commonWatcher
+	machineId string
+	out       chan struct{}
+	in        chan watcher.Change
+}
+
+var _ NotifyWatcher = (*blockDevicesWatcher)(nil)
+
+// WatchBlockDevices returns a new NotifyWatcher watching m's block devices.
+func (m *Machine) WatchBlockDevices() NotifyWatcher {
+	return newBlockDevicesWatcher(m)
+}
+
+func newBlockDevicesWatcher(m *Machine) NotifyWatcher {
+	w := &blockDevicesWatcher{
+		commonWatcher: commonWatcher{st: m.st},
+		machineId:     m.doc.Id,
+		out:           make(chan struct{}),
+	}
+	go func() {
+		defer w.tomb.Done()
+		defer close(w.out)
+		w.tomb.Kill(w.loop())
+	}()
+	return w
+}
+
+// Changes returns the event channel for w.
+func (w *blockDevicesWatcher) Changes() <-chan struct{} {
+	return w.out
+}
+
+func (w *blockDevicesWatcher) loop() error {
+	blockDevices, closer := w.st.getCollection(blockDevicesC)
+	defer closer()
+	in := make(chan watcher.Change)
+	filter := func(key interface{}) bool {
+		var doc blockDeviceDoc
+		err := blockDevices.FindId(key).Select(bson.D{{"machineid", 1}}).One(&doc)
+		return err == nil && doc.MachineId == w.machineId
+	}
+	w.st.watcher.WatchCollectionWithFilter(blockDevicesC, in, filter)
+	defer w.st.watcher.UnwatchCollection(blockDevicesC, in)
+	out := w.out
+	for {
+		select {
+		case <-w.tomb.Dying():
+			return tomb.ErrDying
+		case <-w.st.watcher.Dead():
+			return stateWatcherDeadError(w.st.watcher.Err())
+		case ch := <-in:
+			if _, ok := collect(ch, in, w.tomb.Dying()); !ok {
+				return tomb.ErrDying
+			}
+			out = w.out
+		case out <- struct{}{}:
+			out = nil
+		}
+	}
+}

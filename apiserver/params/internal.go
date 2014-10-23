@@ -11,6 +11,7 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
@@ -423,6 +424,17 @@ type MachineNetworkInfoResult struct {
 // MachineNetworkInfoResults holds network info for multiple machines.
 type MachineNetworkInfoResults struct {
 	Results []MachineNetworkInfoResult
+}
+
+// BlockDevicesResult holds block device info for a single machine.
+type BlockDevicesResult struct {
+	Error        *Error
+	BlockDevices []storage.BlockDevice
+}
+
+// BlockDevicesResults holds block device info for multiple machines.
+type BlockDevicesResults struct {
+	Results []BlockDevicesResult
 }
 
 // EntityStatus holds an entity tag, status and extra info.

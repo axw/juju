@@ -24,6 +24,7 @@ import (
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state/presence"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
@@ -110,19 +111,26 @@ type machineDoc struct {
 	HasVote       bool
 	PasswordHash  string
 	Clean         bool
+
 	// We store 2 different sets of addresses for the machine, obtained
 	// from different sources.
 	// Addresses is the set of addresses obtained by asking the provider.
 	Addresses []address
+
 	// MachineAddresses is the set of addresses obtained from the machine itself.
 	MachineAddresses []address
+
 	// The SupportedContainers attributes are used to advertise what containers this
 	// machine is capable of hosting.
 	SupportedContainersKnown bool
 	SupportedContainers      []instance.ContainerType `bson:",omitempty"`
+
 	// Placement is the placement directive that should be used when provisioning
 	// an instance for the machine.
 	Placement string `bson:",omitempty"`
+
+	// BlockDevices is a mapping from block device IDs to
+	//BlockDevices map[string]string `bson:"block-devices,omitempty"`
 }
 
 func newMachine(st *State, doc *machineDoc) *Machine {
@@ -861,8 +869,8 @@ func (m *Machine) SetProvisioned(id instance.Id, nonce string, characteristics *
 	return fmt.Errorf("already set")
 }
 
-// SetInstanceInfo is used to provision a machine and in one steps set
-// it's instance id, nonce, hardware characteristics, add networks and
+// SetInstanceInfo is used to provision a machine and in one step set
+// its instance id, nonce, hardware characteristics, networks and
 // network interfaces as needed.
 //
 // TODO(dimitern) Do all the operations described in a single
@@ -1348,4 +1356,42 @@ func (m *Machine) markInvalidContainers() error {
 		}
 	}
 	return nil
+}
+
+func (m *Machine) BlockDevices() ([]storage.BlockDevice, error) {
+	blockDevices, closer := m.st.getCollection(blockDevicesC)
+	defer closer()
+
+	var docs []blockDeviceDoc
+	err := blockDevices.Find(bson.D{{"machineid", m.doc.Id}}).All(&docs)
+	if err != nil {
+		return nil, err
+	}
+	devices := make([]storage.BlockDevice, len(docs))
+	for i, doc := range docs {
+		devices[i] = newBlockDevice(&doc)
+	}
+	return devices, nil
+}
+
+func (m *Machine) UpdateBlockDevices(args []storage.BlockDevice) (err error) {
+	defer errors.Contextf(&err, "cannot update block devices %q on machine %q", args, m.doc.Id)
+
+	var ops []txn.Op
+	for i, arg := range args {
+		if arg.DeviceName == "" && arg.DeviceUUID == "" {
+			return errors.Errorf("block device #%d has neither device name or UUID", i+1)
+		}
+		doc := newBlockDeviceDoc(arg)
+		doc.MachineId = m.doc.Id
+		doc.Id = bson.NewObjectId()
+		ops = append(ops, txn.Op{
+			C:  blockDevicesC,
+			Id: doc.Id,
+			// TODO assert no existing doc with same (machineid, devicename)
+			// TODO assert no existing doc with same (machineid, deviceuuid)
+			Assert: txn.DocMissing,
+		})
+	}
+	return m.st.runTransaction(ops)
 }

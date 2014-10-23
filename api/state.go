@@ -14,6 +14,7 @@ import (
 	"github.com/juju/juju/api/base"
 	"github.com/juju/juju/api/charmrevisionupdater"
 	"github.com/juju/juju/api/deployer"
+	"github.com/juju/juju/api/diskmanager"
 	"github.com/juju/juju/api/environment"
 	"github.com/juju/juju/api/firewaller"
 	"github.com/juju/juju/api/keyupdater"
@@ -193,6 +194,12 @@ func (st *State) Machiner() *machiner.State {
 // required by the networker worker.
 func (st *State) Networker() *networker.State {
 	return networker.NewState(st)
+}
+
+// DiskManager returns a version of the state that provides functionality
+// required by the diskmanager worker.
+func (st *State) DiskManager() *diskmanager.State {
+	return diskmanager.NewState(st)
 }
 
 // Provisioner returns a version of the state that provides functionality

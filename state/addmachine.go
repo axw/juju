@@ -17,6 +17,7 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/replicaset"
+	"github.com/juju/juju/storage"
 )
 
 // MachineTemplate holds attributes that are to be associated
@@ -70,6 +71,10 @@ type MachineTemplate struct {
 	// Placement holds the placement directive that will be associated
 	// with the machine.
 	Placement string
+
+	// BlockDevices contains information about the known block devices
+	// attached to the machine.
+	BlockDevices []storage.BlockDevice
 
 	// principals holds the principal units that will
 	// associated with the machine.
@@ -421,7 +426,7 @@ func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate)
 		Insert: mdoc,
 	}
 
-	return []txn.Op{
+	prereqOps = []txn.Op{
 		createConstraintsOp(st, machineGlobalKey(mdoc.Id), template.Constraints),
 		createStatusOp(st, machineGlobalKey(mdoc.Id), statusDoc{
 			Status: StatusPending,
@@ -431,7 +436,10 @@ func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate)
 		// provisioning, we should check the given networks are valid
 		// and known before setting them.
 		createRequestedNetworksOp(st, machineGlobalKey(mdoc.Id), template.RequestedNetworks),
-	}, machineOp
+	}
+	prereqOps = append(prereqOps, createBlockDevicesOps(mdoc.Id, template.BlockDevices)...)
+
+	return prereqOps, machineOp
 }
 
 func hasJob(jobs []MachineJob, job MachineJob) bool {

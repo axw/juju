@@ -777,18 +777,22 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 		}
 	}
 
-	var blockDevices map[blockstorage.BlockDeviceId]string
+	var blockDevices []blockstorage.BlockDevice
 	if len(args.Storage) > 0 {
-		blockDevices = make(map[blockstorage.BlockDeviceId]string)
 		var n int
 		for _, directive := range args.Storage {
 			for i := 0; i < directive.Count; i++ {
 				deviceName := blockDeviceMappings[n+1].DeviceName
 				deviceName = renamedDevicePrefix + deviceName[len(devicePrefix):]
-				blockDevices[blockstorage.BlockDeviceId(deviceName)] = directive.Name
+				blockDevice := blockstorage.BlockDevice{
+					DeviceName:  deviceName,
+					StorageName: directive.Name,
+				}
+				blockDevices = append(blockDevices, blockDevice)
 				n++
 			}
 		}
+		logger.Debugf("allocated block devices: %v", blockDevices)
 	}
 
 	hc := instance.HardwareCharacteristics{

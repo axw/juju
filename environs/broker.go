@@ -57,8 +57,9 @@ type StartInstanceResult struct {
 	// NetworkInfo contains information about configured networks.
 	NetworkInfo []network.Info
 
-	// BlockDevices maps block devices to corresponding storage names.
-	BlockDevices map[storage.BlockDeviceId]string
+	// BlockDevices is the set of block devices attached to the instance
+	// created by StartInstance.
+	BlockDevices []storage.BlockDevice
 }
 
 // TODO(wallyworld) - we want this in the environs/instance package but import

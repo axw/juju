@@ -32,6 +32,7 @@ import (
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/toolstorage"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/utils/ssh"
 	"github.com/juju/juju/version"
 	"github.com/juju/juju/worker/peergrouper"
@@ -50,6 +51,7 @@ type BootstrapCommand struct {
 	EnvConfig        map[string]interface{}
 	Constraints      constraints.Value
 	Hardware         instance.HardwareCharacteristics
+	BlockDevices     []storage.BlockDevice
 	InstanceId       string
 	AdminUsername    string
 	ImageMetadataDir string
@@ -68,6 +70,7 @@ func (c *BootstrapCommand) SetFlags(f *gnuflag.FlagSet) {
 	yamlBase64Var(f, &c.EnvConfig, "env-config", "", "initial environment configuration (yaml, base64 encoded)")
 	f.Var(constraints.ConstraintsValue{Target: &c.Constraints}, "constraints", "initial environment constraints (space-separated strings)")
 	f.Var(&c.Hardware, "hardware", "hardware characteristics (space-separated strings)")
+	yamlBase64Var(f, &c.BlockDevices, "block-devices", "", "attached block devices (yaml, base64 encoded)")
 	f.StringVar(&c.InstanceId, "instance-id", "", "unique instance-id for bootstrap machine")
 	f.StringVar(&c.AdminUsername, "admin-user", "admin", "set the name for the juju admin user")
 	f.StringVar(&c.ImageMetadataDir, "image-metadata", "", "custom image metadata source dir")
@@ -202,6 +205,7 @@ func (c *BootstrapCommand) Run(_ *cmd.Context) error {
 				Jobs:            jobs,
 				InstanceId:      instanceId,
 				Characteristics: c.Hardware,
+				BlockDevices:    c.BlockDevices,
 				SharedSecret:    sharedSecret,
 			},
 			dialOpts,
@@ -389,23 +393,25 @@ func (c *BootstrapCommand) storeCustomImageMetadata(stor state.Storage) error {
 	})
 }
 
-// yamlBase64Value implements gnuflag.Value on a map[string]interface{}.
-type yamlBase64Value map[string]interface{}
+// yamlBase64Value implements gnuflag.Value.
+type yamlBase64Value struct {
+	value interface{}
+}
 
 // Set decodes the base64 value into yaml then expands that into a map.
-func (v *yamlBase64Value) Set(value string) error {
+func (v yamlBase64Value) Set(value string) error {
 	decoded, err := base64.StdEncoding.DecodeString(value)
 	if err != nil {
 		return err
 	}
-	return goyaml.Unmarshal(decoded, v)
+	return goyaml.Unmarshal(decoded, v.value)
 }
 
-func (v *yamlBase64Value) String() string {
-	return fmt.Sprintf("%v", *v)
+func (v yamlBase64Value) String() string {
+	return fmt.Sprint(v.value)
 }
 
 // yamlBase64Var sets up a gnuflag flag analogous to the FlagSet.*Var methods.
-func yamlBase64Var(fs *gnuflag.FlagSet, target *map[string]interface{}, name string, value string, usage string) {
-	fs.Var((*yamlBase64Value)(target), name, usage)
+func yamlBase64Var(fs *gnuflag.FlagSet, target interface{}, name string, value string, usage string) {
+	fs.Var(yamlBase64Value{target}, name, usage)
 }

@@ -91,6 +91,7 @@ func Bootstrap(ctx environs.BootstrapContext, env environs.Environ, args environ
 	finalize := func(ctx environs.BootstrapContext, mcfg *cloudinit.MachineConfig) error {
 		mcfg.InstanceId = result.Instance.Id()
 		mcfg.HardwareCharacteristics = result.HardwareCharacteristics
+		mcfg.BlockDevices = result.BlockDevices
 		if err := environs.FinishMachineConfig(mcfg, env.Config()); err != nil {
 			return err
 		}

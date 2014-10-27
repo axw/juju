@@ -1375,7 +1375,7 @@ func (m *Machine) BlockDevices() ([]storage.BlockDevice, error) {
 }
 
 func (m *Machine) UpdateBlockDevices(args []storage.BlockDevice) (err error) {
-	defer errors.Contextf(&err, "cannot update block devices %q on machine %q", args, m.doc.Id)
+	defer errors.DeferredAnnotatef(&err, "cannot update block devices %q on machine %q", args, m.doc.Id)
 
 	var ops []txn.Op
 	for i, arg := range args {

@@ -304,6 +304,9 @@ func (u *Uniter) deploy(curl *corecharm.URL, reason operation.Kind) error {
 		if err != nil {
 			return err
 		}
+		if err := u.ensureStorage(sch); err != nil {
+			return err
+		}
 		if err = u.deployer.Stage(sch, u.tomb.Dying()); err != nil {
 			return err
 		}
@@ -346,6 +349,31 @@ func (u *Uniter) deploy(curl *corecharm.URL, reason operation.Kind) error {
 	}
 	return u.writeOperationState(operation.RunHook, status, hi, nil)
 }
+
+// ensureStorage ensures that required storage is available,
+// and that available storage is prepared.
+func (u *Uniter) ensureStorage(ch *uniter.Charm) error {
+	meta, err := ch.Meta()
+	if err != nil {
+		return errors.Annotate(err, "cannot get charm metadata")
+	}
+	for _, store := range meta.Storage {
+		n := 0
+		if n < store.CountMin {
+			// TODO(axw) this is something we should report to the user
+			//           via "juju status". The user may not be aware
+			//           that they must attach storage to the unit.
+			return errors.Errorf("waiting for %d instances of %q storage", store.CountMin-n, store.Name)
+		}
+		if store.Type == corecharm.StorageFilesystem {
+			// TODO(axw) prepare filesystem if not already done.
+			logger.Infof("prepare filesystem for %q storage", store.Name)
+		}
+	}
+	return nil
+}
+
+//func (u *Uniter) prepareFilesystem(*storage.BlockDevice, *charm.Storage)
 
 // errHookFailed indicates that a hook failed to execute, but that the Uniter's
 // operation is not affected by the error.

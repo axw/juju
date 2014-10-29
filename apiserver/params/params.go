@@ -383,6 +383,15 @@ type ResolveCharmResults struct {
 	URLs []ResolveCharmResult
 }
 
+type CharmMetaResult struct {
+	Result *charm.Meta
+	Error  *Error
+}
+
+type CharmMetaResults struct {
+	Results []CharmMetaResult
+}
+
 // AllWatcherId holds the id of an AllWatcher.
 type AllWatcherId struct {
 	AllWatcherId string

@@ -8,6 +8,7 @@ package uniter
 import (
 	"github.com/juju/errors"
 	"github.com/juju/names"
+	"gopkg.in/juju/charm.v4"
 
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
@@ -135,6 +136,29 @@ func (u *UniterAPIV1) AssignedMachine(args params.Entities) (params.StringResult
 		} else {
 			result.Results[i].Result = names.NewMachineTag(machineId).String()
 		}
+	}
+	return result, nil
+}
+
+func (u *UniterAPIV1) CharmMeta(args params.CharmURLs) (params.CharmMetaResults, error) {
+	result := params.CharmMetaResults{
+		Results: make([]params.CharmMetaResult, len(args.URLs)),
+	}
+	for i, arg := range args.URLs {
+		curl, err := charm.ParseURL(arg.URL)
+		if err != nil {
+			err = common.ErrPerm
+		} else {
+			var sch *state.Charm
+			sch, err = u.st.Charm(curl)
+			if errors.IsNotFound(err) {
+				err = common.ErrPerm
+			}
+			if err == nil {
+				result.Results[i].Result = sch.Meta()
+			}
+		}
+		result.Results[i].Error = common.ServerError(err)
 	}
 	return result, nil
 }

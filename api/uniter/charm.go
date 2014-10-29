@@ -63,6 +63,25 @@ func (c *Charm) ArchiveURL() *url.URL {
 	return &archiveURL
 }
 
+func (c *Charm) Meta() (*charm.Meta, error) {
+	var results params.CharmMetaResults
+	args := params.CharmURLs{
+		URLs: []params.CharmURL{{URL: c.curl.String()}},
+	}
+	err := c.st.facade.FacadeCall("CharmMeta", args, &results)
+	if err != nil {
+		return nil, err
+	}
+	if len(results.Results) != 1 {
+		return nil, fmt.Errorf("expected 1 result, got %d", len(results.Results))
+	}
+	result := results.Results[0]
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return result.Result, nil
+}
+
 // ArchiveSha256 returns the SHA256 digest of the charm archive
 // (bundle) bytes.
 //

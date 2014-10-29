@@ -4,11 +4,12 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/juju/cmd"
+	"github.com/juju/errors"
 	"github.com/juju/names"
 	"launchpad.net/gnuflag"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/juju/juju/cmd/envcmd"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/provider"
+	"github.com/juju/juju/storage"
 )
 
 // UnitCommandBase provides support for commands which deploy units. It handles the parsing
@@ -23,11 +25,13 @@ import (
 type UnitCommandBase struct {
 	ToMachineSpec string
 	NumUnits      int
+	Storage       storageDirectives
 }
 
 func (c *UnitCommandBase) SetFlags(f *gnuflag.FlagSet) {
 	f.IntVar(&c.NumUnits, "num-units", 1, "")
 	f.StringVar(&c.ToMachineSpec, "to", "", "the machine or container to deploy the unit in, bypasses constraints")
+	f.Var(&c.Storage, "storage", "storage directives")
 }
 
 func (c *UnitCommandBase) Init(args []string) error {
@@ -41,9 +45,30 @@ func (c *UnitCommandBase) Init(args []string) error {
 		if !isMachineOrNewContainer(c.ToMachineSpec) {
 			return fmt.Errorf("invalid --to parameter %q", c.ToMachineSpec)
 		}
-
 	}
 	return nil
+}
+
+type storageDirectives []*storage.Directive
+
+func (v *storageDirectives) Set(s string) error {
+	spec, err := storage.ParseDirective(s)
+	if err == storage.ErrStorageSourceMissing {
+		spec, err = storage.ParseDirective(storage.ProviderSource + ":" + s)
+	}
+	if err != nil {
+		return errors.Annotate(err, "failed to parse storage directive")
+	}
+	*v = append(*v, spec)
+	return nil
+}
+
+func (v *storageDirectives) String() string {
+	ss := make([]string, len(*v))
+	for i, d := range *v {
+		ss[i] = d.String()
+	}
+	return strings.Join(ss, ",")
 }
 
 // TODO(anastasiamac) 2014-10-20 Bug#1383116

@@ -18,6 +18,11 @@ const (
 	storageCountSnippet   = "-?[0-9]+"
 	storageSizeSnippet    = "-?[0-9]+(?:\\.[0-9]+)?[MGTP]?"
 	storageOptionsSnippet = ".*"
+
+	// ProviderSource is a special storage source name that
+	// means that Juju should use the storage source of the
+	// the current environment's provider.
+	ProviderSource = "provider"
 )
 
 // ErrStorageSourceMissing is an error that is returned from ParseDirective

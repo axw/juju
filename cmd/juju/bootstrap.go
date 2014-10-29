@@ -248,6 +248,9 @@ func (c *BootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	storageDirectives := make([]*storage.Directive, len(c.Storage))
 	for i, str := range c.Storage {
 		spec, err := storage.ParseDirective(str)
+		if err == storage.ErrStorageSourceMissing {
+			spec, err = storage.ParseDirective(storage.ProviderSource + ":" + str)
+		}
 		if err != nil {
 			return errors.Annotate(err, "failed to parse storage directive")
 		}

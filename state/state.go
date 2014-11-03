@@ -68,6 +68,7 @@ const (
 	upgradeInfoC       = "upgradeInfo"
 	rebootC            = "reboot"
 	blockDevicesC      = "blockdevices"
+	unitstoragesC      = "unitstorages"
 
 	// sequenceC is used to generate unique identifiers.
 	sequenceC = "sequence"

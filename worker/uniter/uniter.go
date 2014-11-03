@@ -24,6 +24,7 @@ import (
 	apiwatcher "github.com/juju/juju/api/watcher"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/state/watcher"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/version"
 	"github.com/juju/juju/worker"
 	"github.com/juju/juju/worker/uniter/charm"
@@ -304,7 +305,7 @@ func (u *Uniter) deploy(curl *corecharm.URL, reason operation.Kind) error {
 		if err != nil {
 			return err
 		}
-		if err := u.ensureStorage(sch); err != nil {
+		if err := u.checkRequiredStorage(sch); err != nil {
 			return err
 		}
 		if err = u.deployer.Stage(sch, u.tomb.Dying()); err != nil {
@@ -350,24 +351,35 @@ func (u *Uniter) deploy(curl *corecharm.URL, reason operation.Kind) error {
 	return u.writeOperationState(operation.RunHook, status, hi, nil)
 }
 
-// ensureStorage ensures that required storage is available,
-// and that available storage is prepared.
-func (u *Uniter) ensureStorage(ch *uniter.Charm) error {
+// checkRequiredStorage checks that required storage is available.
+func (u *Uniter) checkRequiredStorage(ch *uniter.Charm) error {
 	meta, err := ch.Meta()
 	if err != nil {
 		return errors.Annotate(err, "cannot get charm metadata")
 	}
+	unitStorage, err := u.unit.Storage()
+	if err != nil {
+		return errors.Annotate(err, "cannot get unit storage")
+	}
+	storesByName := make(map[string][]storage.Storage)
+	for _, store := range unitStorage {
+		var available bool
+		if store.Filesystem != nil {
+			available = store.Filesystem.State == storage.FilesystemStateMounted
+		} else if store.BlockDevice != nil {
+			available = store.BlockDevice.State == storage.BlockDeviceStateAttached
+		}
+		if available {
+			storesByName[store.Name] = append(storesByName[store.Name], store)
+		}
+	}
 	for _, store := range meta.Storage {
-		n := 0
+		n := len(storesByName[store.Name])
 		if n < store.CountMin {
 			// TODO(axw) this is something we should report to the user
 			//           via "juju status". The user may not be aware
 			//           that they must attach storage to the unit.
 			return errors.Errorf("waiting for %d instances of %q storage", store.CountMin-n, store.Name)
-		}
-		if store.Type == corecharm.StorageFilesystem {
-			// TODO(axw) prepare filesystem if not already done.
-			logger.Infof("prepare filesystem for %q storage", store.Name)
 		}
 	}
 	return nil

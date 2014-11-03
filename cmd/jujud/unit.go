@@ -21,6 +21,7 @@ import (
 	"github.com/juju/juju/worker/apiaddressupdater"
 	workerlogger "github.com/juju/juju/worker/logger"
 	"github.com/juju/juju/worker/rsyslog"
+	"github.com/juju/juju/worker/storagemanager"
 	"github.com/juju/juju/worker/uniter"
 	"github.com/juju/juju/worker/upgrader"
 )
@@ -107,6 +108,11 @@ func (a *UnitAgent) APIWorkers() (worker.Worker, error) {
 		return nil, errors.Annotate(err, "cannot set unit agent version")
 	}
 
+	unitTag, err := names.ParseUnitTag(entity.Tag())
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	runner := worker.NewRunner(connectionIsFatal(st), moreImportant)
 	runner.StartWorker("upgrader", func() (worker.Worker, error) {
 		return upgrader.NewUpgrader(
@@ -124,11 +130,11 @@ func (a *UnitAgent) APIWorkers() (worker.Worker, error) {
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		unitTag, err := names.ParseUnitTag(entity.Tag())
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
 		return uniter.NewUniter(uniterFacade, unitTag, dataDir, hookLock), nil
+	})
+	runner.StartWorker("storagemanager", func() (worker.Worker, error) {
+		facade := st.StorageManager()
+		return storagemanager.NewStorageManager(facade, unitTag, dataDir)
 	})
 	runner.StartWorker("apiaddressupdater", func() (worker.Worker, error) {
 		uniterFacade, err := st.Uniter()

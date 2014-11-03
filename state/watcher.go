@@ -2204,3 +2204,67 @@ func (w *blockDevicesWatcher) loop() error {
 		}
 	}
 }
+
+// unitStorageWatcher notifies about changes to storage attached to
+// a unit. Changes include adding, removing and updating stores.
+type unitStorageWatcher struct {
+	commonWatcher
+	unitId string
+	out    chan struct{}
+	in     chan watcher.Change
+}
+
+var _ NotifyWatcher = (*unitStorageWatcher)(nil)
+
+// WatchUnitStorage returns a new NotifyWatcher watching m's block devices.
+func (u *Unit) WatchStorage() NotifyWatcher {
+	return newUnitStorageWatcher(u)
+}
+
+func newUnitStorageWatcher(u *Unit) NotifyWatcher {
+	w := &unitStorageWatcher{
+		commonWatcher: commonWatcher{st: u.st},
+		unitId:        u.doc.DocID,
+		out:           make(chan struct{}),
+	}
+	go func() {
+		defer w.tomb.Done()
+		defer close(w.out)
+		w.tomb.Kill(w.loop())
+	}()
+	return w
+}
+
+// Changes returns the event channel for w.
+func (w *unitStorageWatcher) Changes() <-chan struct{} {
+	return w.out
+}
+
+func (w *unitStorageWatcher) loop() error {
+	unitStorages, closer := w.st.getCollection(unitstoragesC)
+	defer closer()
+	in := make(chan watcher.Change)
+	filter := func(key interface{}) bool {
+		var doc unitStorageDoc
+		err := unitStorages.FindId(key).Select(bson.D{{"machineid", 1}}).One(&doc)
+		return err == nil && doc.UnitId == w.unitId
+	}
+	w.st.watcher.WatchCollectionWithFilter(unitstoragesC, in, filter)
+	defer w.st.watcher.UnwatchCollection(unitstoragesC, in)
+	out := w.out
+	for {
+		select {
+		case <-w.tomb.Dying():
+			return tomb.ErrDying
+		case <-w.st.watcher.Dead():
+			return stateWatcherDeadError(w.st.watcher.Err())
+		case ch := <-in:
+			if _, ok := collect(ch, in, w.tomb.Dying()); !ok {
+				return tomb.ErrDying
+			}
+			out = w.out
+		case out <- struct{}{}:
+			out = nil
+		}
+	}
+}

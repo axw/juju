@@ -437,6 +437,17 @@ type BlockDevicesResults struct {
 	Results []BlockDevicesResult
 }
 
+// StorageResult holds storage info for a single unit.
+type StorageResult struct {
+	Error  *Error
+	Result []storage.Storage
+}
+
+// StorageResults holds storage info for multiple units.
+type StorageResults struct {
+	Results []StorageResult
+}
+
 // EntityStatus holds an entity tag, status and extra info.
 type EntityStatus struct {
 	Tag    string

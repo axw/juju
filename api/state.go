@@ -24,6 +24,7 @@ import (
 	"github.com/juju/juju/api/provisioner"
 	"github.com/juju/juju/api/reboot"
 	"github.com/juju/juju/api/rsyslog"
+	"github.com/juju/juju/api/storagemanager"
 	"github.com/juju/juju/api/uniter"
 	"github.com/juju/juju/api/upgrader"
 	"github.com/juju/juju/apiserver/params"
@@ -200,6 +201,12 @@ func (st *State) Networker() *networker.State {
 // required by the diskmanager worker.
 func (st *State) DiskManager() *diskmanager.State {
 	return diskmanager.NewState(st)
+}
+
+// StorageManager returns a version of the state that provides functionality
+// required by the storagemanager worker.
+func (st *State) StorageManager() *storagemanager.State {
+	return storagemanager.NewState(st)
 }
 
 // Provisioner returns a version of the state that provides functionality

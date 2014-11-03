@@ -13,6 +13,7 @@ import (
 	"github.com/juju/juju/api/common"
 	"github.com/juju/juju/api/watcher"
 	"github.com/juju/juju/apiserver/params"
+	"github.com/juju/juju/storage"
 )
 
 // Unit represents a juju unit as seen by a uniter worker.
@@ -624,4 +625,24 @@ func (u *Unit) WatchMeterStatus() (watcher.NotifyWatcher, error) {
 	}
 	w := watcher.NewNotifyWatcher(u.st.facade.RawAPICaller(), result)
 	return w, nil
+}
+
+// Storage returns the unit's storage.
+func (u *Unit) Storage() ([]storage.Storage, error) {
+	var results params.StorageResults
+	args := params.Entities{
+		Entities: []params.Entity{{Tag: u.tag.String()}},
+	}
+	err := u.st.facade.FacadeCall("Storage", args, &results)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if len(results.Results) != 1 {
+		return nil, errors.Errorf("expected 1 result, got %d", len(results.Results))
+	}
+	result := results.Results[0]
+	if result.Error != nil {
+		return nil, errors.Trace(result.Error)
+	}
+	return result.Result, nil
 }

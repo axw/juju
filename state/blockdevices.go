@@ -51,7 +51,7 @@ func createBlockDeviceOps(machineId string, arg storage.BlockDevice) (bson.Objec
 
 func createBlockDevicesOps(machineId string, args []storage.BlockDevice) []txn.Op {
 	ops := make([]txn.Op, 0, len(args))
-	for i, arg := range args {
+	for _, arg := range args {
 		_, deviceOps := createBlockDeviceOps(machineId, arg)
 		ops = append(ops, deviceOps...)
 	}

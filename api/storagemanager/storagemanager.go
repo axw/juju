@@ -1,7 +1,7 @@
 // Copyright 2014 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package diskformatter
+package storagemanager
 
 import (
 	"github.com/juju/errors"
@@ -13,16 +13,16 @@ import (
 	"github.com/juju/juju/storage"
 )
 
-const diskFormatterFacade = "DiskFormatter"
+const storageManagerFacade = "StorageManager"
 
-// State provides access to a diskformatter worker's view of the state.
+// State provides access to a storagemanager worker's view of the state.
 type State struct {
 	facade base.FacadeCaller
 }
 
-// NewState creates a new client-side DiskFormatter facade.
+// NewState creates a new client-side StorageManager facade.
 func NewState(caller base.APICaller) *State {
-	return &State{base.NewFacadeCaller(caller, diskFormatterFacade)}
+	return &State{base.NewFacadeCaller(caller, storageManagerFacade)}
 }
 
 // Storage returns the storage associated with the specified unit.
@@ -45,7 +45,7 @@ func (st *State) Storage(tag names.UnitTag) ([]storage.Storage, error) {
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	return results.Results[0].Storage, nil
+	return results.Results[0].Result, nil
 }
 
 // WatchStorage returns a NotifyWatcher that notifies of changes to storage

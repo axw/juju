@@ -22,6 +22,7 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state/presence"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
@@ -1674,4 +1675,20 @@ func (u *Unit) AddMetrics(created time.Time, metrics []Metric) (*MetricBatch, er
 		return nil, stderrors.New("failed to add metrics, couldn't find charm url")
 	}
 	return u.st.addMetrics(u.UnitTag(), charmUrl, created, metrics)
+}
+
+func (u *Unit) Storage() ([]storage.Storage, error) {
+	unitStorages, closer := u.st.getCollection(unitstoragesC)
+	defer closer()
+
+	var docs []unitStorageDoc
+	err := unitStorages.Find(bson.D{{"unitid", u.doc.DocID}}).All(&docs)
+	if err != nil {
+		return nil, err
+	}
+	storages := make([]storage.Storage, len(docs))
+	for i, doc := range docs {
+		storages[i] = newUnitStorage(&doc)
+	}
+	return storages, nil
 }

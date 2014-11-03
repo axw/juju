@@ -163,6 +163,39 @@ func (u *UniterAPIV1) CharmMeta(args params.CharmURLs) (params.CharmMetaResults,
 	return result, nil
 }
 
+func (u *UniterAPIV1) Storage(args params.Entities) (params.StorageResults, error) {
+	result := params.StorageResults{
+		Results: make([]params.StorageResult, len(args.Entities)),
+	}
+	canAccess, err := u.accessUnit()
+	if err != nil {
+		return params.StorageResults{}, err
+	}
+	for i, entity := range args.Entities {
+		tag, err := names.ParseUnitTag(entity.Tag)
+		if err != nil {
+			result.Results[i].Error = common.ServerError(common.ErrPerm)
+			continue
+		}
+		if !canAccess(tag) {
+			result.Results[i].Error = common.ServerError(common.ErrPerm)
+			continue
+		}
+		unit, err := u.getUnit(tag)
+		if err != nil {
+			result.Results[i].Error = common.ServerError(err)
+			continue
+		}
+		storage, err := unit.Storage()
+		if err != nil {
+			result.Results[i].Error = common.ServerError(err)
+		} else {
+			result.Results[i].Result = storage
+		}
+	}
+	return result, nil
+}
+
 func (u *UniterAPIV1) getMachine(tag names.MachineTag) (*state.Machine, error) {
 	return u.st.Machine(tag.Id())
 }

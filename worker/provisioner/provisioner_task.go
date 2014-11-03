@@ -477,10 +477,12 @@ func constructStartInstanceParams(
 	possibleTools coretools.List,
 ) environs.StartInstanceParams {
 	return environs.StartInstanceParams{
-		Constraints:       provisioningInfo.Constraints,
-		Tools:             possibleTools,
-		MachineConfig:     machineConfig,
-		Placement:         provisioningInfo.Placement,
+		Constraints:   provisioningInfo.Constraints,
+		Tools:         possibleTools,
+		MachineConfig: machineConfig,
+		Placement:     provisioningInfo.Placement,
+		Storage:       provisioningInfo.Storage,
+		// TODO(axw) move DistributionGroup into provisioningInfo
 		DistributionGroup: machine.DistributionGroup,
 	}
 }

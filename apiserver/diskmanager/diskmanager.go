@@ -10,7 +10,6 @@ import (
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/state"
-	"github.com/juju/juju/state/watcher"
 	"github.com/juju/juju/storage"
 )
 
@@ -58,18 +57,21 @@ func NewDiskManagerAPI(
 	}, nil
 }
 
-func (d *DiskManagerAPI) oneMachineBlockDevices(id string) ([]storage.BlockDevice, error) {
-	machine, err := d.st.Machine(id)
-	if err != nil {
-		return nil, err
-	}
-	return machine.BlockDevices()
+func (d *DiskManagerAPI) oneMachineStorage(id string) ([]storage.Storage, error) {
+	/*
+		machine, err := d.st.Machine(id)
+		if err != nil {
+			return nil, err
+		}
+		return machine.Storage()
+	*/
+	panic("unimplemented")
 }
 
-// BlockDevices returns the list of block devices for each of a given set of machines.
-func (d *DiskManagerAPI) BlockDevices(args params.Entities) (params.BlockDevicesResults, error) {
-	result := params.BlockDevicesResults{
-		Results: make([]params.BlockDevicesResult, len(args.Entities)),
+// Storage returns the list of block devices for each of a given set of machines.
+func (d *DiskManagerAPI) Storage(args params.Entities) (params.StorageResults, error) {
+	result := params.StorageResults{
+		Results: make([]params.StorageResult, len(args.Entities)),
 	}
 	canAccess, err := d.getAuthFunc()
 	if err != nil {
@@ -86,29 +88,32 @@ func (d *DiskManagerAPI) BlockDevices(args params.Entities) (params.BlockDevices
 			err = common.ErrPerm
 		} else {
 			id := tag.Id()
-			result.Results[i].BlockDevices, err = d.oneMachineBlockDevices(id)
+			result.Results[i].Result, err = d.oneMachineStorage(id)
 		}
 		result.Results[i].Error = common.ServerError(err)
 	}
 	return result, nil
 }
 
-func (d *DiskManagerAPI) watchOneMachineBlockDevices(id string) (string, error) {
-	machine, err := d.st.Machine(id)
-	if err != nil {
-		return "", err
-	}
-	watch := machine.WatchBlockDevices()
-	// Consume the initial event.
-	if _, ok := <-watch.Changes(); ok {
-		return d.resources.Register(watch), nil
-	}
-	return "", watcher.EnsureErr(watch)
+func (d *DiskManagerAPI) watchOneMachineStorage(id string) (string, error) {
+	/*
+		machine, err := d.st.Machine(id)
+		if err != nil {
+			return "", err
+		}
+		watch := machine.WatchStorage()
+		// Consume the initial event.
+		if _, ok := <-watch.Changes(); ok {
+			return d.resources.Register(watch), nil
+		}
+		return "", watcher.EnsureErr(watch)
+	*/
+	panic("unimeplemented")
 }
 
-// WatchBlockDevices returns a NotifyWatcher for observing changes
+// WatchStorage returns a NotifyWatcher for observing changes
 // to each machine's block devices.
-func (d *DiskManagerAPI) WatchBlockDevices(args params.Entities) (params.NotifyWatchResults, error) {
+func (d *DiskManagerAPI) WatchStorage(args params.Entities) (params.NotifyWatchResults, error) {
 	result := params.NotifyWatchResults{
 		Results: make([]params.NotifyWatchResult, len(args.Entities)),
 	}
@@ -127,7 +132,7 @@ func (d *DiskManagerAPI) WatchBlockDevices(args params.Entities) (params.NotifyW
 		} else {
 			logger.Infof("watching block devices for %q", tag)
 			id := tag.Id()
-			result.Results[i].NotifyWatcherId, err = d.watchOneMachineBlockDevices(id)
+			result.Results[i].NotifyWatcherId, err = d.watchOneMachineStorage(id)
 		}
 		result.Results[i].Error = common.ServerError(err)
 	}

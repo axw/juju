@@ -24,7 +24,6 @@ import (
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state/presence"
-	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
@@ -128,9 +127,6 @@ type machineDoc struct {
 	// Placement is the placement directive that should be used when provisioning
 	// an instance for the machine.
 	Placement string `bson:",omitempty"`
-
-	// BlockDevices is a mapping from block device IDs to
-	//BlockDevices map[string]string `bson:"block-devices,omitempty"`
 }
 
 func newMachine(st *State, doc *machineDoc) *Machine {
@@ -1358,6 +1354,7 @@ func (m *Machine) markInvalidContainers() error {
 	return nil
 }
 
+/*
 func (m *Machine) BlockDevices() ([]storage.BlockDevice, error) {
 	blockDevices, closer := m.st.getCollection(blockDevicesC)
 	defer closer()
@@ -1395,3 +1392,4 @@ func (m *Machine) UpdateBlockDevices(args []storage.BlockDevice) (err error) {
 	}
 	return m.st.runTransaction(ops)
 }
+*/

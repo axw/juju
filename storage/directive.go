@@ -75,6 +75,8 @@ type Directive struct {
 	// specification.
 	Persistent bool
 
+	// TODO(axw) shared
+
 	// Options is source-specific options for storage creation.
 	Options string
 }

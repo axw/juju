@@ -312,6 +312,7 @@ func (c *Client) ServiceDeploy(args params.ServiceDeploy) error {
 			Constraints:    args.Constraints,
 			ToMachineSpec:  args.ToMachineSpec,
 			Networks:       requestedNetworks,
+			Storage:        args.Storage,
 		})
 	return err
 }
@@ -477,7 +478,7 @@ func addServiceUnits(state *state.State, args params.AddServiceUnits) ([]*state.
 			return nil, errors.Annotatef(err, `cannot add units for service "%v" to machine %v`, args.ServiceName, args.ToMachineSpec)
 		}
 	}
-	return juju.AddUnits(state, service, args.NumUnits, args.ToMachineSpec)
+	return juju.AddUnits(state, service, args.NumUnits, args.ToMachineSpec, args.Storage)
 }
 
 // AddServiceUnits adds a given number of units to a service.

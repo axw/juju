@@ -27,7 +27,6 @@ import (
 	"github.com/juju/juju/environs/imagemetadata"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/mongo"
-	"github.com/juju/juju/storage"
 	coretools "github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
@@ -65,11 +64,6 @@ type MachineConfig struct {
 	// InstanceId is the instance ID of the machine being initialised.
 	// This is required when bootstrapping, and ignored otherwise.
 	InstanceId instance.Id
-
-	// BlockDevices is the set of known block devices attached to the machine,
-	// and their associated storage group name. This is passed to the bootstrap
-	// agent if non-nil, and ignored if not bootstrapping.
-	BlockDevices []storage.BlockDevice
 
 	// HardwareCharacteristics contains the harrdware characteristics of
 	// the machine being initialised. This optional, and is only used by

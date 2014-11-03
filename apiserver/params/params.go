@@ -18,6 +18,7 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/utils/ssh"
 	"github.com/juju/juju/version"
@@ -175,6 +176,7 @@ type ServiceDeploy struct {
 	Constraints   constraints.Value
 	ToMachineSpec string
 	Networks      []string
+	Storage       []*storage.Directive
 }
 
 // ServiceUpdate holds the parameters for making the ServiceUpdate call.
@@ -296,6 +298,7 @@ type AddServiceUnits struct {
 	ServiceName   string
 	NumUnits      int
 	ToMachineSpec string
+	Storage       []*storage.Directive
 }
 
 // DestroyServiceUnits holds parameters for the DestroyUnits call.

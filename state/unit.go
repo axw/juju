@@ -1692,3 +1692,19 @@ func (u *Unit) Storage() ([]storage.Storage, error) {
 	}
 	return storages, nil
 }
+
+func (u *Unit) AddStorage(arg storage.Storage) (err error) {
+	defer errors.DeferredAnnotatef(&err, "cannot update storage %v on machine %q", arg, u.doc.DocID)
+
+	doc := newUnitStorageDoc(arg)
+	doc.UnitId = u.doc.DocID
+	doc.Id = bson.NewObjectId()
+	ops := []txn.Op{{
+		C:  unitstoragesC,
+		Id: doc.Id,
+		// TODO assert no existing doc with same (machineid, devicename)
+		// TODO assert no existing doc with same (machineid, deviceuuid)
+		Assert: txn.DocMissing,
+	}}
+	return u.st.runTransaction(ops)
+}

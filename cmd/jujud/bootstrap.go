@@ -32,7 +32,6 @@ import (
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/toolstorage"
-	"github.com/juju/juju/storage"
 	"github.com/juju/juju/utils/ssh"
 	"github.com/juju/juju/version"
 	"github.com/juju/juju/worker/peergrouper"
@@ -51,7 +50,6 @@ type BootstrapCommand struct {
 	EnvConfig        map[string]interface{}
 	Constraints      constraints.Value
 	Hardware         instance.HardwareCharacteristics
-	BlockDevices     []storage.BlockDevice
 	InstanceId       string
 	AdminUsername    string
 	ImageMetadataDir string
@@ -70,7 +68,6 @@ func (c *BootstrapCommand) SetFlags(f *gnuflag.FlagSet) {
 	yamlBase64Var(f, &c.EnvConfig, "env-config", "", "initial environment configuration (yaml, base64 encoded)")
 	f.Var(constraints.ConstraintsValue{Target: &c.Constraints}, "constraints", "initial environment constraints (space-separated strings)")
 	f.Var(&c.Hardware, "hardware", "hardware characteristics (space-separated strings)")
-	yamlBase64Var(f, &c.BlockDevices, "block-devices", "", "attached block devices (yaml, base64 encoded)")
 	f.StringVar(&c.InstanceId, "instance-id", "", "unique instance-id for bootstrap machine")
 	f.StringVar(&c.AdminUsername, "admin-user", "admin", "set the name for the juju admin user")
 	f.StringVar(&c.ImageMetadataDir, "image-metadata", "", "custom image metadata source dir")
@@ -205,7 +202,6 @@ func (c *BootstrapCommand) Run(_ *cmd.Context) error {
 				Jobs:            jobs,
 				InstanceId:      instanceId,
 				Characteristics: c.Hardware,
-				BlockDevices:    c.BlockDevices,
 				SharedSecret:    sharedSecret,
 			},
 			dialOpts,

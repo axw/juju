@@ -28,6 +28,7 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
@@ -403,11 +404,17 @@ func (c *Client) ServiceGetCharmURL(serviceName string) (*charm.URL, error) {
 }
 
 // AddServiceUnits adds a given number of units to a service.
-func (c *Client) AddServiceUnits(service string, numUnits int, machineSpec string) ([]string, error) {
+func (c *Client) AddServiceUnits(
+	service string,
+	numUnits int,
+	machineSpec string,
+	storage []*storage.Directive,
+) ([]string, error) {
 	args := params.AddServiceUnits{
 		ServiceName:   service,
 		NumUnits:      numUnits,
 		ToMachineSpec: machineSpec,
+		Storage:       storage,
 	}
 	results := new(params.AddServiceUnitsResults)
 	err := c.facade.FacadeCall("AddServiceUnits", args, results)

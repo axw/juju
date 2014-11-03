@@ -15,7 +15,6 @@ import (
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
-	"github.com/juju/juju/storage"
 	"github.com/juju/juju/version"
 )
 
@@ -43,11 +42,6 @@ type BootstrapMachineConfig struct {
 	// Characteristics holds hardware information on the
 	// bootstrap machine.
 	Characteristics instance.HardwareCharacteristics
-
-	// BlockDevices holds the set of block devices that Juju has
-	// requested to be attached to the machine, and their associated
-	// storage group names.
-	BlockDevices []storage.BlockDevice
 
 	// SharedSecret is the Mongo replica set shared secret (keyfile).
 	SharedSecret string
@@ -168,8 +162,7 @@ func initBootstrapMachine(c ConfigSetter, st *state.State, cfg BootstrapMachineC
 		Constraints:             cfg.Constraints,
 		InstanceId:              cfg.InstanceId,
 		HardwareCharacteristics: cfg.Characteristics,
-		BlockDevices:            cfg.BlockDevices,
-		Jobs:                    jobs,
+		Jobs: jobs,
 	})
 	if err != nil {
 		return nil, errors.Errorf("cannot create bootstrap machine in state: %v", err)

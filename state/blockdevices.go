@@ -22,17 +22,17 @@ type blockDeviceDoc struct {
 
 func newBlockDeviceDoc(info storage.BlockDevice) *blockDeviceDoc {
 	return &blockDeviceDoc{
-		DeviceName:  info.DeviceName,
-		DeviceUUID:  info.DeviceUUID,
-		StorageName: info.StorageName,
+		DeviceName: info.DeviceName,
+		DeviceUUID: info.DeviceUUID,
+		//StorageName: info.StorageName,
 	}
 }
 
 func newBlockDevice(doc *blockDeviceDoc) storage.BlockDevice {
 	return storage.BlockDevice{
-		DeviceName:  doc.DeviceName,
-		DeviceUUID:  doc.DeviceUUID,
-		StorageName: doc.StorageName,
+		DeviceName: doc.DeviceName,
+		DeviceUUID: doc.DeviceUUID,
+		//StorageName: doc.StorageName,
 	}
 }
 

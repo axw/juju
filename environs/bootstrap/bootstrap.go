@@ -124,7 +124,6 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 	arch, series, finalizer, err := environ.Bootstrap(ctx, environs.BootstrapParams{
 		Constraints:    args.Constraints,
 		Placement:      args.Placement,
-		Storage:        args.Storage,
 		AvailableTools: availableTools,
 	})
 	if err != nil {

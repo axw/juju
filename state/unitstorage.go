@@ -11,14 +11,11 @@ import (
 
 // unitStorageDoc represents storage attached to a unit.
 type unitStorageDoc struct {
-	Id     bson.ObjectId `bson:"_id"`
-	UnitId string        `bson:"unitid"`
-	Name   string        `bson:"name"`
-	Path   string        `bson:"path"`
-
-	// BlockDeviceId is the document ID for the associated
-	// block device, if any.
-	BlockDeviceId string `bson:"blockdeviceid"`
+	Id        bson.ObjectId     `bson:"_id"`
+	UnitId    string            `bson:"unitid"`
+	Name      string            `bson:"name"`
+	Path      string            `bson:"path"`
+	Directive *storageDirective `bson:"directive,omitempty"`
 
 	BlockDevice *blockDevice `bson:"blockdevice,omitempty"`
 	Filesystem  *filesystem  `bson:"filesystem,omitempty"`
@@ -38,9 +35,18 @@ type filesystem struct {
 	State        int      `bson:"state"`
 }
 
+type storageDirective struct {
+	Source     string `bson:"source"`
+	Count      int    `bson:"count"`
+	Size       uint64 `bson:"size"`
+	Persistent bool   `bson:"persistent"`
+	Options    string `bson:"options"`
+}
+
 func newUnitStorageDoc(info storage.Storage) *unitStorageDoc {
 	var fs *filesystem
 	var dev *blockDevice
+	var directive *storageDirective
 	if info.Filesystem != nil {
 		fs = &filesystem{
 			Type:         info.Filesystem.Type,
@@ -56,9 +62,19 @@ func newUnitStorageDoc(info storage.Storage) *unitStorageDoc {
 			State:      int(info.BlockDevice.State),
 		}
 	}
+	if info.Directive != nil {
+		directive = &storageDirective{
+			Source:     info.Directive.Source,
+			Count:      info.Directive.Count,
+			Size:       info.Directive.Size,
+			Persistent: info.Directive.Persistent,
+			Options:    info.Directive.Options,
+		}
+	}
 	return &unitStorageDoc{
 		Name:        info.Name,
 		Path:        info.Path,
+		Directive:   directive,
 		Filesystem:  fs,
 		BlockDevice: dev,
 	}
@@ -67,6 +83,7 @@ func newUnitStorageDoc(info storage.Storage) *unitStorageDoc {
 func newUnitStorage(doc *unitStorageDoc) storage.Storage {
 	var fs *storage.Filesystem
 	var dev *storage.BlockDevice
+	var directive *storage.Directive
 	if doc.Filesystem != nil {
 		fs = &storage.Filesystem{
 			Type:         doc.Filesystem.Type,
@@ -82,9 +99,19 @@ func newUnitStorage(doc *unitStorageDoc) storage.Storage {
 			State:      storage.BlockDeviceState(doc.BlockDevice.State),
 		}
 	}
+	if doc.Directive != nil {
+		directive = &storage.Directive{
+			Source:     doc.Directive.Source,
+			Count:      doc.Directive.Count,
+			Size:       doc.Directive.Size,
+			Persistent: doc.Directive.Persistent,
+			Options:    doc.Directive.Options,
+		}
+	}
 	return storage.Storage{
 		Name:        doc.Name,
 		Path:        doc.Path,
+		Directive:   directive,
 		Filesystem:  fs,
 		BlockDevice: dev,
 	}

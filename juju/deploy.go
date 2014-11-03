@@ -15,6 +15,7 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/storage"
 )
 
 // DeployServiceParams contains the arguments required to deploy the referenced
@@ -33,6 +34,7 @@ type DeployServiceParams struct {
 	ToMachineSpec string
 	// Networks holds a list of networks to required to start on boot.
 	Networks []string
+	Storage  []*storage.Directive
 }
 
 // DeployService takes a charm and various parameters and deploys it.
@@ -79,6 +81,7 @@ func DeployService(st *state.State, args DeployServiceParams) (*state.Service, e
 		args.ServiceOwner,
 		args.Charm,
 		args.Networks,
+		// TODO(axw) record shared storage here. also defaults for others?
 	)
 	if err != nil {
 		return nil, err
@@ -97,7 +100,13 @@ func DeployService(st *state.State, args DeployServiceParams) (*state.Service, e
 		}
 	}
 	if args.NumUnits > 0 {
-		if _, err := AddUnits(st, service, args.NumUnits, args.ToMachineSpec); err != nil {
+		if _, err := AddUnits(
+			st,
+			service,
+			args.NumUnits,
+			args.ToMachineSpec,
+			args.Storage,
+		); err != nil {
 			return nil, err
 		}
 	}
@@ -106,21 +115,48 @@ func DeployService(st *state.State, args DeployServiceParams) (*state.Service, e
 
 // AddUnits starts n units of the given service and allocates machines
 // to them as necessary.
-func AddUnits(st *state.State, svc *state.Service, n int, machineIdSpec string) ([]*state.Unit, error) {
+func AddUnits(
+	st *state.State,
+	svc *state.Service,
+	n int,
+	machineIdSpec string,
+	storage []*storage.Directive,
+) ([]*state.Unit, error) {
+
 	units := make([]*state.Unit, n)
+
 	// Hard code for now till we implement a different approach.
 	policy := state.AssignCleanEmpty
+
 	// All units should have the same networks as the service.
 	networks, err := svc.Networks()
 	if err != nil {
 		return nil, fmt.Errorf("cannot get service %q networks: %v", svc.Name(), err)
 	}
+
+	ch, _, err := svc.Charm()
+	if err != nil {
+		return nil, errors.Annotatef(err, "cannot get charm for service %q", svc.Name())
+	}
+
 	// TODO what do we do if we fail half-way through this process?
 	for i := 0; i < n; i++ {
 		unit, err := svc.AddUnit()
 		if err != nil {
 			return nil, fmt.Errorf("cannot add unit %d/%d to service %q: %v", i+1, n, svc.Name(), err)
 		}
+
+		// TODO(axw) force allocation of new machine if storage is specified (for now).
+		for _, directive := range storage {
+			store, err := makeStorage(directive, ch)
+			if err != nil {
+				return nil, errors.Annotatef(err, "cannot make storage %q for charm %q", store.Name, ch)
+			}
+			if err := unit.AddStorage(store); err != nil {
+				return nil, errors.Annotatef(err, "cannot add storage %q to unit %s/%d", store.Name, svc.Name(), i+1)
+			}
+		}
+
 		if machineIdSpec != "" {
 			if n != 1 {
 				return nil, fmt.Errorf("cannot add multiple units of service %q to a single machine", svc.Name())
@@ -179,4 +215,16 @@ func AddUnits(st *state.State, svc *state.Service, n int, machineIdSpec string) 
 		units[i] = unit
 	}
 	return units, nil
+}
+
+func makeStorage(d *storage.Directive, ch *state.Charm) (storage.Storage, error) {
+	charmStorage, ok := ch.Meta().Storage[d.Name]
+	if !ok {
+		return storage.Storage{}, errors.NotFoundf("storage %q in charm %q", d.Name, ch)
+	}
+	return storage.Storage{
+		Name:      d.Name,
+		Type:      charmStorage.Type,
+		Directive: d,
+	}, nil
 }

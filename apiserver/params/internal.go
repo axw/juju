@@ -665,6 +665,7 @@ type ProvisioningInfo struct {
 	Placement   string
 	Networks    []string
 	Jobs        []MachineJob
+	Storage     []*storage.Directive
 }
 
 // ProvisioningInfoResult holds machine provisioning info or an error.

@@ -17,7 +17,6 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/replicaset"
-	"github.com/juju/juju/storage"
 )
 
 // MachineTemplate holds attributes that are to be associated
@@ -71,10 +70,6 @@ type MachineTemplate struct {
 	// Placement holds the placement directive that will be associated
 	// with the machine.
 	Placement string
-
-	// BlockDevices contains information about the known block devices
-	// attached to the machine.
-	BlockDevices []storage.BlockDevice
 
 	// principals holds the principal units that will
 	// associated with the machine.
@@ -437,7 +432,6 @@ func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate)
 		// and known before setting them.
 		createRequestedNetworksOp(st, machineGlobalKey(mdoc.Id), template.RequestedNetworks),
 	}
-	prereqOps = append(prereqOps, createBlockDevicesOps(mdoc.Id, template.BlockDevices)...)
 
 	return prereqOps, machineOp
 }

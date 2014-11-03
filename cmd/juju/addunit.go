@@ -160,7 +160,12 @@ func (c *AddUnitCommand) Run(_ *cmd.Context) error {
 		return err
 	}
 
-	_, err = apiclient.AddServiceUnits(c.ServiceName, c.NumUnits, c.ToMachineSpec)
+	_, err = apiclient.AddServiceUnits(
+		c.ServiceName,
+		c.NumUnits,
+		c.ToMachineSpec,
+		c.Storage,
+	)
 	return err
 }
 

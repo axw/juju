@@ -78,6 +78,10 @@ type Storage struct {
 	// this identifies the mount point.
 	Path string `yaml:"path"`
 
+	// Directive describes how to create the storage.
+	// This may be nil if the storage is pre-existing.
+	Directive *Directive `yaml:"directive,omitempty"`
+
 	// BlockDevice is the associated block device, if any.
 	//
 	// If this is non-nil and Type is StorageFilesystem, then Juju manages
@@ -106,15 +110,6 @@ type BlockDevice struct {
 	// We must cater for LVM UUIDs here, which have a different format than
 	// the standard v4 UUIDs for example.
 	DeviceUUID string `yaml:"deviceuuid,omitempty"`
-
-	// TODO(axw) remove this; we should just store Storage in state and do
-	// away with the blockdevices collection. One collection for both fs
-	// and block.
-	//
-	// StorageName is the storage group name associated with the device when
-	// it was added to the system. For discovered devices that have not yet
-	// been attached to a unit, this will be empty.
-	StorageName string `yaml:"storagename"`
 }
 
 type Filesystem struct {

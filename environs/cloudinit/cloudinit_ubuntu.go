@@ -271,11 +271,6 @@ func (w *ubuntuConfigure) ConfigureJuju() error {
 			}
 		}
 
-		var blockDevices string
-		if len(w.mcfg.BlockDevices) > 0 {
-			blockDevices = " --block-devices " + shquote(base64yaml(w.mcfg.BlockDevices))
-		}
-
 		w.conf.AddRunCmd(cloudinit.LogProgressCmd("Bootstrapping Juju machine agent"))
 		w.conf.AddScripts(
 			// The bootstrapping is always run with debug on.
@@ -285,7 +280,6 @@ func (w *ubuntuConfigure) ConfigureJuju() error {
 				" --instance-id " + shquote(string(w.mcfg.InstanceId)) +
 				hardware +
 				cons +
-				blockDevices +
 				metadataDir +
 				" --debug",
 		)

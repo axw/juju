@@ -3,9 +3,45 @@
 
 package storage
 
-import "launchpad.net/loggo"
+import (
+	"gopkg.in/juju/charm.v4"
+	"launchpad.net/loggo"
+)
 
 var logger = loggo.GetLogger("juju.storage")
+
+type StorageState int
+
+const (
+	StorageStateUnknown StorageState = iota
+	StorageStateAttaching
+	StorageStateAttached
+	StorageStateDetaching
+	StorageStateDetached
+)
+
+// Storage describes charm storage allocated to a unit.
+type Storage struct {
+	Type charm.StorageType `yaml:"type"`
+
+	// BlockDevice is the associated block device, if any. If this
+	// is non-nil and Type is StorageFilesystem, then Juju manages
+	// the creation of the filesystem on the block device. This will
+	// be nil for remote filesystems.
+	BlockDevice *BlockDevice `yaml:"blockdevice,omitempty"`
+
+	// Name is the charm storage name associated with the storage.
+	// For charm storage with >1 count, this identifies the group.
+	Name string `yaml:"name"`
+
+	// Path is the unique filesystem path to the storage on the machine.
+	// For block devices, this identifies the device; for filesystems,
+	// this identifies the mount point.
+	Path string `yaml:"path"`
+
+	// State is the state of the Storage.
+	State StorageState `yaml:"state"`
+}
 
 // BlockDevice describes a block device (disk, logical volume, etc.)
 type BlockDevice struct {

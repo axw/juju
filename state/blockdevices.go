@@ -17,10 +17,10 @@ type blockDeviceDoc struct {
 	DeviceName  string        `bson:"devicename,omitempty"`
 	DeviceUUID  string        `bson:"deviceuuid,omitempty"`
 	StorageName string        `bson:"storagename"`
+	// TODO(axw) source: provider or charm? e.g. may be RBD-based.
 }
 
 func newBlockDeviceDoc(info storage.BlockDevice) *blockDeviceDoc {
-	// This does not set the machine id.
 	return &blockDeviceDoc{
 		DeviceName:  info.DeviceName,
 		DeviceUUID:  info.DeviceUUID,
@@ -36,18 +36,24 @@ func newBlockDevice(doc *blockDeviceDoc) storage.BlockDevice {
 	}
 }
 
+func createBlockDeviceOps(machineId string, arg storage.BlockDevice) (bson.ObjectId, []txn.Op) {
+	doc := newBlockDeviceDoc(arg)
+	doc.MachineId = machineId
+	doc.Id = bson.NewObjectId()
+	ops := []txn.Op{{
+		C:      blockDevicesC,
+		Id:     doc.Id,
+		Assert: txn.DocMissing,
+		Insert: doc,
+	}}
+	return doc.Id, ops
+}
+
 func createBlockDevicesOps(machineId string, args []storage.BlockDevice) []txn.Op {
-	ops := make([]txn.Op, len(args))
+	ops := make([]txn.Op, 0, len(args))
 	for i, arg := range args {
-		doc := newBlockDeviceDoc(arg)
-		doc.MachineId = machineId
-		doc.Id = bson.NewObjectId()
-		ops[i] = txn.Op{
-			C:      blockDevicesC,
-			Id:     doc.Id,
-			Assert: txn.DocMissing,
-			Insert: doc,
-		}
+		_, deviceOps := createBlockDeviceOps(machineId, arg)
+		ops = append(ops, deviceOps...)
 	}
 	return ops
 }

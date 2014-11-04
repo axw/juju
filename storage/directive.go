@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	storageNameSnippet    = "[a-zA-Z][a-zA-Z0-9]*"
+	storageNameSnippet    = "[a-zA-Z][a-zA-Z0-9-_.]*"
 	storageSourceSnippet  = "[a-zA-Z][a-zA-Z0-9]*"
 	storageCountSnippet   = "-?[0-9]+"
 	storageSizeSnippet    = "-?[0-9]+(?:\\.[0-9]+)?[MGTP]?"

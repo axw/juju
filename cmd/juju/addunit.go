@@ -54,7 +54,10 @@ type storageDirectives []*storage.Directive
 func (v *storageDirectives) Set(s string) error {
 	spec, err := storage.ParseDirective(s)
 	if err == storage.ErrStorageSourceMissing {
-		spec, err = storage.ParseDirective(storage.ProviderSource + ":" + s)
+		i := strings.IndexRune(s, '=')
+		head, tail := s[:i], s[i+1:]
+		s = fmt.Sprintf("%s=%s:%s", head, storage.ProviderSource, tail)
+		spec, err = storage.ParseDirective(s)
 	}
 	if err != nil {
 		return errors.Annotate(err, "failed to parse storage directive")

@@ -81,12 +81,11 @@ func (d *StorageManagerAPI) Storage(args params.Entities) (params.StorageResults
 			result.Results[i].Error = common.ServerError(common.ErrPerm)
 			continue
 		}
-
 		if !canAccess(tag) {
 			err = common.ErrPerm
 		} else {
 			id := tag.Id()
-			result.Results[i].Storage, err = d.oneUnitStorage(id)
+			result.Results[i].Result, err = d.oneUnitStorage(id)
 		}
 		result.Results[i].Error = common.ServerError(err)
 	}

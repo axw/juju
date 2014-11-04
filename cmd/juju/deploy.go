@@ -237,6 +237,7 @@ func (c *DeployCommand) Run(ctx *cmd.Context) error {
 		c.Constraints,
 		c.ToMachineSpec,
 		requestedNetworks,
+		c.Storage,
 	)
 	if params.IsCodeNotImplemented(err) {
 		if haveNetworks {
@@ -248,7 +249,9 @@ func (c *DeployCommand) Run(ctx *cmd.Context) error {
 			numUnits,
 			string(configYAML),
 			c.Constraints,
-			c.ToMachineSpec)
+			c.ToMachineSpec,
+			c.Storage,
+		)
 	}
 	return err
 }

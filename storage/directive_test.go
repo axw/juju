@@ -45,6 +45,12 @@ func (s *DirectiveSuite) TestParseDirective(c *gc.C) {
 		expectCount:  1,
 		expectSize:   1,
 	}, {
+		arg:          "n-a_m.e=source:1M",
+		expectName:   "n-a_m.e",
+		expectSource: "source",
+		expectCount:  1,
+		expectSize:   1,
+	}, {
 		arg: "name=source:1Msomejunk",
 		err: `invalid trailing data "somejunk": options must be preceded by ',' when size is specified`,
 	}, {

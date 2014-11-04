@@ -143,7 +143,7 @@ func AddUnits(
 	for i := 0; i < n; i++ {
 		unit, err := svc.AddUnit()
 		if err != nil {
-			return nil, fmt.Errorf("cannot add unit %d/%d to service %q: %v", i+1, n, svc.Name(), err)
+			return nil, fmt.Errorf("cannot add unit %d/%d to service %q: %v", i, n, svc.Name(), err)
 		}
 
 		// TODO(axw) force allocation of new machine if storage is specified (for now).
@@ -153,8 +153,9 @@ func AddUnits(
 				return nil, errors.Annotatef(err, "cannot make storage %q for charm %q", store.Name, ch)
 			}
 			if err := unit.AddStorage(store); err != nil {
-				return nil, errors.Annotatef(err, "cannot add storage %q to unit %s/%d", store.Name, svc.Name(), i+1)
+				return nil, errors.Annotatef(err, "cannot add storage %q to unit %s/%d", store.Name, svc.Name(), i)
 			}
+			logger.Infof("added storage %q to unit %s/%d", store.Name, svc.Name(), i)
 		}
 
 		if machineIdSpec != "" {

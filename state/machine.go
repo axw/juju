@@ -24,6 +24,7 @@ import (
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state/presence"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
@@ -1352,6 +1353,23 @@ func (m *Machine) markInvalidContainers() error {
 		}
 	}
 	return nil
+}
+
+func (m *Machine) Storage() ([]storage.Storage, error) {
+	// TODO(axw) less dumb
+	var storages []storage.Storage
+	units, err := m.Units()
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range units {
+		unitStorages, err := u.Storage()
+		if err != nil {
+			return nil, err
+		}
+		storages = append(storages, unitStorages...)
+	}
+	return storages, nil
 }
 
 /*

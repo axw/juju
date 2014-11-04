@@ -347,7 +347,7 @@ func (c *Client) ServiceUnexpose(service string) error {
 // allows the specification of requested networks that must be present
 // on the machines where the service is deployed. Another way to specify
 // networks to include/exclude is using constraints.
-func (c *Client) ServiceDeployWithNetworks(charmURL string, serviceName string, numUnits int, configYAML string, cons constraints.Value, toMachineSpec string, networks []string) error {
+func (c *Client) ServiceDeployWithNetworks(charmURL string, serviceName string, numUnits int, configYAML string, cons constraints.Value, toMachineSpec string, networks []string, storage []*storage.Directive) error {
 	params := params.ServiceDeploy{
 		ServiceName:   serviceName,
 		CharmUrl:      charmURL,
@@ -356,13 +356,14 @@ func (c *Client) ServiceDeployWithNetworks(charmURL string, serviceName string, 
 		Constraints:   cons,
 		ToMachineSpec: toMachineSpec,
 		Networks:      networks,
+		Storage:       storage,
 	}
 	return c.facade.FacadeCall("ServiceDeployWithNetworks", params, nil)
 }
 
 // ServiceDeploy obtains the charm, either locally or from the charm store,
 // and deploys it.
-func (c *Client) ServiceDeploy(charmURL string, serviceName string, numUnits int, configYAML string, cons constraints.Value, toMachineSpec string) error {
+func (c *Client) ServiceDeploy(charmURL string, serviceName string, numUnits int, configYAML string, cons constraints.Value, toMachineSpec string, storage []*storage.Directive) error {
 	params := params.ServiceDeploy{
 		ServiceName:   serviceName,
 		CharmUrl:      charmURL,
@@ -370,6 +371,7 @@ func (c *Client) ServiceDeploy(charmURL string, serviceName string, numUnits int
 		ConfigYAML:    configYAML,
 		Constraints:   cons,
 		ToMachineSpec: toMachineSpec,
+		Storage:       storage,
 	}
 	return c.facade.FacadeCall("ServiceDeploy", params, nil)
 }

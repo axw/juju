@@ -16,6 +16,7 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/watcher"
+	"github.com/juju/juju/storage"
 )
 
 func init() {
@@ -383,12 +384,25 @@ func getProvisioningInfo(m *state.Machine) (*params.ProvisioningInfo, error) {
 	for _, job := range m.Jobs() {
 		jobs = append(jobs, job.ToParams())
 	}
+
+	var directives []*storage.Directive
+	storage, err := m.Storage()
+	if err != nil {
+		return nil, err
+	}
+	for _, store := range storage {
+		if store.Directive != nil {
+			directives = append(directives, store.Directive)
+		}
+	}
+
 	return &params.ProvisioningInfo{
 		Constraints: cons,
 		Series:      m.Series(),
 		Placement:   m.Placement(),
 		Networks:    networks,
 		Jobs:        jobs,
+		Storage:     directives,
 	}, nil
 }
 

@@ -4,6 +4,12 @@
 package storagemanager
 
 import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
@@ -13,6 +19,7 @@ import (
 	"github.com/juju/juju/api/watcher"
 	"github.com/juju/juju/storage"
 	"github.com/juju/juju/worker"
+	"github.com/juju/juju/worker/uniter"
 )
 
 var logger = loggo.GetLogger("juju.worker.storagemanager")
@@ -35,11 +42,12 @@ type storageManager struct {
 }
 
 func (m *storageManager) SetUp() (watcher.NotifyWatcher, error) {
+	// TODO(axw) should wait until unit is installed.
 	w, err := m.st.WatchStorage(m.tag)
 	if err != nil {
 		return nil, errors.LoggedErrorf(logger, "starting storage manager worker: %v", err)
 	}
-	logger.Infof("%q disk formatter worker started", m.tag)
+	logger.Infof("%q storage manager worker started", m.tag)
 	return w, nil
 }
 
@@ -52,7 +60,6 @@ func (m *storageManager) Handle() error {
 	if err != nil {
 		return errors.Annotate(err, "cannot get block devices")
 	}
-	logger.Infof("storage: %+v", stores)
 	for _, store := range stores {
 		switch store.Type {
 		default:
@@ -92,28 +99,111 @@ func (m *storageManager) handleFilesystem(store storage.Storage) error {
 		return errors.NotSupportedf("unmanaged filesystems")
 	}
 
+	// Wait for block device to be attached.
+	switch store.BlockDevice.State {
+	default:
+		return errors.Errorf("unhandled state %v", store.BlockDevice.State)
+	case storage.BlockDeviceStateAttaching:
+		logger.Debugf("waiting for block device attachment")
+		return nil
+	case storage.BlockDeviceStateAttached:
+		break
+	}
+
+	// Create or mount the filesystem.
 	switch store.Filesystem.State {
 	default:
 		return errors.Errorf("unhandled state %v", store.Filesystem.State)
+	case storage.FilesystemStateCreating:
+		return m.createFilesystem(store)
 	case storage.FilesystemStateMounted:
-		// TODO(axw) check if already mounted
-		mounted := false
-		if mounted {
-			return nil
-		}
-		fallthrough
-	case storage.FilesystemStateMounting:
-		switch store.BlockDevice.State {
-		default:
-			return errors.Errorf("unhandled state %v", store.BlockDevice.State)
-		case storage.BlockDeviceStateAttaching:
-			logger.Debugf("waiting for block device attachment")
-			return nil
-		case storage.BlockDeviceStateAttached:
-			break
-		}
-		logger.Debugf("mounting filesystem... %v", store)
-		// TODO(axw) report back that filesystem is mounted now.
+		/*
+			// TODO(axw) check if already mounted
+			mounted := false
+			if mounted {
+				return nil
+			}
+			fallthrough
+		*/
 		return nil
+	case storage.FilesystemStateMounting:
+		return m.mountFilesystem(store)
 	}
+}
+
+func (m *storageManager) createFilesystem(store storage.Storage) error {
+	path, err := blockDevicePath(store.BlockDevice)
+	if err != nil {
+		return err
+	}
+
+	prefs := store.Filesystem.Preferences
+	prefs = append(prefs, storage.FilesystemPreference{Type: "ext4"})
+	for _, pref := range prefs {
+		if err := m.maybeCreateFilesystem(path, pref); err == nil {
+			logger.Infof("created %q filesystem on %q", pref.Type, path)
+			if err := m.st.SetFilesystem(store.Id, pref.Type, pref.MountOptions); err != nil {
+				return errors.Annotate(err, "cannot record filesystem")
+			}
+			return nil
+		}
+	}
+	return errors.Errorf("failed to create filesystem on storage %q", store.Name)
+}
+
+func (m *storageManager) maybeCreateFilesystem(path string, fs storage.FilesystemPreference) error {
+	args := []string{"-t", fs.Type}
+	args = append(args, fs.MkfsOptions...)
+	args = append(args, path)
+	output, err := exec.Command("mkfs", args...).CombinedOutput()
+	if err != nil {
+		return errors.Annotatef(err, "mkfs failed (%q)", bytes.TrimSpace(output))
+	}
+	return nil
+}
+
+func blockDevicePath(dev *storage.BlockDevice) (string, error) {
+	if dev.DeviceName != "" {
+		path := dev.DeviceName
+		if !strings.HasPrefix(path, "/dev") {
+			path = filepath.Join("/dev", path)
+		}
+		return path, nil
+	}
+	if dev.DeviceUUID != "" {
+		return filepath.Join("/dev/disk/by-uuid", dev.DeviceUUID), nil
+	}
+	return "", errors.New("block device path cannot be identified")
+}
+
+func (m *storageManager) mountFilesystem(store storage.Storage) error {
+	devicePath, err := blockDevicePath(store.BlockDevice)
+	if err != nil {
+		return err
+	}
+	mountpoint := store.Path
+	if mountpoint == "" {
+		mountpoint = store.Id
+	}
+	if !filepath.IsAbs(mountpoint) {
+		// Paths are relative to the unit agent's storage directory.
+		storageDir := uniter.NewPaths(m.dataDir, m.tag).State.StorageDir
+		mountpoint = filepath.Join(storageDir, mountpoint)
+	}
+	if err := os.MkdirAll(mountpoint, 0755); err != nil {
+		return err
+	}
+
+	args := []string{"-t", store.Filesystem.Type}
+	if len(store.Filesystem.MountOptions) > 0 {
+		args = append(args, "-o")
+		args = append(args, strings.Join(store.Filesystem.MountOptions, ","))
+	}
+	args = append(args, devicePath, mountpoint)
+	output, err := exec.Command("mount", args...).CombinedOutput()
+	if err != nil {
+		return errors.Annotatef(err, "mount failed (%q)", bytes.TrimSpace(output))
+	}
+	logger.Infof("mounted %q filesystem on %q at %q", store.Filesystem.Type, devicePath, mountpoint)
+	return m.st.SetMountPoint(store.Id, mountpoint)
 }

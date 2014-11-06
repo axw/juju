@@ -877,7 +877,8 @@ func (m *Machine) SetProvisioned(id instance.Id, nonce string, characteristics *
 // Merge SetProvisioned() in here or drop it at that point.
 func (m *Machine) SetInstanceInfo(
 	id instance.Id, nonce string, characteristics *instance.HardwareCharacteristics,
-	networks []NetworkInfo, interfaces []NetworkInterfaceInfo) error {
+	networks []NetworkInfo, interfaces []NetworkInterfaceInfo,
+	blockDevices map[string][]storage.BlockDevice) error {
 
 	// Add the networks and interfaces first.
 	for _, network := range networks {
@@ -896,6 +897,20 @@ func (m *Machine) SetInstanceInfo(
 			continue
 		} else if err != nil {
 			return err
+		}
+	}
+	for storageName, blockDevices := range blockDevices {
+		for _, dev := range blockDevices {
+			err := m.AttachBlockDevice(dev, storageName)
+			if errors.IsNotFound(err) {
+				// Log a warning if we get a "not found" error;
+				// this means that there were no stores to assign
+				// the block device to.
+				logger.Warningf("%s", err)
+				continue
+			} else if err != nil {
+				return err
+			}
 		}
 	}
 	return m.SetProvisioned(id, nonce, characteristics)
@@ -1370,6 +1385,38 @@ func (m *Machine) Storage() ([]storage.Storage, error) {
 		storages = append(storages, unitStorages...)
 	}
 	return storages, nil
+}
+
+// AttachBlockDevice identifies a store with the specified name that requires
+// a block device, and adds the provided block device attributes to it. If there
+// are no such stores, a NotFound error is returned.
+func (m *Machine) AttachBlockDevice(dev storage.BlockDevice, storageName string) error {
+	// TODO(axw) less dumb
+	units, err := m.Units()
+	if err != nil {
+		return err
+	}
+	for _, u := range units {
+		docs, err := u.storageDocs()
+		if err != nil {
+			return err
+		}
+		for _, doc := range docs {
+			if doc.Name != storageName {
+				continue
+			}
+			if doc.BlockDevice == nil {
+				dev.State = storage.BlockDeviceStateAttached
+				op := setUnitStorageBlockDeviceOp(&doc, newBlockDeviceDoc(&dev))
+				if err = m.st.runTransaction([]txn.Op{op}); err != nil {
+					return err
+				}
+				logger.Infof("added block device %v to unit %q", dev, u.Name())
+				return nil
+			}
+		}
+	}
+	return errors.NotFoundf("storage with name %q requiring a block device", storageName)
 }
 
 /*

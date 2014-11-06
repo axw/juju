@@ -305,9 +305,6 @@ func (u *Uniter) deploy(curl *corecharm.URL, reason operation.Kind) error {
 		if err != nil {
 			return err
 		}
-		if err := u.checkRequiredStorage(sch); err != nil {
-			return err
-		}
 		if err = u.deployer.Stage(sch, u.tomb.Dying()); err != nil {
 			return err
 		}
@@ -327,6 +324,9 @@ func (u *Uniter) deploy(curl *corecharm.URL, reason operation.Kind) error {
 			return err
 		}
 		if err = u.deployer.Deploy(); err != nil {
+			return err
+		}
+		if err := u.checkRequiredStorage(sch); err != nil {
 			return err
 		}
 		if err = u.writeOperationState(reason, operation.Done, hi, curl); err != nil {
@@ -361,10 +361,13 @@ func (u *Uniter) checkRequiredStorage(ch *uniter.Charm) error {
 	if err != nil {
 		return errors.Annotate(err, "cannot get unit storage")
 	}
+	logger.Debugf("unit storage: %+v", unitStorage)
 	storesByName := make(map[string][]storage.Storage)
 	for _, store := range unitStorage {
+		logger.Debugf("storage: %+v", store)
 		var available bool
 		if store.Filesystem != nil {
+			logger.Debugf("state %s", store.Filesystem.State)
 			available = store.Filesystem.State == storage.FilesystemStateMounted
 		} else if store.BlockDevice != nil {
 			available = store.BlockDevice.State == storage.BlockDeviceStateAttached

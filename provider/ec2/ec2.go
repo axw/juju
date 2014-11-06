@@ -912,6 +912,7 @@ func getBlockDeviceMappings(
 	blockDeviceMappings := []ec2.BlockDeviceMapping{rootDiskMapping}
 	nextBlockDevice := blockDeviceNamer(*instanceType.VirtType == paravirtual)
 	for _, directive := range args.Storage {
+		logger.Debugf("directive: %+v", directive)
 		if directive.Size == 0 {
 			return nil, errors.New("storage size must be specified")
 		}
@@ -922,6 +923,7 @@ func getBlockDeviceMappings(
 		options := strings.Split(directive.Options, ",")
 		for _, option := range options {
 			switch option {
+			case "":
 			case "magnetic", "standard":
 				volumeType = "standard"
 			case "gp2", "ssd":

@@ -147,6 +147,7 @@ func AddUnits(
 		}
 
 		// TODO(axw) force allocation of new machine if storage is specified (for now).
+		// TODO(axw) handle multiple-count directives
 		for _, directive := range storage {
 			store, err := makeStorage(directive, ch)
 			if err != nil {
@@ -218,14 +219,39 @@ func AddUnits(
 	return units, nil
 }
 
+// makeStorage creates a storage.Storage from a storage directive
+// and associated charm storage declaration.
 func makeStorage(d *storage.Directive, ch *state.Charm) (storage.Storage, error) {
 	charmStorage, ok := ch.Meta().Storage[d.Name]
 	if !ok {
 		return storage.Storage{}, errors.NotFoundf("storage %q in charm %q", d.Name, ch)
 	}
-	return storage.Storage{
+	store := storage.Storage{
 		Name:      d.Name,
 		Type:      charmStorage.Type,
 		Directive: d,
-	}, nil
+	}
+	switch store.Type {
+	case charm.StorageFilesystem:
+		var prefs []storage.FilesystemPreference
+		for _, pref := range charmStorage.Filesystem {
+			prefs = append(prefs, storage.FilesystemPreference{
+				Type:         pref.Type,
+				MountOptions: pref.MountOptions,
+				MkfsOptions:  pref.MkfsOptions,
+			})
+		}
+		store.Filesystem = &storage.Filesystem{
+			State:       storage.FilesystemStateCreating,
+			Preferences: prefs,
+		}
+		if charmStorage.CountMax == 1 {
+			// location may be blank; if so, storagemanager will
+			// generate a path itself and record it in state.
+			store.Path = charmStorage.Location
+		} else {
+			panic("TODO")
+		}
+	}
+	return store, nil
 }

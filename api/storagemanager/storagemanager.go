@@ -72,3 +72,38 @@ func (st *State) WatchStorage(tag names.UnitTag) (watcher.NotifyWatcher, error) 
 	w := watcher.NewNotifyWatcher(st.facade.RawAPICaller(), result)
 	return w, nil
 }
+
+// SetFilesystem ... TODO
+func (st *State) SetFilesystem(storageId, fsType string, fsMountOptions []string) error {
+	args := params.SetFilesystem{
+		Filesystems: []params.StorageFilesystem{{
+			Storage:      storageId,
+			Type:         fsType,
+			MountOptions: fsMountOptions,
+		}},
+	}
+	var results params.ErrorResults
+	err := st.facade.FacadeCall("SetFilesystem", args, &results)
+	if err != nil {
+		// TODO: Not directly tested
+		return err
+	}
+	return results.OneError()
+}
+
+// SetMountPoint ... TODO
+func (st *State) SetMountPoint(storageId, mountPoint string) error {
+	args := params.SetMountPoint{
+		MountPoints: []params.MountPoint{{
+			Storage:    storageId,
+			MountPoint: mountPoint,
+		}},
+	}
+	var results params.ErrorResults
+	err := st.facade.FacadeCall("SetMountPoint", args, &results)
+	if err != nil {
+		// TODO: Not directly tested
+		return err
+	}
+	return results.OneError()
+}

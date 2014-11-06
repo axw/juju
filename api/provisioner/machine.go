@@ -11,6 +11,7 @@ import (
 	"github.com/juju/juju/api/watcher"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/instance"
+	"github.com/juju/juju/storage"
 )
 
 // Machine represents a juju machine as seen by the provisioner worker.
@@ -183,6 +184,7 @@ func (m *Machine) DistributionGroup() ([]instance.Id, error) {
 func (m *Machine) SetInstanceInfo(
 	id instance.Id, nonce string, characteristics *instance.HardwareCharacteristics,
 	networks []params.Network, interfaces []params.NetworkInterface,
+	blockDevices map[string][]storage.BlockDevice,
 ) error {
 	var result params.ErrorResults
 	args := params.InstancesInfo{
@@ -193,6 +195,7 @@ func (m *Machine) SetInstanceInfo(
 			Characteristics: characteristics,
 			Networks:        networks,
 			Interfaces:      interfaces,
+			BlockDevices:    blockDevices,
 		}},
 	}
 	err := m.st.facade.FacadeCall("SetInstanceInfo", args, &result)

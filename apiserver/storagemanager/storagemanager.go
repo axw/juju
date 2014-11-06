@@ -84,9 +84,43 @@ func (d *StorageManagerAPI) Storage(args params.Entities) (params.StorageResults
 		if !canAccess(tag) {
 			err = common.ErrPerm
 		} else {
-			id := tag.Id()
-			result.Results[i].Result, err = d.oneUnitStorage(id)
+			result.Results[i].Result, err = d.oneUnitStorage(tag.Id())
 		}
+		result.Results[i].Error = common.ServerError(err)
+	}
+	return result, nil
+}
+
+// SetFilesystem sets the filesystems for the specified storage instances.
+func (d *StorageManagerAPI) SetFilesystem(args params.SetFilesystem) (params.ErrorResults, error) {
+	result := params.ErrorResults{
+		Results: make([]params.ErrorResult, len(args.Filesystems)),
+	}
+	for i, fs := range args.Filesystems {
+		// TODO(axw) define storage tags
+		//if !canAccess(tag) {
+		//	err = common.ErrPerm
+		//} else {
+		err := d.st.SetStorageFilesystem(fs.Storage, fs.Type, fs.MountOptions)
+		//}
+		result.Results[i].Error = common.ServerError(err)
+	}
+	return result, nil
+}
+
+// SetMountPoint records the points at which the filesystem for the specified
+// storage instances were mounted, and updates their state to "mounted".
+func (d *StorageManagerAPI) SetMountPoint(args params.SetMountPoint) (params.ErrorResults, error) {
+	result := params.ErrorResults{
+		Results: make([]params.ErrorResult, len(args.MountPoints)),
+	}
+	for i, fs := range args.MountPoints {
+		// TODO(axw) define storage tags
+		//if !canAccess(tag) {
+		//  err = common.ErrPerm
+		//} else {
+		err := d.st.SetFilesystemMountPoint(fs.Storage, fs.MountPoint)
+		//}
 		result.Results[i].Error = common.ServerError(err)
 	}
 	return result, nil

@@ -81,6 +81,8 @@ type StatePaths struct {
 	// DeployerDir holds metadata about charms that are installing or have
 	// been installed.
 	DeployerDir string
+
+	StorageDir string
 }
 
 // NewPaths returns the set of filesystem paths that the supplied unit should
@@ -114,6 +116,7 @@ func NewPaths(dataDir string, unitTag names.UnitTag) Paths {
 			RelationsDir:   join(stateDir, "relations"),
 			BundlesDir:     join(stateDir, "bundles"),
 			DeployerDir:    join(stateDir, "deployer"),
+			StorageDir:     join(stateDir, "storage"),
 		},
 	}
 }

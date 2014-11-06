@@ -1678,11 +1678,7 @@ func (u *Unit) AddMetrics(created time.Time, metrics []Metric) (*MetricBatch, er
 }
 
 func (u *Unit) Storage() ([]storage.Storage, error) {
-	unitStorages, closer := u.st.getCollection(unitstoragesC)
-	defer closer()
-
-	var docs []unitStorageDoc
-	err := unitStorages.Find(bson.D{{"unitid", u.doc.DocID}}).All(&docs)
+	docs, err := u.storageDocs()
 	if err != nil {
 		return nil, err
 	}
@@ -1691,6 +1687,18 @@ func (u *Unit) Storage() ([]storage.Storage, error) {
 		storages[i] = newUnitStorage(&doc)
 	}
 	return storages, nil
+}
+
+func (u *Unit) storageDocs() ([]unitStorageDoc, error) {
+	unitStorages, closer := u.st.getCollection(unitstoragesC)
+	defer closer()
+
+	var docs []unitStorageDoc
+	err := unitStorages.Find(bson.D{{"unitid", u.doc.DocID}}).All(&docs)
+	if err != nil {
+		return nil, err
+	}
+	return docs, nil
 }
 
 func (u *Unit) AddStorage(arg storage.Storage) (err error) {

@@ -643,7 +643,7 @@ func (p *ProvisionerAPI) SetInstanceInfo(args params.InstancesInfo) (params.Erro
 			if err == nil {
 				err = machine.SetInstanceInfo(
 					arg.InstanceId, arg.Nonce, arg.Characteristics,
-					networks, interfaces)
+					networks, interfaces, arg.BlockDevices)
 			}
 			if err != nil {
 				// Give the user more context about the error.

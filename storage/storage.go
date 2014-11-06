@@ -67,7 +67,11 @@ func (s FilesystemState) String() string {
 
 // Storage describes charm storage allocated to a unit.
 type Storage struct {
+	// Type is the storage's type.
 	Type charm.StorageType `yaml:"type"`
+
+	// Id uniquely identifies the storage instance.
+	Id string `yaml:"id"`
 
 	// Name is the charm storage name associated with the storage.
 	// For charm storage with >1 count, this identifies the group.
@@ -113,12 +117,28 @@ type BlockDevice struct {
 }
 
 type Filesystem struct {
-	Type         string
-	MkfsOptions  []string
-	MountOptions []string
+	// Type is the filesystem type. This will be empty if the filesystem
+	// has not yet been created.
+	Type string `yaml:"type"`
 
 	// State is the state of the filesystem.
 	State FilesystemState `yaml:"state"`
+
+	// MountOptions is any options to provide to "mount" when mounting the
+	// filesystem. This will be empty if the filesystem has not yet been
+	// created.
+	MountOptions []string `yaml:"mountoptions,omitempty"`
+
+	// Preferences is the preferred filesystems to create, in descending order
+	// of preference. If none are specified, then Juju will choose a
+	// filesystem.
+	Preferences []FilesystemPreference `yaml:"preferences,omitempty"`
+}
+
+type FilesystemPreference struct {
+	Type         string   `yaml:"type"`
+	MkfsOptions  []string `yaml:"mkfsoptions,omitempty"`
+	MountOptions []string `yaml:"mountoptions,omitempty"`
 }
 
 // String implements fmt.Stringer.

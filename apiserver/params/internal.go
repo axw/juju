@@ -396,6 +396,7 @@ type InstanceInfo struct {
 	Characteristics *instance.HardwareCharacteristics
 	Networks        []Network
 	Interfaces      []NetworkInterface
+	BlockDevices    map[string][]storage.BlockDevice
 }
 
 // InstancesInfo holds the parameters for making a SetInstanceInfo
@@ -426,17 +427,6 @@ type MachineNetworkInfoResults struct {
 	Results []MachineNetworkInfoResult
 }
 
-// BlockDevicesResult holds block device info for a single machine.
-type BlockDevicesResult struct {
-	Error        *Error
-	BlockDevices []storage.BlockDevice
-}
-
-// BlockDevicesResults holds block device info for multiple machines.
-type BlockDevicesResults struct {
-	Results []BlockDevicesResult
-}
-
 // StorageResult holds storage info for a single unit.
 type StorageResult struct {
 	Error  *Error
@@ -446,6 +436,27 @@ type StorageResult struct {
 // StorageResults holds storage info for multiple units.
 type StorageResults struct {
 	Results []StorageResult
+}
+
+type StorageFilesystem struct {
+	// Storage is a storage Id.
+	Storage      string
+	Type         string
+	MountOptions []string
+}
+
+type SetFilesystem struct {
+	Filesystems []StorageFilesystem
+}
+
+type MountPoint struct {
+	// Storage is a storage Id.
+	Storage    string
+	MountPoint string
+}
+
+type SetMountPoint struct {
+	MountPoints []MountPoint
 }
 
 // EntityStatus holds an entity tag, status and extra info.

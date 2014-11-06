@@ -590,8 +590,16 @@ func (task *provisionerTask) startMachine(
 	networks, ifaces := task.prepareNetworkAndInterfaces(result.NetworkInfo)
 	inst := result.Instance
 	hardware := result.HardwareCharacteristics
+	blockDevices := result.BlockDevices
 
-	err = machine.SetInstanceInfo(inst.Id(), nonce, hardware, networks, ifaces)
+	err = machine.SetInstanceInfo(
+		inst.Id(),
+		nonce,
+		hardware,
+		networks,
+		ifaces,
+		blockDevices,
+	)
 	if err != nil && params.IsCodeNotImplemented(err) {
 		return fmt.Errorf("cannot provision instance %v for machine %q with networks: not implemented", inst.Id(), machine)
 	} else if err == nil {

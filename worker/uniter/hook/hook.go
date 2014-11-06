@@ -31,6 +31,10 @@ type Info struct {
 	// ActionId is the state State.actions ID of the Action document to
 	// be retrieved by RunHook.
 	ActionId string `yaml:"action-id,omitempty"`
+
+	// StorageId is the ID of the Storage that is associated with a
+	// storage hook. This is only set when Kind indicates a storage hook.
+	StorageId string `yaml:"storage-id,omitempty"`
 }
 
 // Validate returns an error if the info is not valid.
@@ -42,6 +46,11 @@ func (hi Info) Validate() error {
 		}
 		fallthrough
 	case hooks.Install, hooks.Start, hooks.ConfigChanged, hooks.UpgradeCharm, hooks.Stop, hooks.RelationBroken, hooks.CollectMetrics, hooks.MeterStatusChanged:
+		return nil
+	case hooks.StorageAttached, hooks.StorageDetached:
+		if hi.StorageId == "" {
+			return fmt.Errorf("%q hook requires a storage", hi.Kind)
+		}
 		return nil
 	case hooks.Action:
 		if !names.IsValidAction(hi.ActionId) {

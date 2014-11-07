@@ -67,13 +67,14 @@ var collectMetricsAt func(now, lastSignal time.Time, interval time.Duration) <-c
 // delegated to Mode values, which are expected to react to events and direct
 // the uniter's responses to them.
 type Uniter struct {
-	tomb          tomb.Tomb
-	st            *uniter.State
-	f             *filter
-	unit          *uniter.Unit
-	service       *uniter.Service
-	relationers   map[int]*Relationer
-	relationHooks chan hook.Info
+	tomb            tomb.Tomb
+	st              *uniter.State
+	f               *filter
+	unit            *uniter.Unit
+	service         *uniter.Service
+	relationers     map[int]*Relationer
+	relationHooks   chan hook.Info
+	storageAttached map[string]bool
 
 	paths              Paths
 	deployer           charm.Deployer
@@ -190,6 +191,7 @@ func (u *Uniter) init(unitTag names.UnitTag) (err error) {
 
 	u.relationers = map[int]*Relationer{}
 	u.relationHooks = make(chan hook.Info)
+	u.storageAttached = make(map[string]bool)
 	u.deployer, err = charm.NewDeployer(
 		u.paths.State.CharmDir,
 		u.paths.State.DeployerDir,
@@ -351,7 +353,8 @@ func (u *Uniter) deploy(curl *corecharm.URL, reason operation.Kind) error {
 	return u.writeOperationState(operation.RunHook, status, hi, nil)
 }
 
-// checkRequiredStorage checks that required storage is available.
+// ensureStorage checks that required storage is available,
+// and ensures hooks are executed for each attached storage.
 func (u *Uniter) checkRequiredStorage(ch *uniter.Charm) error {
 	meta, err := ch.Meta()
 	if err != nil {
@@ -361,13 +364,10 @@ func (u *Uniter) checkRequiredStorage(ch *uniter.Charm) error {
 	if err != nil {
 		return errors.Annotate(err, "cannot get unit storage")
 	}
-	logger.Debugf("unit storage: %+v", unitStorage)
 	storesByName := make(map[string][]storage.Storage)
 	for _, store := range unitStorage {
-		logger.Debugf("storage: %+v", store)
 		var available bool
 		if store.Filesystem != nil {
-			logger.Debugf("state %s", store.Filesystem.State)
 			available = store.Filesystem.State == storage.FilesystemStateMounted
 		} else if store.BlockDevice != nil {
 			available = store.BlockDevice.State == storage.BlockDeviceStateAttached
@@ -383,6 +383,18 @@ func (u *Uniter) checkRequiredStorage(ch *uniter.Charm) error {
 			//           via "juju status". The user may not be aware
 			//           that they must attach storage to the unit.
 			return errors.Errorf("waiting for %d instances of %q storage", store.CountMin-n, store.Name)
+		}
+	}
+	for _, storage := range storesByName {
+		for _, store := range storage {
+			err := u.runHook(hook.Info{
+				Kind:        hooks.StorageAttached,
+				StorageId:   store.Id,
+				StorageName: store.Name,
+			})
+			if err != nil && err != errHookFailed {
+				return err
+			}
 		}
 	}
 	return nil
@@ -573,6 +585,9 @@ func (u *Uniter) runHook(hi hook.Info) (err error) {
 		if hookName, err = u.relationers[relationId].PrepareHook(hi); err != nil {
 			return err
 		}
+	}
+	if hi.Kind.IsStorage() {
+		hookName = fmt.Sprintf("%s-%s", hi.StorageName, hookName)
 	}
 	lockMessage := fmt.Sprintf("%s: running hook %q", u.unit.Name(), hookName)
 	if err = u.acquireHookLock(lockMessage); err != nil {

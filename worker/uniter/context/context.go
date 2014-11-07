@@ -65,6 +65,9 @@ type HookContext struct {
 	// unitName is the human friendly name of the local unit.
 	unitName string
 
+	// storageId is the ID of the storage corresponding to the hook (if any).
+	storageId string
+
 	// relationId identifies the relation for which a relation hook is
 	// executing. If it is -1, the context is not running a relation hook;
 	// otherwise, its value must be a valid key into the relations map.

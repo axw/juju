@@ -153,6 +153,9 @@ func (f *factory) NewHookContext(hookInfo hook.Info) (*HookContext, error) {
 		}
 		ctx.definedMetrics = ch.Metrics()
 	}
+	if hookInfo.Kind.IsStorage() {
+		ctx.storageId = hookInfo.StorageId
+	}
 	ctx.id = f.newId(hookName)
 	return ctx, nil
 }

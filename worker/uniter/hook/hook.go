@@ -34,7 +34,8 @@ type Info struct {
 
 	// StorageId is the ID of the Storage that is associated with a
 	// storage hook. This is only set when Kind indicates a storage hook.
-	StorageId string `yaml:"storage-id,omitempty"`
+	StorageId   string `yaml:"storage-id,omitempty"`
+	StorageName string
 }
 
 // Validate returns an error if the info is not valid.

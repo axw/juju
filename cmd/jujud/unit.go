@@ -145,6 +145,15 @@ func (a *UnitAgent) APIWorkers() (worker.Worker, error) {
 	runner.StartWorker("rsyslog", func() (worker.Worker, error) {
 		return newRsyslogConfigWorker(st.Rsyslog(), agentConfig, rsyslog.RsyslogModeForwarding)
 	})
+	/*
+		runner.StartWorker("diskformatter", func() (worker.Worker, error) {
+			st, err := st.DiskFormatter()
+			if err != nil {
+				return nil, err
+			}
+			return diskformatter.NewWorker(st, st, st)
+		})
+	*/
 	return newCloseWorker(runner, st), nil
 }
 

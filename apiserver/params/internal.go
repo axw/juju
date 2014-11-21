@@ -737,3 +737,7 @@ type BlockDeviceFilesystem struct {
 type SetBlockDeviceFilesystem struct {
 	Filesystems []BlockDeviceFilesystem `json:"filesystems"`
 }
+
+type DiskDatastores struct {
+	Disks []string
+}

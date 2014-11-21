@@ -49,7 +49,7 @@ func NewWorker(
 	getter BlockDeviceDatastoreGetter,
 	setter BlockDeviceFilesystemSetter,
 ) worker.Worker {
-	return worker.NewStringsWorker(newDiskFormatter(watcher, getter, setter))
+	return worker.NewNotifyWorker(newDiskFormatter(watcher, getter, setter))
 }
 
 func newDiskFormatter(
@@ -66,7 +66,7 @@ type diskFormatter struct {
 	setter  BlockDeviceFilesystemSetter
 }
 
-func (f *diskFormatter) SetUp() (watcher.StringsWatcher, error) {
+func (f *diskFormatter) SetUp() (watcher.NotifyWatcher, error) {
 	return f.watcher.WatchAttachedBlockDevices()
 }
 

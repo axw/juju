@@ -3,18 +3,10 @@
 
 package storage
 
-// BlockDeviceId is a source-specific identifier for a block device
-// (e.g. EBS volume ID).
-//
-// BlockDeviceId values are required to be globally unique, so if the
-// IDs allocated by a source are only unique to the source, the ID must
-// incorporate a unique identifier for the source itself.
-type BlockDeviceId string
-
 // BlockDevice describes a block device (disk, logical volume, etc.)
 type BlockDevice struct {
-	// Id is an identifier assigned by the block device source.
-	Id BlockDeviceId `yaml:"id"`
+	// Name is a unique name assigned by Juju to the block device.
+	Name string `yaml:"name"`
 
 	// DeviceName is the block device's OS-specific name (e.g. "sdb").
 	DeviceName string `yaml:"devicename,omitempty"`
@@ -45,18 +37,4 @@ type BlockDevice struct {
 
 	// InUse indicates that the block device is in use (e.g. mounted).
 	InUse bool `yaml:"inuse"`
-}
-
-// BlockDevicesSame reports whether or not two block devices are the same.
-//
-// In descending order of preference, we use: serial number, filesystem UUID,
-// device name.
-func BlockDevicesSame(a, b BlockDevice) bool {
-	if a.Serial != "" && b.Serial != "" {
-		return a.Serial == b.Serial
-	}
-	if a.UUID != "" && b.UUID != "" {
-		return a.UUID == b.UUID
-	}
-	return a.DeviceName != "" && a.DeviceName == b.DeviceName
 }

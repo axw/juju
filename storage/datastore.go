@@ -3,9 +3,6 @@
 
 package storage
 
-// DatastoreId is a Juju-internal identifier for a datastore.
-type DatastoreId string
-
 // DatastoreKind defines the type of the datastore: whether it
 // is a raw block device, or a filesystem.
 type DatastoreKind int
@@ -29,21 +26,11 @@ func (k DatastoreKind) String() string {
 
 // Datastore describes a datastore assigned to a service unit.
 type Datastore struct {
-	// Id is an identifier assigned by Juju to the datastore.
-	Id DatastoreId `yaml:"id"`
-
-	// Name is the storage name associated with the datastore.
+	// Name is a unique name assigned by Juju to the datastore.
 	Name string `yaml:"name"`
 
 	// Kind is the kind of the datastore (block device, filesystem).
 	Kind DatastoreKind `yaml:"kind"`
-
-	// Location is the location of the datastore. The exact meaning
-	// of this depends on the datastore type.
-	//
-	// For block devices, the location is the path to the block device;
-	// for filesystems, the location is the mount point.
-	Location string `yaml:"location"`
 
 	// Specification describes parameters for creating the datastore if
 	// it is not yet attached. Exactly how the datastore is created is

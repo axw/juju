@@ -77,6 +77,7 @@ const (
 	upgradeInfoC  = "upgradeInfo"
 	rebootC       = "reboot"
 	blockDevicesC = "blockdevices"
+	datastoresC   = "datastores"
 
 	// leaseC is used to store lease tokens
 	leaseC = "lease"

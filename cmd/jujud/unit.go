@@ -19,6 +19,7 @@ import (
 	"github.com/juju/juju/version"
 	"github.com/juju/juju/worker"
 	"github.com/juju/juju/worker/apiaddressupdater"
+	"github.com/juju/juju/worker/diskformatter"
 	workerlogger "github.com/juju/juju/worker/logger"
 	"github.com/juju/juju/worker/rsyslog"
 	"github.com/juju/juju/worker/uniter"
@@ -26,6 +27,10 @@ import (
 )
 
 var agentLogger = loggo.GetLogger("juju.jujud")
+
+var (
+	newDiskFormatter = diskformatter.NewWorker
+)
 
 // UnitAgent is a cmd.Command responsible for running a unit agent.
 type UnitAgent struct {
@@ -140,15 +145,13 @@ func (a *UnitAgent) APIWorkers() (worker.Worker, error) {
 	runner.StartWorker("rsyslog", func() (worker.Worker, error) {
 		return newRsyslogConfigWorker(st.Rsyslog(), agentConfig, rsyslog.RsyslogModeForwarding)
 	})
-	/*
-		runner.StartWorker("diskformatter", func() (worker.Worker, error) {
-			st, err := st.DiskFormatter()
-			if err != nil {
-				return nil, err
-			}
-			return diskformatter.NewWorker(st, st, st)
-		})
-	*/
+	runner.StartWorker("diskformatter", func() (worker.Worker, error) {
+		st, err := st.DiskFormatter()
+		if err != nil {
+			return nil, err
+		}
+		return newDiskFormatter(st, st, st), nil
+	})
 	return newCloseWorker(runner, st), nil
 }
 

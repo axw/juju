@@ -27,6 +27,7 @@ import (
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 	"github.com/juju/juju/worker"
+	"github.com/juju/juju/worker/diskformatter"
 	"github.com/juju/juju/worker/rsyslog"
 	"github.com/juju/juju/worker/upgrader"
 )
@@ -334,4 +335,26 @@ func (s *UnitSuite) TestUnitAgentRunsAPIAddressUpdaterWorker(c *gc.C) {
 		}
 	}
 	c.Fatalf("timeout while waiting for agent config to change")
+}
+
+func (s *UnitSuite) TestUnitAgentRunsDiskFormatterWorker(c *gc.C) {
+	started := make(chan struct{})
+	newWorker := func(diskformatter.AttachedBlockDeviceWatcher, diskformatter.BlockDeviceDatastoreGetter, diskformatter.BlockDeviceFilesystemSetter) worker.Worker {
+		close(started)
+		return worker.NewNoOpWorker()
+	}
+	s.PatchValue(&newDiskFormatter, newWorker)
+
+	// Start the unit agent.
+	_, unit, _, _ := s.primeAgent(c)
+	a := s.newAgent(c, unit)
+	go func() { c.Check(a.Run(nil), jc.ErrorIsNil) }()
+	defer func() { c.Check(a.Stop(), jc.ErrorIsNil) }()
+
+	// Wait for worker to be started.
+	select {
+	case <-started:
+	case <-time.After(coretesting.LongWait):
+		c.Fatalf("timeout while waiting for diskformatter worker to start")
+	}
 }

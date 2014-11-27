@@ -57,13 +57,13 @@ func NewDiskFormatterAPI(
 
 // WatchAttachedBlockDevices returns a NotifyWatcher for observing changes
 // to each unit's attached block devices.
-func (a *DiskFormatterAPI) WatchAttachedBlockDevices(args params.Entities) (params.NotifyWatchResults, error) {
-	result := params.NotifyWatchResults{
-		Results: make([]params.NotifyWatchResult, len(args.Entities)),
+func (a *DiskFormatterAPI) WatchAttachedBlockDevices(args params.Entities) (params.StringsWatchResults, error) {
+	result := params.StringsWatchResults{
+		Results: make([]params.StringsWatchResult, len(args.Entities)),
 	}
 	canAccess, err := a.getAuthFunc()
 	if err != nil {
-		return params.NotifyWatchResults{}, err
+		return params.StringsWatchResults{}, err
 	}
 	for i, entity := range args.Entities {
 		unit, err := names.ParseUnitTag(entity.Tag)
@@ -72,65 +72,40 @@ func (a *DiskFormatterAPI) WatchAttachedBlockDevices(args params.Entities) (para
 			continue
 		}
 		err = common.ErrPerm
-		watcherId := ""
+		var watcherId string
+		var changes []string
 		if canAccess(unit) {
-			watcherId, err = a.watchOneAttachedBlockDevices(unit)
+			watcherId, changes, err = a.watchOneAttachedBlockDevices(unit)
 		}
-		result.Results[i].NotifyWatcherId = watcherId
+		result.Results[i].StringsWatcherId = watcherId
+		result.Results[i].Changes = changes
 		result.Results[i].Error = common.ServerError(err)
 	}
 	return result, nil
 }
 
-func (a *DiskFormatterAPI) watchOneAttachedBlockDevices(tag names.UnitTag) (string, error) {
+func (a *DiskFormatterAPI) watchOneAttachedBlockDevices(tag names.UnitTag) (string, []string, error) {
 	w, err := a.st.WatchAttachedBlockDevices(tag.Id())
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	// Consume the initial event. Technically, API
 	// calls to Watch 'transmit' the initial event
-	// in the Watch response. But NotifyWatchers
-	// have no state to transmit.
-	if _, ok := <-w.Changes(); ok {
-		return a.resources.Register(w), nil
+	// in the Watch response.
+	if changes, ok := <-w.Changes(); ok {
+		return a.resources.Register(w), changes, nil
 	}
-	return "", watcher.EnsureErr(w)
+	return "", nil, watcher.EnsureErr(w)
 }
 
-// AttachedBlockDevices returns details about each specified unit's attached
-// block devices.
-func (a *DiskFormatterAPI) AttachedBlockDevices(args params.Entities) (params.BlockDevicesResults, error) {
-	result := params.BlockDevicesResults{
-		Results: make([]params.BlockDevicesResult, len(args.Entities)),
+// BlockDevice returns details about each specified block device.
+func (a *DiskFormatterAPI) BlockDevice(args params.Entities) (params.BlockDeviceResults, error) {
+	result := params.BlockDeviceResults{
+		Results: make([]params.BlockDeviceResult, len(args.Entities)),
 	}
 	canAccess, err := a.getAuthFunc()
 	if err != nil {
-		return params.BlockDevicesResults{}, err
-	}
-	for i, entity := range args.Entities {
-		unit, err := names.ParseUnitTag(entity.Tag)
-		if err != nil {
-			result.Results[i].Error = common.ServerError(common.ErrPerm)
-			continue
-		}
-		err = common.ErrPerm
-		var blockDevices []storage.BlockDevice
-		if canAccess(unit) {
-			blockDevices, err = a.st.AttachedBlockDevices(unit.Id())
-		}
-		result.Results[i].Result = blockDevices
-		result.Results[i].Error = common.ServerError(err)
-	}
-	return result, nil
-}
-
-func (a *DiskFormatterAPI) DiskDatastores(args params.Entities) (params.DatastoreResults, error) {
-	result := params.BlockDevicesResults{
-		Results: make([]params.BlockDevicesResult, len(args.Entities)),
-	}
-	canAccess, err := a.getAuthFunc()
-	if err != nil {
-		return params.BlockDevicesResults{}, err
+		return params.BlockDeviceResults{}, err
 	}
 	for i, entity := range args.Entities {
 		diskTag, err := names.ParseDiskTag(entity.Tag)
@@ -138,16 +113,112 @@ func (a *DiskFormatterAPI) DiskDatastores(args params.Entities) (params.Datastor
 			result.Results[i].Error = common.ServerError(common.ErrPerm)
 			continue
 		}
-
-		diskTag.Id()
-
-		err = common.ErrPerm
-		var blockDevices []storage.BlockDevice
-		if canAccess(unit) {
-			blockDevices, err = a.st.AttachedBlockDevices(unit.Id())
+		blockDevice, err := a.st.BlockDevice(diskTag.Id())
+		if err != nil {
+			result.Results[i].Error = common.ServerError(common.ErrPerm)
+			continue
 		}
-		result.Results[i].Result = blockDevices
-		result.Results[i].Error = common.ServerError(err)
+		unit := blockDevice.Unit()
+		if unit != "" && canAccess(names.NewUnitTag(unit)) {
+			result.Results[i].Result = storageBlockDevice(blockDevice)
+		} else {
+			result.Results[i].Error = common.ServerError(common.ErrPerm)
+		}
 	}
 	return result, nil
+}
+
+func (a *DiskFormatterAPI) BlockDeviceDatastore(args params.Entities) (params.DatastoreResults, error) {
+	result := params.DatastoreResults{
+		Results: make([]params.DatastoreResult, len(args.Entities)),
+	}
+	canAccess, err := a.getAuthFunc()
+	if err != nil {
+		return params.DatastoreResults{}, err
+	}
+	for i, entity := range args.Entities {
+		diskTag, err := names.ParseDiskTag(entity.Tag)
+		if err != nil {
+			result.Results[i].Error = common.ServerError(common.ErrPerm)
+			continue
+		}
+		blockDevice, err := a.st.BlockDevice(diskTag.Id())
+		if err != nil {
+			result.Results[i].Error = common.ServerError(common.ErrPerm)
+			continue
+		}
+		unit := blockDevice.Unit()
+		if unit == "" || !canAccess(names.NewUnitTag(unit)) {
+			result.Results[i].Error = common.ServerError(common.ErrPerm)
+			continue
+		}
+		datastore, err := a.st.Datastore(blockDevice.Datastore())
+		if err != nil {
+			logger.Errorf("cannot get datastore: %v", err)
+			result.Results[i].Error = common.ServerError(common.ErrPerm)
+			continue
+		}
+		result.Results[i].Result = *datastore
+	}
+	return result, nil
+}
+
+func (a *DiskFormatterAPI) SetBlockDeviceFilesystem(args params.SetBlockDeviceFilesystem) (params.ErrorResults, error) {
+	result := params.ErrorResults{
+		Results: make([]params.ErrorResult, len(args.BlockDeviceFilesystems)),
+	}
+	canAccess, err := a.getAuthFunc()
+	if err != nil {
+		return params.ErrorResults{}, err
+	}
+	setFilesystem := func(fs params.BlockDeviceFilesystem) error {
+		diskTag, err := names.ParseDiskTag(fs.BlockDeviceTag)
+		if err != nil {
+			return common.ErrPerm
+		}
+		blockDevice, err := a.st.BlockDevice(diskTag.Id())
+		if err != nil {
+			return common.ErrPerm
+		}
+		unit := blockDevice.Unit()
+		if unit == "" || !canAccess(names.NewUnitTag(unit)) {
+			return common.ErrPerm
+		}
+		// A datastore's block-device may not change, but a block-device
+		// can be reassigned to a new datastore. We must ensure that the
+		// block-device is still assigned to the datastore that the client
+		// thought it was assigned to.
+		if fs.Datastore == "" || blockDevice.Datastore() != fs.Datastore {
+			return common.ErrPerm
+		}
+		return a.st.SetDatastoreFilesystem(blockDevice.Datastore(), stateFilesystem(fs.Filesystem))
+	}
+	for i, fs := range args.BlockDeviceFilesystems {
+		result.Results[i].Error = common.ServerError(setFilesystem(fs))
+	}
+	return result, nil
+}
+
+// NOTE: purposefully not using field keys below, so
+// the code breaks if structures change.
+// this breaks if changes.
+
+func stateFilesystem(fs storage.Filesystem) state.Filesystem {
+	return state.Filesystem{
+		fs.Type,
+		fs.MountOptions,
+	}
+}
+
+func storageBlockDevice(dev state.BlockDevice) storage.BlockDevice {
+	info := dev.Info()
+	return storage.BlockDevice{
+		dev.Name(),
+		info.DeviceName,
+		info.Label,
+		info.UUID,
+		info.Serial,
+		info.Size,
+		info.InUse,
+	}
 }

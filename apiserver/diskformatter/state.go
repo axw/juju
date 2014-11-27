@@ -10,35 +10,20 @@ import (
 )
 
 type stateInterface interface {
-	WatchAttachedBlockDevices(unit string) (watcher.NotifyWatcher, error)
-	AttachedBlockDevices(unit string) ([]storage.BlockDevice, error)
+	WatchAttachedBlockDevices(unit string) (watcher.StringsWatcher, error)
+	BlockDevice(name string) (state.BlockDevice, error)
+	Datastore(name string) (*storage.Datastore, error)
+	SetDatastoreFilesystem(datastoreName string, fs state.Filesystem) error
 }
 
 type stateShim struct {
 	*state.State
 }
 
-func (s stateShim) WatchAttachedBlockDevices(unit string) (watcher.NotifyWatcher, error) {
+func (s stateShim) WatchAttachedBlockDevices(unit string) (watcher.StringsWatcher, error) {
 	u, err := s.State.Unit(unit)
 	if err != nil {
 		return nil, err
 	}
 	return u.WatchAttachedBlockDevices()
-}
-
-func (s stateShim) AttachedBlockDevices(unit string) ([]storage.BlockDevice, error) {
-	u, err := s.State.Unit(unit)
-	if err != nil {
-		return nil, err
-	}
-	mid, err := u.AssignedMachineId()
-	if err != nil {
-		return nil, err
-	}
-	m, err := s.State.Machine(mid)
-	if err != nil {
-		return nil, err
-	}
-	// TODO(axw) attached only
-	return m.BlockDevices()
 }

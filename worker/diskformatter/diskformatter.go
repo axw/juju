@@ -77,11 +77,7 @@ func (f *diskFormatter) TearDown() error {
 func (f *diskFormatter) Handle(diskNames []string) error {
 	tags := make([]names.DiskTag, len(diskNames))
 	for i, name := range diskNames {
-		tag, err := names.ParseDiskTag(name)
-		if err != nil {
-			return err
-		}
-		tags[i] = tag
+		tags[i] = names.NewDiskTag(name)
 	}
 
 	// attachedBlockDevices returns the block devices that
@@ -89,7 +85,7 @@ func (f *diskFormatter) Handle(diskNames []string) error {
 	// i.e. those that are attached and visible to the machine.
 	blockDevices, err := f.attachedBlockDevices(tags)
 	if err != nil {
-		return errors.Annotate(err, "cannot get block devices")
+		return err
 	}
 	blockDeviceTags := make([]names.DiskTag, len(blockDevices))
 	for i, dev := range blockDevices {
@@ -146,7 +142,7 @@ func (f *diskFormatter) Handle(diskNames []string) error {
 
 	if len(filesystems) > 0 {
 		if err := f.setter.SetBlockDeviceFilesystem(filesystems); err != nil {
-			return errors.Annotate(err, "cannot set block-device filesystems")
+			return errors.Annotate(err, "cannot set block device filesystems")
 		}
 	}
 	return nil

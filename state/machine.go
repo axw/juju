@@ -123,8 +123,6 @@ type machineDoc struct {
 	// Placement is the placement directive that should be used when provisioning
 	// an instance for the machine.
 	Placement string `bson:",omitempty"`
-	// DiskSeq is a sequence number to assign to disks attached to this machine.
-	DiskSeq int `bson:"diskseq"`
 }
 
 func newMachine(st *State, doc *machineDoc) *Machine {

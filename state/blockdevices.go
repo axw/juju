@@ -48,6 +48,9 @@ type blockDeviceDoc struct {
 	// Unit and Datastore are set together. Unit is redundant, but simplifies
 	// watching and querying for block devices that are assigned to datastores
 	// owned by a specific unit.
+	//
+	// TODO(axw) define datastore name format, bake unit name in, and then
+	// remove this Unit field.
 	Unit      string `bson:"unit,omitempty"`
 	Datastore string `bson:"datastore,omitempty"`
 
@@ -103,20 +106,13 @@ func (st *State) BlockDevice(diskName string) (BlockDevice, error) {
 	return &d, nil
 }
 
-// newDiskName returns the next disk name for a machine.
-func newDiskName(st *State, machineId string) (string, error) {
-	machines, closer := st.getCollection(machinesC)
-	defer closer()
-
-	change := mgo.Change{Update: bson.D{{"$inc", bson.D{{"diskseq", 1}}}}}
-	var doc machineDoc
-	_, err := machines.FindId(st.docID(machineId)).Apply(change, &doc)
-	if err == mgo.ErrNotFound {
-		return "", errors.NotFoundf("machine %q", machineId)
-	} else if err != nil {
-		return "", errors.Annotate(err, "cannot increment disk sequence")
+// newDiskName returns a unique disk name.
+func newDiskName(st *State) (string, error) {
+	seq, err := st.sequence("disk")
+	if err != nil {
+		return "", errors.Trace(err)
 	}
-	return fmt.Sprintf("%s#%d", machineId, doc.DiskSeq), nil
+	return fmt.Sprint(seq), nil
 }
 
 // setMachineBlockDevices updates the blockdevices collection with the
@@ -180,7 +176,7 @@ func setMachineBlockDevices(st *State, machineId string, newInfo []BlockDeviceIn
 			if found[i] {
 				continue
 			}
-			name, err := newDiskName(st, machineId)
+			name, err := newDiskName(st)
 			if err != nil {
 				return nil, errors.Annotate(err, "cannot generate disk name")
 			}
@@ -204,10 +200,7 @@ func setMachineBlockDevices(st *State, machineId string, newInfo []BlockDeviceIn
 }
 
 func getMachineBlockDevices(st *State, machineId string) ([]*blockDevice, error) {
-	sel := bson.D{
-		{"env-uuid", st.EnvironUUID()},
-		{"machine", machineId},
-	}
+	sel := bson.D{{"machine", machineId}}
 	blockDevices, closer := st.getCollection(blockDevicesC)
 	defer closer()
 
@@ -224,10 +217,7 @@ func getMachineBlockDevices(st *State, machineId string) ([]*blockDevice, error)
 }
 
 func removeMachineBlockDevicesOps(st *State, machineId string) ([]txn.Op, error) {
-	sel := bson.D{
-		{"env-uuid", st.EnvironUUID()},
-		{"machine", machineId},
-	}
+	sel := bson.D{{"machine", machineId}}
 	blockDevices, closer := st.getCollection(blockDevicesC)
 	defer closer()
 

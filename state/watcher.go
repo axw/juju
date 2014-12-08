@@ -2394,10 +2394,7 @@ func (u *Unit) WatchAttachedBlockDevices() (StringsWatcher, error) {
 }
 
 func newBlockDevicesWatcher(st *State, machineId, unitName string) StringsWatcher {
-	query := bson.D{
-		{"machine", machineId},
-		{"env-uuid", st.EnvironUUID()},
-	}
+	query := bson.D{{"machine", machineId}}
 	if unitName != "" {
 		query = append(query, bson.DocElem{"unit", unitName})
 	}
@@ -2457,9 +2454,16 @@ func (w *blockDevicesWatcher) merge(changed set.Strings, previous map[string]blo
 			if err != nil && err != mgo.ErrNotFound {
 				return err
 			}
-			if !known || previousDoc != doc {
-				// New or changed doc.
-				previous[id] = doc
+			if doc.Machine == w.machineId && (w.unitName == "" || doc.Unit == w.unitName) {
+				if !known || previousDoc != doc {
+					// New or changed doc.
+					previous[id] = doc
+					changed.Add(doc.Name)
+				}
+			} else if known {
+				// No longer attached to the machine,
+				// or no longer assigned to the unit.
+				delete(previous, id)
 				changed.Add(doc.Name)
 			}
 		default:
@@ -2471,16 +2475,7 @@ func (w *blockDevicesWatcher) merge(changed set.Strings, previous map[string]blo
 
 func (w *blockDevicesWatcher) loop() error {
 	in := make(chan watcher.Change)
-	filter := func(key interface{}) bool {
-		if id, ok := key.(string); ok {
-			name := w.st.localID(id)
-			machineId := names.DiskMachine(name)
-			return machineId == w.machineId
-		}
-		w.tomb.Kill(fmt.Errorf("expected string, got %T: %v", key, key))
-		return false
-	}
-	w.st.watcher.WatchCollectionWithFilter(blockDevicesC, in, filter)
+	w.st.watcher.WatchCollection(blockDevicesC, in)
 	defer w.st.watcher.UnwatchCollection(blockDevicesC, in)
 
 	current, err := w.current()

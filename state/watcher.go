@@ -2460,9 +2460,15 @@ func (w *blockDevicesWatcher) merge(changed set.Strings, previous map[string]blo
 			if err != nil && err != mgo.ErrNotFound {
 				return err
 			}
-			if !known || previousDoc != doc {
-				// New or changed doc.
-				previous[id] = doc
+			if doc.Machine == w.machineId {
+				if !known || previousDoc != doc {
+					// New or changed doc.
+					previous[id] = doc
+					changed.Add(doc.Name)
+				}
+			} else if known {
+				// No longer attached to the machine.
+				delete(previous, id)
 				changed.Add(doc.Name)
 			}
 		default:
@@ -2474,16 +2480,7 @@ func (w *blockDevicesWatcher) merge(changed set.Strings, previous map[string]blo
 
 func (w *blockDevicesWatcher) loop() error {
 	in := make(chan watcher.Change)
-	filter := func(key interface{}) bool {
-		if id, ok := key.(string); ok {
-			name := w.st.localID(id)
-			machineId := names.DiskMachine(name)
-			return machineId == w.machineId
-		}
-		w.tomb.Kill(fmt.Errorf("expected string, got %T: %v", key, key))
-		return false
-	}
-	w.st.watcher.WatchCollectionWithFilter(blockDevicesC, in, filter)
+	w.st.watcher.WatchCollection(blockDevicesC, in)
 	defer w.st.watcher.UnwatchCollection(blockDevicesC, in)
 
 	current, err := w.current()

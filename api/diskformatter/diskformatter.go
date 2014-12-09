@@ -6,12 +6,12 @@ package diskformatter
 import (
 	"fmt"
 
+	"github.com/juju/errors"
 	"github.com/juju/names"
 
 	"github.com/juju/juju/api/base"
 	"github.com/juju/juju/api/watcher"
 	"github.com/juju/juju/apiserver/params"
-	"github.com/juju/juju/storage"
 )
 
 const diskFormatterFacade = "DiskFormatter"
@@ -32,8 +32,8 @@ func NewState(caller base.APICaller, authTag names.UnitTag) *State {
 
 // WatchAttachedBlockDevices sets the block devices attached to the machine
 // identified by the authenticated machine tag.
-func (st *State) WatchAttachedBlockDevices() (watcher.NotifyWatcher, error) {
-	var results params.NotifyWatchResults
+func (st *State) WatchAttachedBlockDevices() (watcher.StringsWatcher, error) {
+	var results params.StringsWatchResults
 	args := params.Entities{
 		Entities: []params.Entity{{Tag: st.tag.String()}},
 	}
@@ -48,34 +48,57 @@ func (st *State) WatchAttachedBlockDevices() (watcher.NotifyWatcher, error) {
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	w := watcher.NewNotifyWatcher(st.facade.RawAPICaller(), result)
+	w := watcher.NewStringsWatcher(st.facade.RawAPICaller(), result)
 	return w, nil
 }
 
-// TODO(axw)
-func (st *State) AttachedBlockDevices() ([]storage.BlockDevice, error) {
-	var results params.BlockDevicesResults
+// BlockDevice returns details of block devices with the specified tags.
+func (st *State) BlockDevice(tags []names.DiskTag) (params.BlockDeviceResults, error) {
+	var result params.BlockDeviceResults
 	args := params.Entities{
-		Entities: []params.Entity{{Tag: st.tag.String()}},
+		Entities: make([]params.Entity, len(tags)),
 	}
-	err := st.facade.FacadeCall("AttachedBlockDevices", args, &results)
+	for i, tag := range tags {
+		args.Entities[i].Tag = tag.String()
+	}
+	err := st.facade.FacadeCall("BlockDevice", args, &result)
 	if err != nil {
-		return nil, err
+		return params.BlockDeviceResults{}, err
 	}
-	if len(results.Results) != 1 {
-		return nil, fmt.Errorf("expected 1 result, got %d", len(results.Results))
+	if len(result.Results) != len(tags) {
+		return params.BlockDeviceResults{}, fmt.Errorf("expected %d result, got %d", len(tags), len(result.Results))
 	}
-	result := results.Results[0]
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	return result.Result, nil
+	return result, nil
 }
 
-// TODO(axw)
-func (st *State) BlockDeviceDatastores(ids []storage.BlockDeviceId) (params.DatastoreResults, error) {
+// BlockDeviceDatastore returns the details of datastores that each named
+// block device is assigned to.
+func (st *State) BlockDeviceDatastore(tags []names.DiskTag) (params.DatastoreResults, error) {
+	var results params.DatastoreResults
+	args := params.Entities{
+		Entities: make([]params.Entity, len(tags)),
+	}
+	for i, tag := range tags {
+		args.Entities[i].Tag = tag.String()
+	}
+	err := st.facade.FacadeCall("BlockDeviceDatastore", args, &results)
+	if err != nil {
+		return params.DatastoreResults{}, err
+	}
+	if len(results.Results) != len(tags) {
+		return params.DatastoreResults{}, errors.Errorf("expected %d result, got %d", len(tags), len(results.Results))
+	}
+	return results, nil
 }
 
-// TODO(axw)
-func (st *State) SetDatastoreFilesystems([]params.DatastoreFilesystem) error {
+// SetBlockDeviceFilesystem sets the filesystem information for one or more
+// block devices.
+func (st *State) SetBlockDeviceFilesystem(filesystems []params.BlockDeviceFilesystem) error {
+	var results params.ErrorResults
+	args := params.SetBlockDeviceFilesystem{Filesystems: filesystems}
+	err := st.facade.FacadeCall("SetBlockDeviceFilesystem", args, &results)
+	if err != nil {
+		return err
+	}
+	return results.Combine()
 }

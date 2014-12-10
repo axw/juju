@@ -746,7 +746,7 @@ func (m *Machine) SetAgentPresence() (*presence.Pinger, error) {
 func (m *Machine) InstanceId() (instance.Id, error) {
 	instData, err := getInstanceData(m.st, m.Id())
 	if errors.IsNotFound(err) {
-		err = NotProvisionedError(m.Id())
+		err = NotProvisionedf("machine %v", m.Id())
 	}
 	if err != nil {
 		return "", err
@@ -759,7 +759,7 @@ func (m *Machine) InstanceId() (instance.Id, error) {
 func (m *Machine) InstanceStatus() (string, error) {
 	instData, err := getInstanceData(m.st, m.Id())
 	if errors.IsNotFound(err) {
-		err = NotProvisionedError(m.Id())
+		err = NotProvisionedf("machine %v", m.Id())
 	}
 	if err != nil {
 		return "", err
@@ -785,7 +785,7 @@ func (m *Machine) SetInstanceStatus(status string) (err error) {
 	} else if err != txn.ErrAborted {
 		return err
 	}
-	return NotProvisionedError(m.Id())
+	return NotProvisionedf("machine %v", m.Id())
 }
 
 // AvailabilityZone returns the provier-specific instance availability
@@ -793,7 +793,7 @@ func (m *Machine) SetInstanceStatus(status string) (err error) {
 func (m *Machine) AvailabilityZone() (string, error) {
 	instData, err := getInstanceData(m.st, m.Id())
 	if errors.IsNotFound(err) {
-		return "", errors.Trace(NotProvisionedError(m.Id()))
+		return "", errors.Trace(NotProvisionedf("machine %v", m.Id()))
 	}
 	if err != nil {
 		return "", errors.Trace(err)
@@ -926,15 +926,15 @@ func (m *Machine) SetInstanceInfo(
 
 // notProvisionedError records an error when a machine is not provisioned.
 type notProvisionedError struct {
-	machineId string
+	name string
 }
 
-func NotProvisionedError(machineId string) error {
-	return &notProvisionedError{machineId}
+func NotProvisionedf(format string, args ...interface{}) error {
+	return &notProvisionedError{fmt.Sprintf(format, args...)}
 }
 
 func (e *notProvisionedError) Error() string {
-	return fmt.Sprintf("machine %v is not provisioned", e.machineId)
+	return fmt.Sprintf("%v is not provisioned", e.name)
 }
 
 // IsNotProvisionedError returns true if err is a notProvisionedError.

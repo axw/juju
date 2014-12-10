@@ -27,11 +27,13 @@ func (s *BlockDevicesSuite) SetUpTest(c *gc.C) {
 func (s *BlockDevicesSuite) assertBlockDevices(c *gc.C, expected map[string]state.BlockDeviceInfo) {
 	devices, err := s.machine.BlockDevices()
 	c.Assert(err, gc.IsNil)
-	info := make(map[string]state.BlockDeviceInfo)
+	allInfo := make(map[string]state.BlockDeviceInfo)
 	for _, dev := range devices {
-		info[dev.Name()] = dev.Info()
+		info, err := dev.Info()
+		c.Assert(err, gc.IsNil)
+		allInfo[dev.Name()] = *info
 	}
-	c.Assert(info, gc.DeepEquals, expected)
+	c.Assert(allInfo, gc.DeepEquals, expected)
 }
 
 func (s *BlockDevicesSuite) TestSetMachineBlockDevices(c *gc.C) {

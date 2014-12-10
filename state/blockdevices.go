@@ -21,11 +21,14 @@ type BlockDevice interface {
 	// Name returns the unique name of the block device.
 	Name() string
 
-	// Machine returns the ID of the machine the block device is attached to.
-	Machine() string
+	// Machine returns the ID of the machine the block device
+	// is associated with, or ("", false) if the block device
+	// is not associated with any machine.
+	Machine() (string, bool)
 
-	// Info returns the block device's BlockDeviceInfo.
-	Info() BlockDeviceInfo
+	// Info returns the block device's BlockDeviceInfo, or a
+	// NotProvisionedError if the disk has not yet been provisioned.
+	Info() (*BlockDeviceInfo, error)
 }
 
 type blockDevice struct {
@@ -34,15 +37,16 @@ type blockDevice struct {
 
 // blockDeviceDoc records information about a disk attached to a machine.
 type blockDeviceDoc struct {
-	DocID   string          `bson:"_id"`
-	Name    string          `bson:"name"`
-	EnvUUID string          `bson:"env-uuid"`
-	Machine string          `bson:"machine"`
-	Info    BlockDeviceInfo `bson:"info"`
+	DocID   string           `bson:"_id"`
+	Name    string           `bson:"name"`
+	EnvUUID string           `bson:"env-uuid"`
+	Machine string           `bson:"machine"`
+	Info    *BlockDeviceInfo `bson:"info,omitempty"`
 }
 
 // BlockDeviceInfo describes information about a block device.
 type BlockDeviceInfo struct {
+	ProviderId string `bson:"providerid"`
 	DeviceName string `bson:"devicename,omitempty"`
 	Label      string `bson:"label,omitempty"`
 	UUID       string `bson:"uuid,omitempty"`
@@ -59,12 +63,15 @@ func (b *blockDevice) Name() string {
 	return b.doc.Name
 }
 
-func (b *blockDevice) Machine() string {
-	return b.doc.Machine
+func (b *blockDevice) Machine() (string, bool) {
+	return b.doc.Machine, b.doc.Machine != ""
 }
 
-func (b *blockDevice) Info() BlockDeviceInfo {
-	return b.doc.Info
+func (b *blockDevice) Info() (*BlockDeviceInfo, error) {
+	if b.doc.Info == nil {
+		return nil, NotProvisionedf("block device %q", b.Name)
+	}
+	return b.doc.Info, nil
 }
 
 // BlockDevice returns the BlockDevice with the specified name.
@@ -119,16 +126,21 @@ func setMachineBlockDevices(st *State, machineId string, newInfo []BlockDeviceIn
 				if found[j] {
 					continue
 				}
-				if blockDevicesSame(oldDev.Info(), newInfo) {
+				if oldDev.doc.Info == nil {
+					// This should never happen.
+					logger.Warningf("machine block device %q has no Info", oldDev.Name())
+					continue
+				}
+				if blockDevicesSame(oldDev.doc.Info, &newInfo) {
 					// Merge the two structures by replacing the old document's
 					// BlockDeviceInfo with the new one.
-					if oldDev.doc.Info != newInfo {
+					if *oldDev.doc.Info != newInfo {
 						ops = append(ops, txn.Op{
 							C:      blockDevicesC,
 							Id:     oldDev.doc.DocID,
 							Assert: txn.DocExists,
 							Update: bson.D{{"$set", bson.D{
-								{"info", newInfo},
+								{"info", &newInfo},
 							}}},
 						})
 					}
@@ -156,12 +168,13 @@ func setMachineBlockDevices(st *State, machineId string, newInfo []BlockDeviceIn
 			if err != nil {
 				return nil, errors.Annotate(err, "cannot generate disk name")
 			}
+			info := info // new address
 			newDoc := blockDeviceDoc{
 				Name:    name,
 				Machine: machineId,
 				EnvUUID: st.EnvironUUID(),
 				DocID:   st.docID(name),
-				Info:    info,
+				Info:    &info,
 			}
 			ops = append(ops, txn.Op{
 				C:      blockDevicesC,
@@ -217,7 +230,7 @@ func removeMachineBlockDevicesOps(st *State, machineId string) ([]txn.Op, error)
 //
 // In descending order of preference, we use: serial number, filesystem
 // UUID, device name.
-func blockDevicesSame(a, b BlockDeviceInfo) bool {
+func blockDevicesSame(a, b *BlockDeviceInfo) bool {
 	if a.Serial != "" && b.Serial != "" {
 		return a.Serial == b.Serial
 	}

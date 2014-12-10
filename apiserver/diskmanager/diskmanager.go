@@ -84,6 +84,7 @@ func stateBlockDeviceInfo(devices []storage.BlockDevice) []state.BlockDeviceInfo
 	result := make([]state.BlockDeviceInfo, len(devices))
 	for i, dev := range devices {
 		result[i] = state.BlockDeviceInfo{
+			dev.ProviderId,
 			dev.DeviceName,
 			dev.Label,
 			dev.UUID,

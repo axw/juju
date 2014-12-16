@@ -122,6 +122,7 @@ type AddMachineParams struct {
 	Series      string
 	Constraints constraints.Value
 	Jobs        []multiwatcher.MachineJob
+	Disks       []storage.Constraints
 
 	// If Placement is non-nil, it contains a placement directive
 	// that will be used to decide how to instantiate the machine.

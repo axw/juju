@@ -6,6 +6,7 @@ package provisioner
 import (
 	"fmt"
 
+	"github.com/juju/errors"
 	"github.com/juju/names"
 	"github.com/juju/utils/set"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/multiwatcher"
 	"github.com/juju/juju/state/watcher"
+	"github.com/juju/juju/storage"
 )
 
 func init() {
@@ -370,6 +372,20 @@ func getProvisioningInfo(m *state.Machine) (*params.ProvisioningInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	disks, err := m.BlockDevices()
+	if err != nil {
+		return nil, err
+	}
+	diskConstraints := make([]storage.Constraints, len(disks))
+	for i, disk := range disks {
+		cons, err := disk.Constraints()
+		if err != nil {
+			return nil, errors.Annotate(err, "cannot get disk constraints")
+		}
+		diskConstraints[i] = cons
+	}
+	// TODO(axw) add disk constraints for principal units' datastores.
+
 	// TODO(dimitern) For now, since network names and
 	// provider ids are the same, we return what we got
 	// from state. In the future, when networks can be
@@ -390,6 +406,7 @@ func getProvisioningInfo(m *state.Machine) (*params.ProvisioningInfo, error) {
 		Placement:   m.Placement(),
 		Networks:    networks,
 		Jobs:        jobs,
+		Disks:       diskConstraints,
 	}, nil
 }
 

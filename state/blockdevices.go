@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/juju/errors"
+	"github.com/juju/juju/storage"
 	"github.com/juju/names"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -29,6 +30,9 @@ type BlockDevice interface {
 	// Info returns the block device's BlockDeviceInfo, or a
 	// NotProvisionedError if the disk has not yet been provisioned.
 	Info() (*BlockDeviceInfo, error)
+
+	// Constraints returns the constraints used to provision the block device.
+	Constraints() (storage.Constraints, error)
 }
 
 type blockDevice struct {
@@ -72,6 +76,11 @@ func (b *blockDevice) Info() (*BlockDeviceInfo, error) {
 		return nil, NotProvisionedf("block device %q", b.Name)
 	}
 	return b.doc.Info, nil
+}
+
+func (b *blockDevice) Constraints() (storage.Constraints, error) {
+	// TODO(axw) implement this properly.
+	return storage.Constraints{}, nil
 }
 
 // BlockDevice returns the BlockDevice with the specified name.
@@ -204,6 +213,39 @@ func getMachineBlockDevices(st *State, machineId string) ([]*blockDevice, error)
 		devices[i] = &blockDevice{doc}
 	}
 	return devices, nil
+}
+
+func createRequestedMachineBlockDeviceOps(st *State, machineId string, constraints ...storage.Constraints) ([]txn.Op, error) {
+	for _, cons := range constraints {
+		// machine-level storage constraints are always
+		// singular (Count=1) and required.
+		if cons.Minimum.Count != 1 {
+			return nil, errors.Errorf("expected minimum disk count of 1, got %d", cons.Minimum.Count)
+		} else if cons.Preferred.Count != 1 {
+			return nil, errors.Errorf("expected preferred disk count of 1, got %d", cons.Minimum.Count)
+		}
+	}
+	ops := make([]txn.Op, len(constraints))
+	for i := range constraints {
+		name, err := newDiskName(st)
+		if err != nil {
+			return nil, errors.Annotate(err, "cannot generate disk name")
+		}
+		newDoc := blockDeviceDoc{
+			DocID:   st.docID(name),
+			Name:    name,
+			EnvUUID: st.EnvironUUID(),
+			Machine: machineId,
+		}
+		ops[i] = txn.Op{
+			C:      blockDevicesC,
+			Id:     newDoc.DocID,
+			Assert: txn.DocMissing,
+			Insert: &newDoc,
+		}
+		// TODO(axw) record storage constraints.
+	}
+	return ops, nil
 }
 
 func removeMachineBlockDevicesOps(st *State, machineId string) ([]txn.Op, error) {

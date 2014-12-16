@@ -397,8 +397,7 @@ type NetworkInterface struct {
 	Disabled bool
 }
 
-// InstanceInfo holds a machine tag, provider-specific instance id, a
-// nonce, a list of networks and interfaces to set up.
+// InstanceInfo holds information about a newly provisioned instance.
 type InstanceInfo struct {
 	Tag             string
 	InstanceId      instance.Id
@@ -406,12 +405,20 @@ type InstanceInfo struct {
 	Characteristics *instance.HardwareCharacteristics
 	Networks        []Network
 	Interfaces      []NetworkInterface
+	Disks           []BlockDeviceMapping
 }
 
 // InstancesInfo holds the parameters for making a SetInstanceInfo
 // call for multiple machines.
 type InstancesInfo struct {
 	Machines []InstanceInfo
+}
+
+// BlockDeviceMapping describes a mapping from storage constraints
+// to a set of block devices allocated according to those constraints.
+type BlockDeviceMapping struct {
+	Constraints  storage.Constraints
+	BlockDevices []storage.BlockDevice
 }
 
 // RequestedNetworkResult holds requested networks or an error.
@@ -642,6 +649,7 @@ type ProvisioningInfo struct {
 	Placement   string
 	Networks    []string
 	Jobs        []multiwatcher.MachineJob
+	Disks       []storage.Constraints
 }
 
 // ProvisioningInfoResult holds machine provisioning info or an error.

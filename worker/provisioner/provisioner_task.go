@@ -482,6 +482,7 @@ func constructStartInstanceParams(
 		MachineConfig:     machineConfig,
 		Placement:         provisioningInfo.Placement,
 		DistributionGroup: machine.DistributionGroup,
+		Disks:             provisioningInfo.Disks,
 	}
 }
 
@@ -587,6 +588,9 @@ func (task *provisionerTask) startMachine(
 	hardware := result.Hardware
 	nonce := startInstanceParams.MachineConfig.MachineNonce
 	networks, ifaces := task.prepareNetworkAndInterfaces(result.NetworkInfo)
+
+	// TODO(axw) pass disks to SetInstanceInfo
+	logger.Debugf("allocated disks: %v", result.Disks)
 
 	err = machine.SetInstanceInfo(inst.Id(), nonce, hardware, networks, ifaces)
 	if err != nil && params.IsCodeNotImplemented(err) {

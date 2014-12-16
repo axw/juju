@@ -744,6 +744,7 @@ func (c *Client) addOneMachine(p params.AddMachineParams) (*state.Machine, error
 	template := state.MachineTemplate{
 		Series:      p.Series,
 		Constraints: p.Constraints,
+		Disks:       p.Disks,
 		InstanceId:  p.InstanceId,
 		Jobs:        jobs,
 		Nonce:       p.Nonce,

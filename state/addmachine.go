@@ -17,6 +17,7 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/replicaset"
+	"github.com/juju/juju/storage"
 )
 
 // MachineTemplate holds attributes that are to be associated
@@ -28,6 +29,10 @@ type MachineTemplate struct {
 	// Constraints are the constraints to be used when finding
 	// an instance for the machine.
 	Constraints constraints.Value
+
+	// Disks holds the initial disk constraints for the machine,
+	// to be used when finding an instance for the machine.
+	Disks []storage.Constraints
 
 	// Jobs holds the jobs to run on the machine's instance.
 	// A machine must have at least one job to do.
@@ -245,7 +250,10 @@ func (st *State) addMachineOps(template MachineTemplate) (*machineDoc, []txn.Op,
 		return nil, nil, err
 	}
 	mdoc := st.machineDocForTemplate(template, strconv.Itoa(seq))
-	prereqOps, machineOp := st.insertNewMachineOps(mdoc, template)
+	prereqOps, machineOp, err := st.insertNewMachineOps(mdoc, template)
+	if err != nil {
+		return nil, nil, err
+	}
 	prereqOps = append(prereqOps, st.insertNewContainerRefOp(mdoc.Id))
 	if template.InstanceId != "" {
 		prereqOps = append(prereqOps, txn.Op{
@@ -322,7 +330,10 @@ func (st *State) addMachineInsideMachineOps(template MachineTemplate, parentId s
 	}
 	mdoc := st.machineDocForTemplate(template, newId)
 	mdoc.ContainerType = string(containerType)
-	prereqOps, machineOp := st.insertNewMachineOps(mdoc, template)
+	prereqOps, machineOp, err := st.insertNewMachineOps(mdoc, template)
+	if err != nil {
+		return nil, nil, err
+	}
 	prereqOps = append(prereqOps,
 		// Update containers record for host machine.
 		st.addChildToContainerRefOp(parentId, mdoc.Id),
@@ -382,8 +393,14 @@ func (st *State) addMachineInsideNewMachineOps(template, parentTemplate MachineT
 	}
 	mdoc := st.machineDocForTemplate(template, newId)
 	mdoc.ContainerType = string(containerType)
-	parentPrereqOps, parentOp := st.insertNewMachineOps(parentDoc, parentTemplate)
-	prereqOps, machineOp := st.insertNewMachineOps(mdoc, template)
+	parentPrereqOps, parentOp, err := st.insertNewMachineOps(parentDoc, parentTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	prereqOps, machineOp, err := st.insertNewMachineOps(mdoc, template)
+	if err != nil {
+		return nil, nil, err
+	}
 	prereqOps = append(prereqOps, parentPrereqOps...)
 	prereqOps = append(prereqOps,
 		// The host machine doesn't exist yet, create a new containers record.
@@ -414,7 +431,7 @@ func (st *State) machineDocForTemplate(template MachineTemplate, id string) *mac
 // insertNewMachineOps returns operations to insert the given machine
 // document into the database, based on the given template. Only the
 // constraints and networks are used from the template.
-func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate) (prereqOps []txn.Op, machineOp txn.Op) {
+func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate) (prereqOps []txn.Op, machineOp txn.Op, err error) {
 	machineOp = txn.Op{
 		C:      machinesC,
 		Id:     mdoc.DocID,
@@ -422,7 +439,7 @@ func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate)
 		Insert: mdoc,
 	}
 
-	return []txn.Op{
+	ops := []txn.Op{
 		createConstraintsOp(st, machineGlobalKey(mdoc.Id), template.Constraints),
 		createStatusOp(st, machineGlobalKey(mdoc.Id), statusDoc{
 			Status:  StatusPending,
@@ -433,7 +450,15 @@ func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate)
 		// provisioning, we should check the given networks are valid
 		// and known before setting them.
 		createRequestedNetworksOp(st, machineGlobalKey(mdoc.Id), template.RequestedNetworks),
-	}, machineOp
+	}
+
+	diskOps, err := createRequestedMachineBlockDeviceOps(st, mdoc.Id, template.Disks...)
+	if err != nil {
+		return nil, txn.Op{}, err
+	}
+	ops = append(ops, diskOps...)
+
+	return ops, machineOp, nil
 }
 
 func hasJob(jobs []MachineJob, job MachineJob) bool {

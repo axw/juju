@@ -33,7 +33,7 @@ func (*AgentAuthenticator) Authenticate(entity state.Entity, password, nonce str
 	// connect.
 	if machine, ok := authenticator.(*state.Machine); ok {
 		if !machine.CheckProvisioned(nonce) {
-			return state.NotProvisionedError(machine.Id())
+			return state.NotProvisionedf("machine %v", machine.Id())
 		}
 	}
 

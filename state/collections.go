@@ -84,6 +84,7 @@ var multiEnvCollections = set.NewStrings(
 	settingsC,
 	settingsrefsC,
 	statusesC,
+	storageConstraintsC,
 	subnetsC,
 	unitsC,
 )

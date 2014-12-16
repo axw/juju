@@ -36,6 +36,7 @@ type BlockDevice interface {
 }
 
 type blockDevice struct {
+	st  *State
 	doc blockDeviceDoc
 }
 
@@ -79,8 +80,7 @@ func (b *blockDevice) Info() (*BlockDeviceInfo, error) {
 }
 
 func (b *blockDevice) Constraints() (storage.Constraints, error) {
-	// TODO(axw) implement this properly.
-	return storage.Constraints{}, nil
+	return readStorageConstraints(b.st, blockDeviceGlobalKey(b.Name()))
 }
 
 // BlockDevice returns the BlockDevice with the specified name.
@@ -210,7 +210,7 @@ func getMachineBlockDevices(st *State, machineId string) ([]*blockDevice, error)
 	}
 	devices := make([]*blockDevice, len(docs))
 	for i, doc := range docs {
-		devices[i] = &blockDevice{doc}
+		devices[i] = &blockDevice{st, doc}
 	}
 	return devices, nil
 }
@@ -225,8 +225,8 @@ func createRequestedMachineBlockDeviceOps(st *State, machineId string, constrain
 			return nil, errors.Errorf("expected preferred disk count of 1, got %d", cons.Minimum.Count)
 		}
 	}
-	ops := make([]txn.Op, len(constraints))
-	for i := range constraints {
+	ops := make([]txn.Op, len(constraints)*2)
+	for i, cons := range constraints {
 		name, err := newDiskName(st)
 		if err != nil {
 			return nil, errors.Annotate(err, "cannot generate disk name")
@@ -237,15 +237,19 @@ func createRequestedMachineBlockDeviceOps(st *State, machineId string, constrain
 			EnvUUID: st.EnvironUUID(),
 			Machine: machineId,
 		}
-		ops[i] = txn.Op{
+		ops[i*2] = txn.Op{
 			C:      blockDevicesC,
 			Id:     newDoc.DocID,
 			Assert: txn.DocMissing,
 			Insert: &newDoc,
 		}
-		// TODO(axw) record storage constraints.
+		ops[i*2+1] = createStorageConstraintsOp(st, blockDeviceGlobalKey(name), cons)
 	}
 	return ops, nil
+}
+
+func blockDeviceGlobalKey(name string) string {
+	return "disk-" + name
 }
 
 func removeMachineBlockDevicesOps(st *State, machineId string) ([]txn.Op, error) {

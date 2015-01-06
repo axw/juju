@@ -286,7 +286,7 @@ func blockDevicesSame(a, b *BlockDeviceInfo) bool {
 	return a.DeviceName != "" && a.DeviceName == b.DeviceName
 }
 
-func blockDevicesEqual(a, b []blockDevice) bool {
+func blockDevicesEqual(a, b []*blockDevice) bool {
 	if len(a) != len(b) {
 		return false
 	}

@@ -2406,9 +2406,9 @@ func (w *blockDevicesWatcher) Changes() <-chan struct{} {
 	return w.out
 }
 
-func (w *blockDevicesWatcher) current() ([]blockDevice, error) {
+func (w *blockDevicesWatcher) current() ([]*blockDevice, error) {
 	// TODO(axw) only get attached block devices.
-	blockDevices, err := getBlockDevices(w.st, w.machineId)
+	blockDevices, err := getMachineBlockDevices(w.st, w.machineId)
 	if err != nil {
 		return nil, err
 	}

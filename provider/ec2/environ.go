@@ -12,9 +12,9 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/utils"
-	"launchpad.net/goamz/aws"
-	"launchpad.net/goamz/ec2"
-	"launchpad.net/goamz/s3"
+	"gopkg.in/amz.v2/aws"
+	"gopkg.in/amz.v2/ec2"
+	"gopkg.in/amz.v2/s3"
 
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
@@ -36,6 +36,10 @@ const (
 	none                        = "none"
 	invalidParameterValue       = "InvalidParameterValue"
 	privateAddressLimitExceeded = "PrivateIpAddressLimitExceeded"
+
+	// jujuEnvTag is the key for resource tags that identify
+	// the Juju environment the resource is associated with.
+	jujuEnvTag = "juju-env"
 )
 
 // Use shortAttempt to poll for short-term events or for retrying API calls.
@@ -524,9 +528,30 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 	}
 	logger.Infof("started instance %q in %q", inst.Id(), inst.Instance.AvailZone)
 
-	// TODO(axw) extract volume ID, store in BlockDevice.ProviderId field,
-	// and tag all resources (instances and volumes). We can't do this until
-	// goamz's BlockDeviceMapping structure is updated to include VolumeId.
+	// Extract volume ID, store in BlockDevice.ProviderId field, and tag all
+	// resources (instances and volumes) with the Juju environment's UUID.
+	resourceIds := []string{inst.Instance.InstanceId}
+	for _, out := range inst.Instance.BlockDeviceMappings {
+		if out.VolumeId == "" {
+			logger.Warningf("volume ID not set for block device mapping")
+			continue
+		}
+		for i, in := range blockDeviceMappings {
+			if in.DeviceName == out.DeviceName {
+				disks[i].ProviderId = out.VolumeId
+				resourceIds = append(resourceIds, out.VolumeId)
+				break
+			}
+		}
+	}
+	if envUUID, ok := e.Config().UUID(); ok {
+		tag := ec2.Tag{jujuEnvTag, envUUID}
+		if _, err := createTags(e.ec2(), resourceIds, []ec2.Tag{tag}); err != nil {
+			logger.Errorf("could not tag resources: %v", err)
+		}
+	} else {
+		logger.Warningf("could not tag resources: no environ UUID set")
+	}
 
 	if multiwatcher.AnyJobNeedsState(args.MachineConfig.Jobs...) {
 		if err := common.AddStateInstance(e.Storage(), inst.Id()); err != nil {
@@ -550,7 +575,10 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 	}, nil
 }
 
-var runInstances = _runInstances
+var (
+	runInstances = _runInstances
+	createTags   = (*ec2.EC2).CreateTags
+)
 
 // runInstances calls ec2.RunInstances for a fixed number of attempts until
 // RunInstances returns an error code that does not indicate an error that
@@ -1089,7 +1117,7 @@ var zeroGroup ec2.SecurityGroup
 // the named group only.
 func (e *environ) ensureGroup(name string, perms []ec2.IPPerm) (g ec2.SecurityGroup, err error) {
 	ec2inst := e.ec2()
-	resp, err := ec2inst.CreateSecurityGroup(name, "juju group")
+	resp, err := ec2inst.CreateSecurityGroup("", name, "juju group")
 	if err != nil && ec2ErrCode(err) != "InvalidGroup.Duplicate" {
 		return zeroGroup, err
 	}

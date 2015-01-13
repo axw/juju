@@ -577,15 +577,15 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 // waitBlockDeviceMappings waits for the given instance's block device mappings
 // to be associated by EC2.
 func waitBlockDeviceMappings(inst *ec2Instance) error {
-	for a := shortAttempt.Start(); a.Next(); {
-		if len(inst.BlockDeviceMappings) != 0 {
-			return nil
-		}
+	for a := shortAttempt.Start(); len(inst.BlockDeviceMappings) == 0 && a.Next(); {
 		if err := inst.Refresh(); err != nil {
 			return errors.Trace(err)
 		}
 	}
-	return errors.Errorf("timed out waiting for block device mapping")
+	if len(inst.BlockDeviceMappings) == 0 {
+		return errors.Errorf("timed out waiting for block device mapping")
+	}
+	return nil
 }
 
 // tagResources tags the specified EC2 resources with the environment UUID.

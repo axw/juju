@@ -530,27 +530,26 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 
 	// Extract volume ID, store in BlockDevice.ProviderId field, and tag all
 	// resources (instances and volumes) with the Juju environment's UUID.
+	if err := waitBlockDeviceMappings(inst); err != nil {
+		return nil, errors.Annotate(err, "cannot get block device mappings")
+	}
 	resourceIds := []string{inst.Instance.InstanceId}
+	disksOffset := len(blockDeviceMappings) - len(disks)
 	for _, out := range inst.Instance.BlockDeviceMappings {
 		if out.VolumeId == "" {
 			logger.Warningf("volume ID not set for block device mapping")
 			continue
 		}
-		for i, in := range blockDeviceMappings {
+		resourceIds = append(resourceIds, out.VolumeId)
+		for i, in := range blockDeviceMappings[disksOffset:] {
 			if in.DeviceName == out.DeviceName {
 				disks[i].ProviderId = out.VolumeId
-				resourceIds = append(resourceIds, out.VolumeId)
 				break
 			}
 		}
 	}
-	if envUUID, ok := e.Config().UUID(); ok {
-		tag := ec2.Tag{jujuEnvTag, envUUID}
-		if _, err := createTags(e.ec2(), resourceIds, []ec2.Tag{tag}); err != nil {
-			logger.Errorf("could not tag resources: %v", err)
-		}
-	} else {
-		logger.Warningf("could not tag resources: no environ UUID set")
+	if err := e.tagResources(resourceIds); err != nil {
+		return nil, errors.Annotate(err, "cannot tag resources")
 	}
 
 	if multiwatcher.AnyJobNeedsState(args.MachineConfig.Jobs...) {
@@ -573,6 +572,33 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 		Hardware: &hc,
 		Disks:    disks,
 	}, nil
+}
+
+// waitBlockDeviceMappings waits for the given instance's block device mappings
+// to be associated by EC2.
+func waitBlockDeviceMappings(inst *ec2Instance) error {
+	for a := shortAttempt.Start(); a.Next(); {
+		if len(inst.BlockDeviceMappings) != 0 {
+			return nil
+		}
+		if err := inst.Refresh(); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return errors.Errorf("timed out waiting for block device mapping")
+}
+
+// tagResources tags the specified EC2 resources with the environment UUID.
+func (e *environ) tagResources(resourceIds []string) error {
+	envUUID, ok := e.Config().UUID()
+	if !ok {
+		logger.Warningf("not tagging resources: no environ UUID set")
+		return nil
+	}
+	tag := ec2.Tag{jujuEnvTag, envUUID}
+	logger.Debugf("tagging resources %q with environment UUID", resourceIds)
+	_, err := createTags(e.ec2(), resourceIds, []ec2.Tag{tag})
+	return err
 }
 
 var (

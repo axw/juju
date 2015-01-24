@@ -1,17 +1,16 @@
 // Copyright 2014 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package relation
+package hook
 
 import (
 	"github.com/juju/errors"
 	"launchpad.net/tomb"
 
 	"github.com/juju/juju/state/watcher"
-	"github.com/juju/juju/worker/uniter/hook"
 )
 
-// Peeker maintains a HookSource, and allows an external client to inspect
+// Peeker maintains a Source, and allows an external client to inspect
 // and consume, or reject, the head of the queue.
 type Peeker interface {
 	// Peeks returns a channel on which Peeks are delivered. The receiver of a
@@ -27,7 +26,7 @@ type Peeker interface {
 // responsibility to either Consume or Reject the Peek.
 type Peek interface {
 	// HookInfo returns information about the hook at the head of the queue.
-	HookInfo() hook.Info
+	HookInfo() Info
 	// Consume pops the hook from the head of the queue and makes new Peeks
 	// available.
 	Consume()
@@ -37,7 +36,7 @@ type Peek interface {
 
 // NewPeeker returns a new Peeker providing a view of the supplied source
 // (of which it takes ownership).
-func NewPeeker(source hook.Source) Peeker {
+func NewPeeker(source Source) Peeker {
 	p := &peeker{
 		peeks: make(chan Peek),
 	}
@@ -69,7 +68,7 @@ func (p *peeker) Stop() error {
 
 // loop delivers events from the source's Changes channel to its Update method,
 // continually, unless a Peek is active.
-func (p *peeker) loop(source hook.Source) error {
+func (p *peeker) loop(source Source) error {
 	for {
 		var next *peek
 		var peeks chan Peek
@@ -101,12 +100,12 @@ func (p *peeker) loop(source hook.Source) error {
 
 // peek implements Peek.
 type peek struct {
-	source hook.Source
+	source Source
 	done   chan struct{}
 }
 
 // HookInfo is part of the Peek interface.
-func (p *peek) HookInfo() hook.Info {
+func (p *peek) HookInfo() Info {
 	return p.source.Next()
 }
 

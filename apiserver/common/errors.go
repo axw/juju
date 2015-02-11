@@ -63,6 +63,23 @@ func IsUnknownEnviromentError(err error) bool {
 	return ok
 }
 
+type alreadyPreparedError struct {
+	entity names.Tag
+}
+
+func (e *alreadyPreparedError) Error() string {
+	return fmt.Sprintf("%s already prepared", names.ReadableString(e.entity))
+}
+
+func AlreadyPreparedError(entity names.Tag) error {
+	return &alreadyPreparedError{uuid: uuid}
+}
+
+func IsAlreadyPreparedError(err error) bool {
+	_, ok := err.(*alreadyPreparedError)
+	return ok
+}
+
 var (
 	ErrBadId              = stderrors.New("id not found")
 	ErrBadCreds           = stderrors.New("invalid entity name or password")
@@ -127,7 +144,9 @@ func ServerError(err error) *params.Error {
 		code = params.CodeNotFound
 	case errors.IsAlreadyExists(err):
 		code = params.CodeAlreadyExists
-	case errors.IsNotAssigned(err):
+	case state.IsUnitNotAssigned(err):
+		code = params.CodeNotAssigned
+	case state.IsVolumeNotAssigned(err):
 		code = params.CodeNotAssigned
 	case state.IsHasAssignedUnitsError(err):
 		code = params.CodeHasAssignedUnits
@@ -139,6 +158,8 @@ func ServerError(err error) *params.Error {
 		code = params.CodeUpgradeInProgress
 	case IsUnknownEnviromentError(err):
 		code = params.CodeNotFound
+	case IsAlreadyPreparedError(err):
+		code = params.CodeAlreadyPrepared
 	default:
 		code = params.ErrCode(err)
 	}

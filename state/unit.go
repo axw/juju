@@ -21,6 +21,7 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
+	stateerrors "github.com/juju/juju/state/errors"
 	"github.com/juju/juju/state/presence"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
@@ -1002,16 +1003,11 @@ func (u *Unit) SetAgentPresence() (*presence.Pinger, error) {
 	return p, nil
 }
 
-func unitNotAssignedError(u *Unit) error {
-	msg := fmt.Sprintf("unit %q is not assigned to a machine", u)
-	return errors.NewNotAssigned(nil, msg)
-}
-
 // AssignedMachineId returns the id of the assigned machine.
 func (u *Unit) AssignedMachineId() (id string, err error) {
 	if u.IsPrincipal() {
 		if u.doc.MachineId == "" {
-			return "", unitNotAssignedError(u)
+			return "", stateerrors.UnitNotAssigned(u.UnitTag())
 		}
 		return u.doc.MachineId, nil
 	}
@@ -1027,7 +1023,7 @@ func (u *Unit) AssignedMachineId() (id string, err error) {
 		return "", err
 	}
 	if pudoc.MachineId == "" {
-		return "", unitNotAssignedError(u)
+		return "", stateerrors.UnitNotAssigned(u.UnitTag())
 	}
 	return pudoc.MachineId, nil
 }

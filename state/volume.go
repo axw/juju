@@ -22,8 +22,8 @@ type Volume interface {
 
 	// StorageInstance returns the tag of the storage instance that this
 	// volume is assigned to, if any. If the volume is not assigned to
-	// a storage instance, an error satisfying errors.IsNotAssigned will
-	// be returned.
+	// a storage instance, an error satisfying errors.IsVolumeNotAssigned
+	// will be returned.
 	//
 	// A volume can be assigned to at most one storage instance, and a
 	// storage instance can have at most one associated volume.
@@ -129,8 +129,7 @@ func (v *volume) VolumeTag() names.DiskTag {
 // StorageInstance is required to implement Volume.
 func (v *volume) StorageInstance() (names.StorageTag, error) {
 	if v.doc.StorageInstance == "" {
-		msg := fmt.Sprintf("volume %q is not assigned to any storage instance", v.Tag().Id())
-		return names.StorageTag{}, errors.NewNotAssigned(nil, msg)
+		return names.StorageWorker{}, VolumeNotAssigned(v.VolumeTag())
 	}
 	return names.NewStorageTag(v.doc.StorageInstance), nil
 }

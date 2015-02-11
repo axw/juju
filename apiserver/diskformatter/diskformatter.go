@@ -238,6 +238,7 @@ func (a *DiskFormatterAPI) oneVolumePreparationInfo(
 			"volume %q is not assigned to a filesystem storage instance",
 			volumeTag.Id(),
 		)
+		// TODO(axw) return "AlreadyPrepared" error
 		return result, errors.NewNotAssigned(nil, msg)
 	}
 	blockDevices, ok := machineBlockDevices[machineTag]
@@ -259,6 +260,7 @@ func (a *DiskFormatterAPI) oneVolumePreparationInfo(
 	if err != nil {
 		return result, errors.Trace(err)
 	}
+	// TODO(axw) return "AlreadyPrepared" error if FilesystemType != ""
 	if blockDevice.FilesystemType == "" {
 		// We've asserted previously that the volume is assigned to
 		// a filesystem-kind storage instance; since the volume has

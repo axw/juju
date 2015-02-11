@@ -312,7 +312,7 @@ func MigrateUnitPortsToOpenedPorts(st *State) error {
 
 		// Get the unit's assigned machine.
 		machineId, err := unit.AssignedMachineId()
-		if errors.IsNotAssigned(err) {
+		if IsUnitNotAssigned(err) {
 			upgradesLogger.Infof("unit %q has no assigned machine; skipping migration", unit)
 			continue
 		} else if err != nil {

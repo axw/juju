@@ -19,9 +19,7 @@ import (
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/multiwatcher"
 	"github.com/juju/juju/state/watcher"
-	"github.com/juju/juju/storage"
 	"github.com/juju/juju/storage/poolmanager"
-	"github.com/juju/juju/storage/provider/registry"
 )
 
 func init() {
@@ -527,98 +525,27 @@ func (p *ProvisionerAPI) machineVolumeParams(m *state.Machine) ([]params.VolumeP
 	if len(volumeAttachments) == 0 {
 		return nil, nil
 	}
-	volumeParams := make([]params.VolumeParams, 0, len(volumeAttachments))
+	poolManager := poolmanager.New(state.NewStateSettings(p.st))
+	allVolumeParams := make([]params.VolumeParams, 0, len(volumeAttachments))
 	for _, volumeAttachment := range volumeAttachments {
 		volumeTag := volumeAttachment.Volume()
 		volume, err := p.st.Volume(volumeTag)
 		if err != nil {
 			return nil, errors.Annotatef(err, "getting volume %q", volumeTag.Id())
 		}
-		stateVolumeParams, ok := volume.Params()
-		if !ok {
+		volumeParams, err := common.VolumeParams(volume, poolManager)
+		if common.IsVolumeAlreadyProvisioned(err) {
 			// Volume is already provisioned; let the dynamic
 			// storage provisioner handle the attachment.
 			continue
+		} else if err != nil {
+			return nil, errors.Annotatef(err, "getting volume %q parameters", volumeTag.Id())
 		}
 		// Not provisioned yet, so ask the cloud provisioner do it.
-		var providerType storage.ProviderType
-		var options map[string]interface{}
-		if stateVolumeParams.Pool == "" {
-			return nil, errors.Errorf("storage pool name not specified")
-		}
-		providerType, options, err = storageConfig(p.st, stateVolumeParams.Pool)
-		if err != nil {
-			return nil, errors.Errorf("cannot get options for pool %q", stateVolumeParams.Pool)
-		}
-		volumeParams = append(volumeParams, params.VolumeParams{
-			volumeTag.String(),
-			stateVolumeParams.Size,
-			string(providerType),
-			options,
-			m.Tag().String(),
-		})
+		volumeParams.MachineTag = m.Tag().String()
+		allVolumeParams = append(allVolumeParams, volumeParams)
 	}
-	return volumeParams, nil
-}
-
-// storageConfig returns the provider type and config attributes for the
-// specified poolName. If no such pool exists, we check to see if poolName is
-// actually a provider type, in which case config will be empty.
-func storageConfig(st *state.State, poolName string) (storage.ProviderType, map[string]interface{}, error) {
-	pm := poolmanager.New(state.NewStateSettings(st))
-	p, err := pm.Get(poolName)
-	// If not a storage pool, then maybe a provider type.
-	if errors.IsNotFound(err) {
-		providerType := storage.ProviderType(poolName)
-		if _, err1 := registry.StorageProvider(providerType); err1 != nil {
-			return "", nil, errors.Trace(err)
-		}
-		return providerType, nil, nil
-	}
-	if err != nil {
-		return "", nil, errors.Trace(err)
-	}
-	return p.Provider(), p.Attrs(), nil
-}
-
-// volumesToState converts a slice of storage.Volume to a mapping
-// of volume names to state.VolumeInfo.
-func volumesToState(in []params.Volume) (map[names.DiskTag]state.VolumeInfo, error) {
-	m := make(map[names.DiskTag]state.VolumeInfo)
-	for _, v := range in {
-		if v.VolumeTag == "" {
-			return nil, errors.New("Tag is empty")
-		}
-		volumeTag, err := names.ParseDiskTag(v.VolumeTag)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		m[volumeTag] = state.VolumeInfo{
-			v.Serial,
-			v.Size,
-			v.VolumeId,
-		}
-	}
-	return m, nil
-}
-
-// volumeAttachmentsToState converts a slice of storage.VolumeAttachment to a
-// mapping of volume names to state.VolumeAttachmentInfo.
-func volumeAttachmentsToState(in []params.VolumeAttachment) (map[names.DiskTag]state.VolumeAttachmentInfo, error) {
-	m := make(map[names.DiskTag]state.VolumeAttachmentInfo)
-	for _, v := range in {
-		if v.VolumeTag == "" {
-			return nil, errors.New("Tag is empty")
-		}
-		volumeTag, err := names.ParseDiskTag(v.VolumeTag)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		m[volumeTag] = state.VolumeAttachmentInfo{
-			v.DeviceName,
-		}
-	}
-	return m, nil
+	return allVolumeParams, nil
 }
 
 func networkParamsToStateParams(networks []params.Network, ifaces []params.NetworkInterface) (
@@ -744,11 +671,11 @@ func (p *ProvisionerAPI) SetInstanceInfo(args params.InstancesInfo) (params.Erro
 		if err != nil {
 			return err
 		}
-		volumes, err := volumesToState(arg.Volumes)
+		volumes, err := common.VolumesToState(arg.Volumes)
 		if err != nil {
 			return err
 		}
-		volumeAttachments, err := volumeAttachmentsToState(arg.VolumeAttachments)
+		volumeAttachments, err := common.VolumeAttachmentsToState(arg.VolumeAttachments)
 		if err != nil {
 			return err
 		}

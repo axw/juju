@@ -114,8 +114,9 @@ func (s *loopSuite) TestDestroyVolumes(c *gc.C) {
 	err := ioutil.WriteFile(fileName, nil, 0644)
 	c.Assert(err, jc.ErrorIsNil)
 
-	err = s.source.DestroyVolumes([]string{"disk-0"})
-	c.Assert(err, jc.ErrorIsNil)
+	results := s.source.DestroyVolumes([]string{"disk-0"})
+	c.Assert(results, gc.HasLen, 1)
+	c.Assert(results[0], jc.ErrorIsNil)
 }
 
 func (s *loopSuite) TestDestroyVolumesDetachFails(c *gc.C) {
@@ -125,13 +126,15 @@ func (s *loopSuite) TestDestroyVolumesDetachFails(c *gc.C) {
 	cmd = s.commands.expect("losetup", "-d", "/dev/loop0")
 	cmd.respond("", errors.New("oy"))
 
-	err := s.source.DestroyVolumes([]string{"disk-0"})
-	c.Assert(err, gc.ErrorMatches, `detaching loop device "loop0": oy`)
+	results := s.source.DestroyVolumes([]string{"disk-0"})
+	c.Assert(results, gc.HasLen, 1)
+	c.Assert(results[0], gc.ErrorMatches, `destroying "disk-0": detaching loop device "loop0": oy`)
 }
 
 func (s *loopSuite) TestDestroyVolumesInvalidVolumeId(c *gc.C) {
-	err := s.source.DestroyVolumes([]string{"../super/important/stuff"})
-	c.Assert(err, gc.ErrorMatches, `invalid loop volume ID "\.\./super/important/stuff"`)
+	results := s.source.DestroyVolumes([]string{"../super/important/stuff"})
+	c.Assert(results, gc.HasLen, 1)
+	c.Assert(results[0], gc.ErrorMatches, `destroying "\.\./super/important/stuff": invalid loop volume ID "\.\./super/important/stuff"`)
 }
 
 func (s *loopSuite) TestDescribeVolumes(c *gc.C) {

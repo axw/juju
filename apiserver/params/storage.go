@@ -105,6 +105,11 @@ type Volume struct {
 	Size uint64 `json:"size"`
 }
 
+// Volumes describes a set of storage volumes in the environment.
+type Volumes struct {
+	Volumes []Volume `json:"volumes"`
+}
+
 // VolumeAttachmentId identifies a volume attachment by the tags of the
 // related machine and volume.
 type VolumeAttachmentId struct {
@@ -166,6 +171,28 @@ type VolumeAttachmentsResult struct {
 // a set of machines.
 type VolumeAttachmentsResults struct {
 	Results []VolumeAttachmentsResult `json:"results,omitempty"`
+}
+
+// VolumeResult holds information about a volume.
+type VolumeResult struct {
+	Result Volume `json:"result"`
+	Error  *Error `json:"error,omitempty"`
+}
+
+// VolumeResults holds information about multiple volumes.
+type VolumeResults struct {
+	Results []VolumeResult `json:"results,omitempty"`
+}
+
+// VolumeParamsResults holds provisioning parameters for a volume.
+type VolumeParamsResult struct {
+	Result VolumeParams `json:"result"`
+	Error  *Error       `json:"error,omitempty"`
+}
+
+// VolumeParamsResults holds provisioning parameters for multiple volumes.
+type VolumeParamsResults struct {
+	Results []VolumeParamsResult `json:"results,omitempty"`
 }
 
 // StorageShowResult holds information about a storage instance

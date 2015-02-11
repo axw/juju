@@ -22,6 +22,16 @@ type Volume interface {
 	// VolumeTag returns the tag for the volume.
 	VolumeTag() names.DiskTag
 
+	// TODO(axw)
+	// Scope is the tag of the entity that the volume is scoped to.
+	// Volumes which are inherently bound to a machine (e.g. loop devices)
+	// are scoped to that machine; other volumes are scoped to the
+	// environment.
+	// Owner() names.Tag
+
+	// Life returns the life of the volume.
+	Life() Life
+
 	// StorageInstance returns the tag of the storage instance that this
 	// volume is assigned to, if any. If the volume is not assigned to
 	// a storage instance, an error satisfying errors.IsNotAssigned will
@@ -128,6 +138,11 @@ func (v *volume) VolumeTag() names.DiskTag {
 	return names.NewDiskTag(v.doc.Name)
 }
 
+// Life returns the volume's current lifecycle state.
+func (v *volume) Life() Life {
+	return v.doc.Life
+}
+
 // StorageInstance is required to implement Volume.
 func (v *volume) StorageInstance() (names.StorageTag, error) {
 	if v.doc.StorageInstance == "" {
@@ -192,6 +207,12 @@ func (st *State) Volume(tag names.DiskTag) (Volume, error) {
 		return nil, errors.Annotate(err, "cannot get volume")
 	}
 	return &v, nil
+}
+
+// TODO doc
+func (st *State) SetVolumeInfo(tag names.DiskTag, info VolumeInfo) error {
+	volumes := map[names.DiskTag]VolumeInfo{tag: info}
+	return setProvisionedVolumeInfo(st, volumes)
 }
 
 // StorageInstanceVolume returns the Volume assigned to the specified

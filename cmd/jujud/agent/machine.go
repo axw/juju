@@ -82,6 +82,7 @@ import (
 	"github.com/juju/juju/worker/resumer"
 	"github.com/juju/juju/worker/rsyslog"
 	"github.com/juju/juju/worker/singular"
+	"github.com/juju/juju/worker/storageworker"
 	"github.com/juju/juju/worker/terminationworker"
 	"github.com/juju/juju/worker/upgrader"
 )
@@ -598,13 +599,17 @@ func (a *MachineAgent) postUpgradeAPIWorker(
 	entity *apiagent.Entity,
 ) (worker.Worker, error) {
 
-	rsyslogMode := rsyslog.RsyslogModeForwarding
-	var err error
+	var isEnvironManager bool
 	for _, job := range entity.Jobs() {
 		if job == multiwatcher.JobManageEnviron {
-			rsyslogMode = rsyslog.RsyslogModeAccumulate
+			isEnvironManager = true
 			break
 		}
+	}
+
+	rsyslogMode := rsyslog.RsyslogModeForwarding
+	if isEnvironManager {
+		rsyslogMode = rsyslog.RsyslogModeAccumulate
 	}
 
 	runner := newConnRunner(st)
@@ -657,6 +662,16 @@ func (a *MachineAgent) postUpgradeAPIWorker(
 			}
 			return diskformatter.NewWorker(api), nil
 		})
+		runner.StartWorker("storageworker-machine", func() (worker.Worker, error) {
+			api := st.StorageWorker(agentConfig.Tag())
+			return storageworker.NewStorageWorker(api, api), nil
+		})
+		if isEnvironManager {
+			runner.StartWorker("storageworker-environ", func() (worker.Worker, error) {
+				api := st.StorageWorker(agentConfig.Environment())
+				return storageworker.NewStorageWorker(api, api), nil
+			})
+		}
 	}
 
 	// Check if the network management is disabled.

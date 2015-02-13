@@ -38,6 +38,7 @@ type State interface {
 	state.EntityFinder
 	WatchVolumes() state.StringsWatcher
 	Volume(names.DiskTag) (state.Volume, error)
+	VolumeAttachments(names.DiskTag) ([]state.VolumeAttachment, error)
 	SetVolumeInfo(names.DiskTag, state.VolumeInfo) error
 }
 
@@ -95,10 +96,12 @@ func NewStorageWorkerAPI(st *state.State, resources *common.Resources, authorize
 		}, nil
 	}
 	stateInterface := getState(st)
+	settings := getSettingsManager(st)
 	return &StorageWorkerAPI{
 		LifeGetter:         common.NewLifeGetter(stateInterface, getVolumeAuthFunc),
 		DeadEnsurer:        common.NewDeadEnsurer(stateInterface, getVolumeAuthFunc),
 		st:                 stateInterface,
+		settings:           settings,
 		resources:          resources,
 		authorizer:         authorizer,
 		getMachineAuthFunc: getMachineAuthFunc,
@@ -195,7 +198,18 @@ func (s *StorageWorkerAPI) VolumeParams(args params.Entities) (params.VolumePara
 		} else if err != nil {
 			return params.VolumeParams{}, err
 		}
-		return common.VolumeParams(volume, poolManager)
+		volumeAttachments, err := s.st.VolumeAttachments(tag)
+		if err != nil {
+			return params.VolumeParams{}, err
+		}
+		volumeParams, err := common.VolumeParams(volume, poolManager)
+		if err != nil {
+			return params.VolumeParams{}, err
+		}
+		if len(volumeAttachments) == 1 {
+			volumeParams.MachineTag = volumeAttachments[0].Machine().String()
+		}
+		return volumeParams, nil
 	}
 	for i, arg := range args.Entities {
 		var result params.VolumeParamsResult

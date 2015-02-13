@@ -250,15 +250,33 @@ func (st *State) VolumeAttachment(machine names.MachineTag, volume names.DiskTag
 // MachineVolumeAttachments returns all of the VolumeAttachments for the
 // specified machine.
 func (st *State) MachineVolumeAttachments(machine names.MachineTag) ([]VolumeAttachment, error) {
+	attachments, err := st.volumeAttachments(bson.D{{"machineid", machine.Id()}})
+	if err != nil {
+		return nil, errors.Annotatef(err, "getting volume attachments for machine %q", machine.Id())
+	}
+	return attachments, nil
+}
+
+// VolumeAttachments returns all of the VolumeAttachments for the specified
+// volume.
+func (st *State) VolumeAttachments(volume names.DiskTag) ([]VolumeAttachment, error) {
+	attachments, err := st.volumeAttachments(bson.D{{"volumeid", volume.Id()}})
+	if err != nil {
+		return nil, errors.Annotatef(err, "getting volume attachments for volume %q", volume.Id())
+	}
+	return attachments, nil
+}
+
+func (st *State) volumeAttachments(query bson.D) ([]VolumeAttachment, error) {
 	coll, cleanup := st.getCollection(volumeAttachmentsC)
 	defer cleanup()
 
 	var docs []volumeAttachmentDoc
-	err := coll.Find(bson.D{{"machineid", machine.Id()}}).All(&docs)
+	err := coll.Find(query).All(&docs)
 	if err == mgo.ErrNotFound {
 		return nil, nil
 	} else if err != nil {
-		return nil, errors.Annotatef(err, "getting volume attachments for machine %q", machine.Id())
+		return nil, errors.Trace(err)
 	}
 	attachments := make([]VolumeAttachment, len(docs))
 	for i, doc := range docs {

@@ -4,6 +4,8 @@
 package storageworker
 
 import (
+	"path/filepath"
+
 	"github.com/juju/errors"
 	"github.com/juju/names"
 
@@ -164,7 +166,9 @@ func processAliveVolumes(ctx *context, tags []names.Tag, volumeResults []params.
 		}
 		volumeParams = append(volumeParams, params)
 	}
-	volumes, volumeAttachments, err := createVolumes(ctx.environConfig, volumeParams)
+	volumes, volumeAttachments, err := createVolumes(
+		ctx.environConfig, ctx.storageDir, volumeParams,
+	)
 	if err != nil {
 		return errors.Annotate(err, "creating volumes")
 	}
@@ -213,7 +217,11 @@ func volumeParamsFromParams(in params.VolumeParams) (storage.VolumeParams, error
 }
 
 // createVolumes creates volumes with the specified parameters.
-func createVolumes(environConfig *config.Config, params []storage.VolumeParams) ([]params.Volume, []params.VolumeAttachment, error) {
+func createVolumes(
+	environConfig *config.Config,
+	baseStorageDir string,
+	params []storage.VolumeParams,
+) ([]params.Volume, []params.VolumeAttachment, error) {
 	paramsByProvider := make(map[storage.ProviderType][]storage.VolumeParams)
 	for _, params := range params {
 		paramsByProvider[params.Provider] = append(paramsByProvider[params.Provider], params)
@@ -232,6 +240,10 @@ func createVolumes(environConfig *config.Config, params []storage.VolumeParams) 
 		// from pools, we need to pass it in here.
 		sourceName := string(providerType)
 		attrs := make(map[string]interface{})
+		if baseStorageDir != "" {
+			storageDir := filepath.Join(baseStorageDir, sourceName)
+			attrs[storage.ConfigStorageDir] = storageDir
+		}
 		sourceConfig, err := storage.NewConfig(sourceName, providerType, attrs)
 		if err != nil {
 			return nil, nil, errors.Annotatef(err, "getting storage source %q config", sourceName)

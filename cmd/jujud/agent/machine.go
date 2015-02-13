@@ -664,12 +664,13 @@ func (a *MachineAgent) postUpgradeAPIWorker(
 		})
 		runner.StartWorker("storageworker-machine", func() (worker.Worker, error) {
 			api := st.StorageWorker(agentConfig.Tag())
-			return storageworker.NewStorageWorker(api, api), nil
+			storageDir := filepath.Join(agentConfig.DataDir(), "storage")
+			return storageworker.NewStorageWorker(storageDir, api, api), nil
 		})
 		if isEnvironManager {
 			runner.StartWorker("storageworker-environ", func() (worker.Worker, error) {
 				api := st.StorageWorker(agentConfig.Environment())
-				return storageworker.NewStorageWorker(api, api), nil
+				return storageworker.NewStorageWorker("", api, api), nil
 			})
 		}
 	}

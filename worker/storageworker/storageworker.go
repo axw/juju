@@ -34,10 +34,16 @@ type LifecycleManager interface {
 // NewStorageWorker returns a Worker which manages
 // provisioning (deprovisioning), and attachment (detachment)
 // of first-class volumes and filesystems.
-func NewStorageWorker(v VolumeAccessor, l LifecycleManager) worker.Worker {
+//
+// Machine-scoped storage workers will be provided with
+// a storage directory, while environment-scoped workers
+// will not. If the directory path is non-empty, then it
+// will be passed to the storage source via its config.
+func NewStorageWorker(storageDir string, v VolumeAccessor, l LifecycleManager) worker.Worker {
 	w := &storageWorker{
-		volumes: v,
-		life:    l,
+		storageDir: storageDir,
+		volumes:    v,
+		life:       l,
 	}
 	go func() {
 		defer w.tomb.Done()
@@ -47,9 +53,10 @@ func NewStorageWorker(v VolumeAccessor, l LifecycleManager) worker.Worker {
 }
 
 type storageWorker struct {
-	tomb    tomb.Tomb
-	volumes VolumeAccessor
-	life    LifecycleManager
+	tomb       tomb.Tomb
+	storageDir string
+	volumes    VolumeAccessor
+	life       LifecycleManager
 }
 
 // Kill implements Worker.Kill().
@@ -88,6 +95,7 @@ func (w *storageWorker) loop() error {
 
 	ctx := context{
 		environConfig: environConfig,
+		storageDir:    w.storageDir,
 		volumes:       w.volumes,
 		life:          w.life,
 	}
@@ -109,6 +117,7 @@ func (w *storageWorker) loop() error {
 
 type context struct {
 	environConfig *config.Config
+	storageDir    string
 	volumes       VolumeAccessor
 	life          LifecycleManager
 }

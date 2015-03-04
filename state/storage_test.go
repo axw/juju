@@ -20,12 +20,16 @@ import (
 )
 
 type StorageStateSuite struct {
-	ConnSuite
+	StorageStateSuiteBase
 }
 
 var _ = gc.Suite(&StorageStateSuite{})
 
-func (s *StorageStateSuite) SetUpTest(c *gc.C) {
+type StorageStateSuiteBase struct {
+	ConnSuite
+}
+
+func (s *StorageStateSuiteBase) SetUpTest(c *gc.C) {
 	s.ConnSuite.SetUpTest(c)
 
 	// This suite is all about storage, so enable the feature by default.
@@ -34,9 +38,23 @@ func (s *StorageStateSuite) SetUpTest(c *gc.C) {
 
 	// Create a default pool for block devices.
 	pm := poolmanager.New(state.NewStateSettings(s.State))
-	_, err := pm.Create("block", provider.LoopProviderType, map[string]interface{}{})
+	_, err := pm.Create("loop-pool", provider.LoopProviderType, map[string]interface{}{})
 	c.Assert(err, jc.ErrorIsNil)
 	registry.RegisterEnvironStorageProviders("someprovider", provider.LoopProviderType)
+}
+
+func (s *StorageStateSuiteBase) setupSingleStorage(c *gc.C, kind string) (*state.Service, *state.Unit, names.StorageTag) {
+	// There are test charms called "storage-block" and
+	// "storage-filesystem" which are what you'd expect.
+	ch := s.AddTestingCharm(c, "storage-"+kind)
+	storage := map[string]state.StorageConstraints{
+		"data": makeStorageCons("loop-pool", 1024, 1),
+	}
+	service := s.AddTestingServiceWithStorage(c, "storage-"+kind, ch, storage)
+	unit, err := service.AddUnit()
+	c.Assert(err, jc.ErrorIsNil)
+	storageTag := names.NewStorageTag("data/0")
+	return service, unit, storageTag
 }
 
 func (s *StorageStateSuite) storageInstanceExists(c *gc.C, tag names.StorageTag) bool {
@@ -50,18 +68,6 @@ func (s *StorageStateSuite) storageInstanceExists(c *gc.C, tag names.StorageTag)
 		return false
 	}
 	return true
-}
-
-func (s *StorageStateSuite) setupSingleStorage(c *gc.C) (*state.Service, *state.Unit, names.StorageTag) {
-	ch := s.AddTestingCharm(c, "storage-block")
-	storage := map[string]state.StorageConstraints{
-		"data": makeStorageCons("block", 1024, 1),
-	}
-	service := s.AddTestingServiceWithStorage(c, "storage-block", ch, storage)
-	unit, err := service.AddUnit()
-	c.Assert(err, jc.ErrorIsNil)
-	storageTag := names.NewStorageTag("data/0")
-	return service, unit, storageTag
 }
 
 func makeStorageCons(pool string, size, count uint64) state.StorageConstraints {
@@ -94,16 +100,16 @@ func (s *StorageStateSuite) TestAddServiceStorageConstraintsValidation(c *gc.C) 
 	assertErr(nil, `.*no constraints specified for store.*`)
 
 	storageCons := map[string]state.StorageConstraints{
-		"multi1to10": makeStorageCons("block", 1024, 1),
-		"multi2up":   makeStorageCons("block", 1024, 1),
+		"multi1to10": makeStorageCons("loop-pool", 1024, 1),
+		"multi2up":   makeStorageCons("loop-pool", 1024, 1),
 	}
 	assertErr(storageCons, `cannot add service "storage-block2": charm "storage-block2" store "multi2up": 2 instances required, 1 specified`)
-	storageCons["multi2up"] = makeStorageCons("block", 1024, 2)
-	storageCons["multi1to10"] = makeStorageCons("block", 1024, 11)
+	storageCons["multi2up"] = makeStorageCons("loop-pool", 1024, 2)
+	storageCons["multi1to10"] = makeStorageCons("loop-pool", 1024, 11)
 	assertErr(storageCons, `cannot add service "storage-block2": charm "storage-block2" store "multi1to10": at most 10 instances supported, 11 specified`)
 	storageCons["multi1to10"] = makeStorageCons("ebs", 1024, 10)
 	assertErr(storageCons, `cannot add service "storage-block2": pool "ebs" not found`)
-	storageCons["multi1to10"] = makeStorageCons("block", 1024, 10)
+	storageCons["multi1to10"] = makeStorageCons("loop-pool", 1024, 10)
 	_, err := addService(storageCons)
 	c.Assert(err, jc.ErrorIsNil)
 }
@@ -129,9 +135,9 @@ func (s *StorageStateSuite) TestAddServiceStorageConstraintsDefaultPool(c *gc.C)
 		"data": makeStorageCons("", 2048, 1),
 	}
 	expectedCons := map[string]state.StorageConstraints{
-		"data": makeStorageCons("block", 2048, 1),
+		"data": makeStorageCons("loop-pool", 2048, 1),
 	}
-	s.assertAddServiceStorageConstraintsDefaults(c, "block", storageCons, expectedCons)
+	s.assertAddServiceStorageConstraintsDefaults(c, "loop-pool", storageCons, expectedCons)
 }
 
 func (s *StorageStateSuite) TestAddServiceStorageConstraintsNoUserDefaultPool(c *gc.C) {
@@ -146,12 +152,12 @@ func (s *StorageStateSuite) TestAddServiceStorageConstraintsNoUserDefaultPool(c 
 
 func (s *StorageStateSuite) TestAddServiceStorageConstraintsDefaultSize(c *gc.C) {
 	storageCons := map[string]state.StorageConstraints{
-		"data": makeStorageCons("block", 0, 1),
+		"data": makeStorageCons("loop-pool", 0, 1),
 	}
 	expectedCons := map[string]state.StorageConstraints{
-		"data": makeStorageCons("block", 1024, 1),
+		"data": makeStorageCons("loop-pool", 1024, 1),
 	}
-	s.assertAddServiceStorageConstraintsDefaults(c, "block", storageCons, expectedCons)
+	s.assertAddServiceStorageConstraintsDefaults(c, "loop-pool", storageCons, expectedCons)
 }
 
 func (s *StorageStateSuite) TestProviderFallbackToType(c *gc.C) {
@@ -168,7 +174,7 @@ func (s *StorageStateSuite) TestProviderFallbackToType(c *gc.C) {
 
 func (s *StorageStateSuite) TestAddUnit(c *gc.C) {
 	err := s.State.UpdateEnvironConfig(map[string]interface{}{
-		"storage-default-block-source": "block",
+		"storage-default-block-source": "loop-pool",
 	}, nil, nil)
 	c.Assert(err, jc.ErrorIsNil)
 
@@ -177,7 +183,7 @@ func (s *StorageStateSuite) TestAddUnit(c *gc.C) {
 	ch := s.AddTestingCharm(c, "storage-block2")
 	storage := map[string]state.StorageConstraints{
 		"multi1to10": makeStorageCons("", 1024, 1),
-		"multi2up":   makeStorageCons("block", 1024, 2),
+		"multi2up":   makeStorageCons("loop-pool", 1024, 2),
 	}
 	service := s.AddTestingServiceWithStorage(c, "storage-block2", ch, storage)
 	for i := 0; i < 2; i++ {
@@ -202,7 +208,7 @@ func (s *StorageStateSuite) TestAddUnit(c *gc.C) {
 }
 
 func (s *StorageStateSuite) TestUnitEnsureDead(c *gc.C) {
-	_, u, storageTag := s.setupSingleStorage(c)
+	_, u, storageTag := s.setupSingleStorage(c, "block")
 	// destroying a unit with storage attachments is fine; this is what
 	// will trigger the death and removal of storage attachments.
 	err := u.Destroy()
@@ -227,7 +233,7 @@ func (s *StorageStateSuite) TestUnitEnsureDead(c *gc.C) {
 }
 
 func (s *StorageStateSuite) TestRemoveStorageAttachmentsRemovesDyingInstance(c *gc.C) {
-	_, u, storageTag := s.setupSingleStorage(c)
+	_, u, storageTag := s.setupSingleStorage(c, "block")
 
 	// Mark the storage instance as Dying, so that it will be removed
 	// when the last attachment is removed.
@@ -247,7 +253,7 @@ func (s *StorageStateSuite) TestRemoveStorageAttachmentsRemovesDyingInstance(c *
 }
 
 func (s *StorageStateSuite) TestConcurrentDestroyStorageInstanceRemoveStorageAttachmentsRemovesInstance(c *gc.C) {
-	_, u, storageTag := s.setupSingleStorage(c)
+	_, u, storageTag := s.setupSingleStorage(c, "block")
 
 	defer state.SetBeforeHooks(c, s.State, func() {
 		err := s.State.EnsureStorageAttachmentDead(storageTag, u.UnitTag())
@@ -267,7 +273,7 @@ func (s *StorageStateSuite) TestConcurrentDestroyStorageInstanceRemoveStorageAtt
 }
 
 func (s *StorageStateSuite) TestConcurrentRemoveStorageAttachment(c *gc.C) {
-	_, u, storageTag := s.setupSingleStorage(c)
+	_, u, storageTag := s.setupSingleStorage(c, "block")
 
 	err := s.State.DestroyStorageInstance(storageTag)
 	c.Assert(err, jc.ErrorIsNil)
@@ -289,7 +295,7 @@ func (s *StorageStateSuite) TestConcurrentRemoveStorageAttachment(c *gc.C) {
 }
 
 func (s *StorageStateSuite) TestRemoveAliveStorageAttachmentError(c *gc.C) {
-	_, u, storageTag := s.setupSingleStorage(c)
+	_, u, storageTag := s.setupSingleStorage(c, "block")
 
 	err := s.State.RemoveStorageAttachment(storageTag, u.UnitTag())
 	c.Assert(err, gc.ErrorMatches, "cannot remove storage attachment data/0:storage-block/0: storage attachment is not dead")
@@ -301,7 +307,7 @@ func (s *StorageStateSuite) TestRemoveAliveStorageAttachmentError(c *gc.C) {
 }
 
 func (s *StorageStateSuite) TestConcurrentDestroyInstanceRemoveStorageAttachmentsRemovesInstance(c *gc.C) {
-	_, u, storageTag := s.setupSingleStorage(c)
+	_, u, storageTag := s.setupSingleStorage(c, "block")
 
 	defer state.SetBeforeHooks(c, s.State, func() {
 		// Concurrently mark the storage instance as Dying,
@@ -323,7 +329,7 @@ func (s *StorageStateSuite) TestConcurrentDestroyInstanceRemoveStorageAttachment
 }
 
 func (s *StorageStateSuite) TestConcurrentDestroyStorageInstance(c *gc.C) {
-	_, _, storageTag := s.setupSingleStorage(c)
+	_, _, storageTag := s.setupSingleStorage(c, "block")
 
 	defer state.SetBeforeHooks(c, s.State, func() {
 		err := s.State.DestroyStorageInstance(storageTag)
@@ -341,8 +347,8 @@ func (s *StorageStateSuite) TestConcurrentDestroyStorageInstance(c *gc.C) {
 func (s *StorageStateSuite) TestWatchStorageAttachments(c *gc.C) {
 	ch := s.AddTestingCharm(c, "storage-block2")
 	storage := map[string]state.StorageConstraints{
-		"multi1to10": makeStorageCons("block", 1024, 1),
-		"multi2up":   makeStorageCons("block", 1024, 2),
+		"multi1to10": makeStorageCons("loop-pool", 1024, 1),
+		"multi2up":   makeStorageCons("loop-pool", 1024, 2),
 	}
 	service := s.AddTestingServiceWithStorage(c, "storage-block2", ch, storage)
 	u, err := service.AddUnit()

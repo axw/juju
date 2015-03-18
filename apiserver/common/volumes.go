@@ -5,6 +5,7 @@ package common
 
 import (
 	"fmt"
+	"path"
 
 	"github.com/juju/errors"
 	"github.com/juju/names"
@@ -178,4 +179,40 @@ func ParseVolumeAttachmentIds(stringIds []string) ([]params.MachineStorageId, er
 		}
 	}
 	return ids, nil
+}
+
+// MatchingBlockDevice finds the block device that matches the
+// provided volume info and volume attachment info.
+func MatchingBlockDevice(
+	blockDevices []state.BlockDeviceInfo,
+	volumeInfo state.VolumeInfo,
+	attachmentInfo state.VolumeAttachmentInfo,
+) (*state.BlockDeviceInfo, bool) {
+	for _, dev := range blockDevices {
+		if volumeInfo.Serial != "" {
+			if volumeInfo.Serial == dev.Serial {
+				return &dev, true
+			}
+		} else if attachmentInfo.DeviceName == dev.DeviceName {
+			return &dev, true
+		}
+	}
+	return nil, false
+}
+
+var errNoDevicePath = errors.New("cannot determine device path: no serial or persistent device name")
+
+// volumeAttachmentDevicePath returns the absolute device path for
+// a volume attachment. The value is only meaningful in the context
+// of the machine that the volume is attached to.
+func volumeAttachmentDevicePath(
+	volumeInfo state.VolumeInfo,
+	volumeAttachmentInfo state.VolumeAttachmentInfo,
+) (string, error) {
+	if volumeInfo.Serial != "" {
+		return path.Join("/dev/disk/by-id", volumeInfo.Serial), nil
+	} else if volumeAttachmentInfo.DeviceName != "" {
+		return path.Join("/dev", volumeAttachmentInfo.DeviceName), nil
+	}
+	return "", errNoDevicePath
 }

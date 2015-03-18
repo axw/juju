@@ -3,10 +3,19 @@
 
 package diskmanager
 
-import "github.com/juju/juju/state"
+import (
+	"github.com/juju/juju/state"
+	"github.com/juju/names"
+)
 
 type stateInterface interface {
+	Filesystem(names.FilesystemTag) (state.Filesystem, error)
+	FilesystemAttachment(names.MachineTag, names.FilesystemTag) (state.FilesystemAttachment, error)
+	MachineFilesystemAttachments(names.MachineTag) ([]state.FilesystemAttachment, error)
+	Volume(names.VolumeTag) (state.Volume, error)
+	VolumeAttachment(names.MachineTag, names.VolumeTag) (state.VolumeAttachment, error)
 	SetMachineBlockDevices(machineId string, devices []state.BlockDeviceInfo) error
+	SetFilesystemAttachmentInfo(names.MachineTag, names.FilesystemTag, state.FilesystemAttachmentInfo) error
 }
 
 type stateShim struct {

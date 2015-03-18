@@ -4,6 +4,7 @@
 package diskmanager
 
 import (
+	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
 
@@ -84,12 +85,98 @@ func (d *DiskManagerAPI) SetMachineBlockDevices(args params.SetMachineBlockDevic
 			// a race between the volume attachment info being recorded and
 			// the diskmanager publishing block devices and erroneously creating
 			// volumes.
-			err = d.st.SetMachineBlockDevices(tag.Id(), stateBlockDeviceInfo(arg.BlockDevices))
-			// TODO(axw) set volume/filesystem attachment info.
+			blockDevices := stateBlockDeviceInfo(arg.BlockDevices)
+			err = d.setMachineBlockDevices(tag, blockDevices)
 		}
 		result.Results[i].Error = common.ServerError(err)
 	}
 	return result, nil
+}
+
+func (d *DiskManagerAPI) setMachineBlockDevices(
+	machineTag names.MachineTag, blockDevices []state.BlockDeviceInfo,
+) error {
+	err := d.st.SetMachineBlockDevices(machineTag.Id(), blockDevices)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// TODO(axw) when we set volume info, we need
+	// to also set filesystem info if there is one
+	// backed by the volume. This can be done in
+	// the state package.
+	return d.setMachineFilesystemAttachmentInfo(machineTag, blockDevices)
+}
+
+// setMachineFilesystemAttachmentInfo sets the filesystem attachment info
+// for filesystems backed by volumes, by matching block device info with
+// said volumes.
+func (d *DiskManagerAPI) setMachineFilesystemAttachmentInfo(
+	machineTag names.MachineTag, blockDevices []state.BlockDeviceInfo,
+) error {
+	attachments, err := d.st.MachineFilesystemAttachments(machineTag)
+	if err != nil {
+		return errors.Annotate(err, "getting machine filesystem attachments")
+	}
+	for _, attachment := range attachments {
+		if _, err := attachment.Info(); !errors.IsNotProvisioned(err) {
+			// filesystem attachment info already set
+			continue
+		}
+		filesystem, err := d.st.Filesystem(attachment.Filesystem())
+		if err != nil {
+			return errors.Annotate(err, "getting filesystem")
+		}
+		volumeTag, err := filesystem.Volume()
+		if errors.Cause(err) == state.ErrNoBackingVolume {
+			// filesystem is not backed by a volume
+			continue
+		}
+		volume, err := d.st.Volume(volumeTag)
+		if err != nil {
+			return errors.Annotate(err, "getting volume")
+		}
+		volumeInfo, err := volume.Info()
+		if errors.IsNotProvisioned(err) {
+			// volume has not been provisioned
+			continue
+		} else if err != nil {
+			return errors.Annotate(err, "getting volume info")
+		}
+		volumeAttachment, err := d.st.VolumeAttachment(machineTag, volumeTag)
+		if err != nil {
+			return errors.Annotate(err, "getting volume")
+		}
+		volumeAttachmentInfo, err := volumeAttachment.Info()
+		if errors.IsNotProvisioned(err) {
+			// volume attachment has not been provisioned
+			continue
+		} else if err != nil {
+			return errors.Annotate(err, "getting volume attachment info")
+		}
+		blockDevice, ok := common.MatchingBlockDevice(
+			blockDevices, volumeInfo, volumeAttachmentInfo,
+		)
+		if !ok || blockDevice.MountPoint == "" {
+			// none of the block devices match the volume/attachment,
+			// or the block device doesn't yet have a filesystem.
+			continue
+		}
+		err = d.st.SetFilesystemAttachmentInfo(
+			machineTag, attachment.Filesystem(),
+			state.FilesystemAttachmentInfo{
+				blockDevice.MountPoint,
+			},
+		)
+		if err != nil {
+			return errors.Annotate(err, "setting filesystem attachment info")
+		}
+		logger.Debugf(
+			"set info for filesystem %s on machine %s",
+			filesystem.Tag().Id(),
+			machineTag.Id(),
+		)
+	}
+	return nil
 }
 
 func stateBlockDeviceInfo(devices []storage.BlockDevice) []state.BlockDeviceInfo {

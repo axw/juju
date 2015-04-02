@@ -367,6 +367,8 @@ func (env *localEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	logger.Debugf("StartInstance: %q, %s", args.MachineConfig.MachineId, series)
 	args.MachineConfig.Tools = args.Tools[0]
 
+	logger.Debugf("filesystems: %v", args.Filesystems)
+
 	args.MachineConfig.MachineContainerType = env.config.container()
 	logger.Debugf("tools: %#v", args.MachineConfig.Tools)
 	if err := environs.FinishMachineConfig(args.MachineConfig, env.config.Config); err != nil {

@@ -135,9 +135,6 @@ func volumeSource(
 	if err != nil {
 		return nil, errors.Annotatef(err, "getting storage source %q params", sourceName)
 	}
-	if !provider.Dynamic() {
-		return nil, errNonDynamic
-	}
 	source, err := provider.VolumeSource(environConfig, sourceConfig)
 	if err != nil {
 		return nil, errors.Annotatef(err, "getting storage source %q", sourceName)
@@ -173,6 +170,9 @@ func sourceParams(providerType storage.ProviderType, sourceName, baseStorageDir 
 	provider, err := registry.StorageProvider(providerType)
 	if err != nil {
 		return nil, nil, errors.Annotate(err, "getting provider")
+	}
+	if !provider.Dynamic() {
+		return nil, nil, errNonDynamic
 	}
 	attrs := make(map[string]interface{})
 	if baseStorageDir != "" {

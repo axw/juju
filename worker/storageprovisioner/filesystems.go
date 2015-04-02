@@ -469,7 +469,9 @@ func createFilesystems(ctx *context, params []storage.FilesystemParams) ([]stora
 		filesystemSource, err := filesystemSource(
 			ctx.environConfig, ctx.storageDir, sourceName, params.Provider,
 		)
-		if err != nil {
+		if errors.Cause(err) == errNonDynamic {
+			filesystemSource = nil
+		} else if err != nil {
 			return nil, errors.Annotate(err, "getting filesystem source")
 		}
 		filesystemSources[sourceName] = filesystemSource
@@ -493,6 +495,9 @@ func createFilesystems(ctx *context, params []storage.FilesystemParams) ([]stora
 	var allFilesystems []storage.Filesystem
 	for sourceName, params := range paramsBySource {
 		filesystemSource := filesystemSources[sourceName]
+		if filesystemSource == nil {
+			continue
+		}
 		filesystems, err := filesystemSource.CreateFilesystems(params)
 		if err != nil {
 			return nil, errors.Annotatef(err, "creating filesystems from source %q", sourceName)

@@ -538,6 +538,7 @@ type ProvisioningInfo struct {
 	Networks    []string
 	Jobs        []multiwatcher.MachineJob
 	Volumes     []VolumeParams
+	Filesystems []FilesystemParams
 }
 
 // ProvisioningInfoResult holds machine provisioning info or an error.

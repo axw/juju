@@ -17,8 +17,10 @@ func init() {
 	environs.RegisterProvider(providerType, providerInstance)
 
 	// TODO(wallyworld) - sort out policy for allowing loop provider
+	registry.RegisterProvider(localStorageProviderType, &localStorageProvider{})
 	registry.RegisterEnvironStorageProviders(
 		providerType,
 		storageprovider.HostLoopProviderType,
+		localStorageProviderType,
 	)
 }

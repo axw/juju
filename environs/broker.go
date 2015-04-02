@@ -46,6 +46,14 @@ type StartInstanceParams struct {
 	// for attachment to the instance being started.
 	Volumes []storage.VolumeParams
 
+	// Filesystems is a set of parameters for filesystems that should be
+	// created.
+	//
+	// StartInstance need not check the value of the Attachment field,
+	// as it is guaranteed that any filesystems in this list are designated
+	// for attachment to the instance being started.
+	Filesystems []storage.FilesystemParams
+
 	// NetworkInfo is an optional list of network interface details,
 	// necessary to configure on the instance.
 	NetworkInfo []network.InterfaceInfo

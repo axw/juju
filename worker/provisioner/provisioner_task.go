@@ -514,6 +514,42 @@ func constructStartInstanceParams(
 			},
 		}
 	}
+	filesystems := make([]storage.FilesystemParams, len(provisioningInfo.Filesystems))
+	for i, f := range provisioningInfo.Filesystems {
+		filesystemTag, err := names.ParseFilesystemTag(f.FilesystemTag)
+		if err != nil {
+			return environs.StartInstanceParams{}, errors.Trace(err)
+		}
+		if f.Attachment == nil {
+			return environs.StartInstanceParams{}, errors.Errorf("filesystem params missing attachment")
+		}
+		machineTag, err := names.ParseMachineTag(f.Attachment.MachineTag)
+		if err != nil {
+			return environs.StartInstanceParams{}, errors.Trace(err)
+		}
+		if machineTag != machine.Tag() {
+			return environs.StartInstanceParams{}, errors.Errorf("filesystem attachment params has invalid machine tag")
+		}
+		if f.Attachment.InstanceId != "" {
+			return environs.StartInstanceParams{}, errors.Errorf("filesystem attachment params specifies instance ID")
+		}
+		filesystems[i] = storage.FilesystemParams{
+			filesystemTag,
+			names.VolumeTag{},
+			f.Size,
+			storage.ProviderType(f.Provider),
+			f.Attributes,
+			/*
+				&storage.FilesystemAttachmentParams{
+					AttachmentParams: storage.AttachmentParams{
+						Machine: machineTag,
+					},
+					Filesystem: filesystemTag,
+					Path:       f.Attachment.MountPoint,
+				},
+			*/
+		}
+	}
 
 	return environs.StartInstanceParams{
 		Constraints:       provisioningInfo.Constraints,
@@ -522,6 +558,7 @@ func constructStartInstanceParams(
 		Placement:         provisioningInfo.Placement,
 		DistributionGroup: machine.DistributionGroup,
 		Volumes:           volumes,
+		Filesystems:       filesystems,
 	}, nil
 }
 

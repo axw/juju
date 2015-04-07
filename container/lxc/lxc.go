@@ -327,6 +327,12 @@ func (manager *containerManager) CreateContainer(
 			return nil, nil, errors.Annotate(err, "failed to configure the container for loopback devices")
 		}
 	}
+	for hostDir, containerDir := range storageConfig.BindMounts {
+		logger.Debugf("mount host dir %q at %q", hostDir, containerDir)
+		if err := mountHostDir(name, containerDir, hostDir); err != nil {
+			return nil, nil, errors.Annotatef(err, "bind-mounting host directory %q", hostDir)
+		}
+	}
 	// Update the network settings inside the run-time config of the
 	// container (e.g. /var/lib/lxc/<name>/config) before starting it.
 	netConfig := generateNetworkConfig(networkConfig)
@@ -710,8 +716,8 @@ func reorderNetworkConfig(configFile string) (wasReordered bool, err error) {
 	return true, nil
 }
 
-func appendToContainerConfig(name, line string) error {
-	configPath := containerConfigFilename(name)
+func appendToContainerFile(name, filename, line string) error {
+	configPath := filepath.Join(LxcContainerDir, name, filename)
 	file, err := os.OpenFile(configPath, os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
 		return err
@@ -740,7 +746,7 @@ func autostartContainer(name string) error {
 		logger.Tracef("auto-restart link created")
 	} else {
 		logger.Tracef("Setting auto start to true in lxc config.")
-		return appendToContainerConfig(name, "lxc.start.auto = 1\n")
+		return appendToContainerFile(name, "config", "lxc.start.auto = 1\n")
 	}
 	return nil
 }
@@ -757,10 +763,14 @@ func mountHostLogDir(name, logDir string) error {
 		logger.Errorf("failed to create internal /var/log/juju mount dir: %v", err)
 		return err
 	}
-	line := fmt.Sprintf(
-		"lxc.mount.entry = %s var/log/juju none defaults,bind 0 0\n",
-		logDir)
-	return appendToContainerConfig(name, line)
+	line := fmt.Sprintf("lxc.mount.entry = %s var/log/juju none defaults,bind 0 0\n", logDir)
+	return appendToContainerFile(name, "config", line)
+}
+
+func mountHostDir(name, containerDir, hostDir string) error {
+	logger.Tracef("mount host directory %s inside the container at %s", hostDir, containerDir)
+	line := fmt.Sprintf("%s %s none bind,create=dir 0 0\n", hostDir, containerDir[1:])
+	return appendToContainerFile(name, "fstab", line)
 }
 
 func allowLoopbackBlockDevices(name string) error {
@@ -769,7 +779,7 @@ lxc.aa_profile = lxc-container-default-with-mounting
 lxc.cgroup.devices.allow = b 7:* rwm
 lxc.cgroup.devices.allow = c 10:237 rwm
 `
-	return appendToContainerConfig(name, allowLoopDevicesCfg)
+	return appendToContainerFile(name, "config", allowLoopDevicesCfg)
 }
 
 func (manager *containerManager) DestroyContainer(id instance.Id) error {

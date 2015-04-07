@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -30,7 +31,7 @@ import (
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/filestorage"
 	"github.com/juju/juju/environs/httpstorage"
-	"github.com/juju/juju/environs/storage"
+	envstorage "github.com/juju/juju/environs/storage"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/juju/arch"
 	"github.com/juju/juju/juju/osenv"
@@ -40,6 +41,7 @@ import (
 	"github.com/juju/juju/service"
 	servicecommon "github.com/juju/juju/service/common"
 	"github.com/juju/juju/state/multiwatcher"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 	"github.com/juju/juju/worker/terminationworker"
@@ -59,7 +61,7 @@ type localEnviron struct {
 	config           *environConfig
 	name             string
 	bridgeAddress    string
-	localStorage     storage.Storage
+	localStorage     envstorage.Storage
 	storageListener  net.Listener
 	containerManager container.Manager
 }
@@ -367,8 +369,6 @@ func (env *localEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	logger.Debugf("StartInstance: %q, %s", args.MachineConfig.MachineId, series)
 	args.MachineConfig.Tools = args.Tools[0]
 
-	logger.Debugf("filesystems: %v", args.Filesystems)
-
 	args.MachineConfig.MachineContainerType = env.config.container()
 	logger.Debugf("tools: %#v", args.MachineConfig.Tools)
 	if err := environs.FinishMachineConfig(args.MachineConfig, env.config.Config); err != nil {
@@ -379,30 +379,65 @@ func (env *localEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	// This limitation is why the constraints are assigned directly here.
 	args.MachineConfig.Constraints = args.Constraints
 	args.MachineConfig.AgentEnvironment[agent.Namespace] = env.config.namespace()
-	inst, hardware, err := createContainer(env, args)
-	if err != nil {
-		return nil, err
-	}
-	return &environs.StartInstanceResult{
-		Instance: inst,
-		Hardware: hardware,
-	}, nil
+	return createContainer(env, args)
 }
 
 // Override for testing.
-var createContainer = func(env *localEnviron, args environs.StartInstanceParams) (instance.Instance, *instance.HardwareCharacteristics, error) {
+var createContainer = func(env *localEnviron, args environs.StartInstanceParams) (*environs.StartInstanceResult, error) {
 	series := args.Tools.OneSeries()
 	network := container.BridgeNetworkConfig(env.config.networkBridge(), args.NetworkInfo)
 	allowLoopMounts, _ := env.config.AllowLXCLoopMounts()
 	isLXC := env.config.container() == instance.LXC
-	storage := &container.StorageConfig{
+
+	storageConfig := &container.StorageConfig{
 		AllowMount: !isLXC || allowLoopMounts,
+		BindMounts: make(map[string]string),
 	}
-	inst, hardware, err := env.containerManager.CreateContainer(args.MachineConfig, series, network, storage)
+
+	// TODO(axw) make bindmount dir configurable?
+	storageDir := filepath.Join(env.config.storageDir())
+	var filesystems []storage.Filesystem
+	var filesystemAttachments []storage.FilesystemAttachment
+	for _, f := range args.Filesystems {
+		if f.Provider != localStorageProviderType {
+			continue
+		}
+		source := filepath.Join(storageDir, f.Tag.String())
+		if err := os.MkdirAll(source, 0755); err != nil {
+			return nil, errors.Annotate(err, "creating bindmount source")
+		}
+		target := f.Attachment.Path
+		if target == "" {
+			// TODO(axw) this should be set by worker/provisioner.
+			target = path.Join("/var/lib/juju/storage", f.Tag.String())
+		}
+		storageConfig.BindMounts[source] = target
+		filesystem := storage.Filesystem{
+			Tag:          f.Tag,
+			FilesystemId: f.Tag.Id(),
+			Size:         f.Size,
+		}
+		filesystemAttachment := storage.FilesystemAttachment{
+			Filesystem: f.Tag,
+			Machine:    f.Attachment.Machine,
+			Path:       target,
+		}
+		filesystems = append(filesystems, filesystem)
+		filesystemAttachments = append(filesystemAttachments, filesystemAttachment)
+	}
+
+	inst, hardware, err := env.containerManager.CreateContainer(
+		args.MachineConfig, series, network, storageConfig,
+	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return inst, hardware, nil
+	return &environs.StartInstanceResult{
+		Instance:              inst,
+		Hardware:              hardware,
+		Filesystems:           filesystems,
+		FilesystemAttachments: filesystemAttachments,
+	}, nil
 }
 
 // StopInstances is specified in the InstanceBroker interface.
@@ -464,7 +499,7 @@ func (env *localEnviron) AllInstances() (instances []instance.Instance, err erro
 }
 
 // Storage is specified in the Environ interface.
-func (env *localEnviron) Storage() storage.Storage {
+func (env *localEnviron) Storage() envstorage.Storage {
 	// localStorage is non-nil if we're running from the CLI
 	if env.localStorage != nil {
 		return env.localStorage

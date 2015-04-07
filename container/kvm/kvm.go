@@ -116,6 +116,10 @@ func (manager *containerManager) CreateContainer(
 	// disk.
 	kvmContainer := KvmObjectFactory.New(name)
 
+	if len(storageConfig.BindMounts) != 0 {
+		return nil, nil, errors.New("kvm does not support bind mounts")
+	}
+
 	// Create the cloud-init.
 	directory, err := container.NewDirectory(name)
 	if err != nil {

@@ -20,4 +20,8 @@ type StorageConfig struct {
 	// AllowMount is true is the container is required to allow
 	// mounting block devices.
 	AllowMount bool
+
+	// BindMounts is a mapping from host to container paths, which
+	// must be bind-mounted.
+	BindMounts map[string]string
 }

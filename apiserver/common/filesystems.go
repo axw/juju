@@ -107,6 +107,20 @@ func FilesystemFromState(f state.Filesystem) (params.Filesystem, error) {
 	return result, nil
 }
 
+// FilesystemAttachmentsToState converts a slice of storage.FilesystemAttachment to a
+// mapping of filesystem tags to state.FilesystemAttachmentInfo.
+func FilesystemAttachmentsToState(in []params.FilesystemAttachment) (map[names.FilesystemTag]state.FilesystemAttachmentInfo, error) {
+	m := make(map[names.FilesystemTag]state.FilesystemAttachmentInfo)
+	for _, f := range in {
+		_, filesystemTag, info, err := FilesystemAttachmentToState(f)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		m[filesystemTag] = info
+	}
+	return m, nil
+}
+
 // FilesystemAttachmentToState converts a storage.FilesystemAttachment
 // to a state.FilesystemAttachmentInfo.
 func FilesystemAttachmentToState(in params.FilesystemAttachment) (names.MachineTag, names.FilesystemTag, state.FilesystemAttachmentInfo, error) {

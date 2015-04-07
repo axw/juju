@@ -184,18 +184,21 @@ func (m *Machine) SetInstanceInfo(
 	id instance.Id, nonce string, characteristics *instance.HardwareCharacteristics,
 	networks []params.Network, interfaces []params.NetworkInterface, volumes []params.Volume,
 	volumeAttachments []params.VolumeAttachment,
+	filesystems []params.Filesystem, filesystemAttachments []params.FilesystemAttachment,
 ) error {
 	var result params.ErrorResults
 	args := params.InstancesInfo{
 		Machines: []params.InstanceInfo{{
-			Tag:               m.tag.String(),
-			InstanceId:        id,
-			Nonce:             nonce,
-			Characteristics:   characteristics,
-			Networks:          networks,
-			Interfaces:        interfaces,
-			Volumes:           volumes,
-			VolumeAttachments: volumeAttachments,
+			Tag:                   m.tag.String(),
+			InstanceId:            id,
+			Nonce:                 nonce,
+			Characteristics:       characteristics,
+			Networks:              networks,
+			Interfaces:            interfaces,
+			Volumes:               volumes,
+			VolumeAttachments:     volumeAttachments,
+			Filesystems:           filesystems,
+			FilesystemAttachments: filesystemAttachments,
 		}},
 	}
 	err := m.st.facade.FacadeCall("SetInstanceInfo", args, &result)

@@ -323,7 +323,9 @@ type InstanceInfo struct {
 	// TODO(axw) we should return map[names.VolumeTag]VolumeAttachmentInfo
 	// here, containing only the information regarding the attachment.
 	// The rest can be inferred from the context.
-	VolumeAttachments []VolumeAttachment
+	VolumeAttachments     []VolumeAttachment
+	Filesystems           []Filesystem
+	FilesystemAttachments []FilesystemAttachment
 }
 
 // InstancesInfo holds the parameters for making a SetInstanceInfo

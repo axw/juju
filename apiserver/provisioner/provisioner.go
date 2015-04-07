@@ -610,7 +610,6 @@ func (p *ProvisionerAPI) machineFilesystemParams(m *state.Machine) ([]params.Fil
 			filesystemTag.String(),
 			m.Tag().String(),
 			"", // we're creating the machine, so it has no instance ID.
-			"", // filesystem not created yet, so has no filesystem ID.
 			filesystemParams.Provider,
 			filesystemAttachmentParams.Location,
 		}
@@ -790,9 +789,19 @@ func (p *ProvisionerAPI) SetInstanceInfo(args params.InstancesInfo) (params.Erro
 		if err != nil {
 			return err
 		}
+		filesystems, err := common.FilesystemsToState(arg.Filesystems)
+		if err != nil {
+			return err
+		}
+		filesystemAttachments, err := common.FilesystemAttachmentsToState(arg.FilesystemAttachments)
+		if err != nil {
+			return err
+		}
 		if err = machine.SetInstanceInfo(
 			arg.InstanceId, arg.Nonce, arg.Characteristics,
-			networks, interfaces, volumes, volumeAttachments); err != nil {
+			networks, interfaces, volumes, volumeAttachments,
+			filesystems, filesystemAttachments,
+		); err != nil {
 			return errors.Annotatef(
 				err,
 				"cannot record provisioning info for %q",

@@ -83,6 +83,9 @@ type StartInstanceResult struct {
 	// VolumeAttachments contains a attachment-specific information about
 	// volumes that were attached to the started instance.
 	VolumeAttachments []storage.VolumeAttachment
+
+	Filesystems           []storage.Filesystem
+	FilesystemAttachments []storage.FilesystemAttachment
 }
 
 // TODO(wallyworld) - we want this in the environs/instance package but import loops

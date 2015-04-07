@@ -567,3 +567,28 @@ func setFilesystemAttachmentInfoOps(
 		Update: update,
 	}}
 }
+
+// setProvisionedFilesystemInfo sets the initial info for newly
+// provisioned filesystems.
+func setProvisionedFilesystemInfo(st *State, filesystems map[names.FilesystemTag]FilesystemInfo) error {
+	for filesystemTag, info := range filesystems {
+		if err := st.SetFilesystemInfo(filesystemTag, info); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+// setMachineFilesystemAttachmentInfo sets the filesystem attachment
+// info for the specified machine. Each filesystem attachment info
+// structure is keyed by the name of the filesystem it corresponds
+// to.
+func setMachineFilesystemAttachmentInfo(st *State, machineId string, attachments map[names.FilesystemTag]FilesystemAttachmentInfo) error {
+	machineTag := names.NewMachineTag(machineId)
+	for filesystemTag, info := range attachments {
+		if err := st.SetFilesystemAttachmentInfo(machineTag, filesystemTag, info); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}

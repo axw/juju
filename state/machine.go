@@ -909,6 +909,8 @@ func (m *Machine) SetInstanceInfo(
 	networks []NetworkInfo, interfaces []NetworkInterfaceInfo,
 	volumes map[names.VolumeTag]VolumeInfo,
 	volumeAttachments map[names.VolumeTag]VolumeAttachmentInfo,
+	filesystems map[names.FilesystemTag]FilesystemInfo,
+	filesystemAttachments map[names.FilesystemTag]FilesystemAttachmentInfo,
 ) error {
 
 	// Add the networks and interfaces first.
@@ -934,6 +936,12 @@ func (m *Machine) SetInstanceInfo(
 		return errors.Trace(err)
 	}
 	if err := setMachineVolumeAttachmentInfo(m.st, m.Id(), volumeAttachments); err != nil {
+		return errors.Trace(err)
+	}
+	if err := setProvisionedFilesystemInfo(m.st, filesystems); err != nil {
+		return errors.Trace(err)
+	}
+	if err := setMachineFilesystemAttachmentInfo(m.st, m.Id(), filesystemAttachments); err != nil {
 		return errors.Trace(err)
 	}
 	return m.SetProvisioned(id, nonce, characteristics)

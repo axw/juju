@@ -482,6 +482,9 @@ func createFilesystems(ctx *context, params []storage.FilesystemParams) ([]stora
 	for _, params := range params {
 		sourceName := string(params.Provider)
 		filesystemSource := filesystemSources[sourceName]
+		if filesystemSource == nil {
+			continue
+		}
 		err := filesystemSource.ValidateFilesystemParams(params)
 		if err != nil {
 			// TODO(axw) we should set an error status for params.Tag
@@ -641,6 +644,7 @@ func filesystemParamsFromParams(in params.FilesystemParams) (storage.FilesystemP
 		in.Size,
 		providerType,
 		in.Attributes,
+		nil, // TODO(axw) attachment?
 	}, nil
 }
 

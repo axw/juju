@@ -539,15 +539,13 @@ func constructStartInstanceParams(
 			f.Size,
 			storage.ProviderType(f.Provider),
 			f.Attributes,
-			/*
-				&storage.FilesystemAttachmentParams{
-					AttachmentParams: storage.AttachmentParams{
-						Machine: machineTag,
-					},
-					Filesystem: filesystemTag,
-					Path:       f.Attachment.MountPoint,
+			&storage.FilesystemAttachmentParams{
+				AttachmentParams: storage.AttachmentParams{
+					Machine: machineTag,
 				},
-			*/
+				Filesystem: filesystemTag,
+				Path:       f.Attachment.MountPoint,
+			},
 		}
 	}
 
@@ -675,19 +673,26 @@ func (task *provisionerTask) startMachine(
 	}
 	volumes := volumesToApiserver(result.Volumes)
 	volumeAttachments := volumeAttachmentsToApiserver(result.VolumeAttachments)
+	filesystems := filesystemsToApiserver(result.Filesystems)
+	filesystemAttachments := filesystemAttachmentsToApiserver(result.FilesystemAttachments)
 
 	// TODO(dimitern) In a newer Provisioner API version, change
 	// SetInstanceInfo or add a new method that takes and saves in
 	// state all the information available on a network.InterfaceInfo
 	// for each interface, so we can later manage interfaces
 	// dynamically at run-time.
-	err = machine.SetInstanceInfo(inst.Id(), nonce, hardware, networks, ifaces, volumes, volumeAttachments)
+	err = machine.SetInstanceInfo(
+		inst.Id(), nonce, hardware, networks, ifaces, volumes,
+		volumeAttachments, filesystems, filesystemAttachments,
+	)
 	if err != nil && params.IsCodeNotImplemented(err) {
 		return fmt.Errorf("cannot provision instance %v for machine %q with networks: not implemented", inst.Id(), machine)
 	} else if err == nil {
 		logger.Infof(
-			"started machine %s as instance %s with hardware %q, networks %v, interfaces %v, volumes %v, volume attachments %v",
-			machine, inst.Id(), hardware, networks, ifaces, volumes, volumeAttachments,
+			"started machine %s as instance %s with hardware %q, networks %v, interfaces %v, "+
+				"volumes %v, volume attachments %v, filesystems %v, filesystem attachments %v",
+			machine, inst.Id(), hardware, networks, ifaces, volumes,
+			volumeAttachments, filesystems, filesystemAttachments,
 		)
 		return nil
 	}
@@ -748,6 +753,31 @@ func volumeAttachmentsToApiserver(attachments []storage.VolumeAttachment) []para
 			a.Machine.String(),
 			a.DeviceName,
 			a.ReadOnly,
+		}
+	}
+	return result
+}
+
+func filesystemsToApiserver(filesystems []storage.Filesystem) []params.Filesystem {
+	result := make([]params.Filesystem, len(filesystems))
+	for i, f := range filesystems {
+		result[i] = params.Filesystem{
+			f.Tag.String(),
+			f.Volume.String(),
+			f.FilesystemId,
+			f.Size,
+		}
+	}
+	return result
+}
+
+func filesystemAttachmentsToApiserver(attachments []storage.FilesystemAttachment) []params.FilesystemAttachment {
+	result := make([]params.FilesystemAttachment, len(attachments))
+	for i, a := range attachments {
+		result[i] = params.FilesystemAttachment{
+			a.Filesystem.String(),
+			a.Machine.String(),
+			a.Path,
 		}
 	}
 	return result

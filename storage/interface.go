@@ -235,6 +235,8 @@ type FilesystemParams struct {
 	// Attributes is a set of provider-specific options for storage creation,
 	// as defined in a storage pool.
 	Attributes map[string]interface{}
+
+	Attachment *FilesystemAttachmentParams
 }
 
 // FilesystemAttachmentParams is a set of parameters for filesystem attachment

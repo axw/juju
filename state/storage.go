@@ -190,21 +190,31 @@ func (st *State) storageInstance(tag names.StorageTag) (*storageInstance, error)
 	return &s, nil
 }
 
+// StorageInstances lists all storage instances owned by the specified entity.
+func (st *State) StorageInstances(owner names.Tag) ([]StorageInstance, error) {
+	return st.storageInstances(bson.D{{"owner", owner.String()}})
+}
+
 // AllStorageInstances lists all storage instances currently in state
 // for this Juju environment.
-func (st *State) AllStorageInstances() (storageInstances []StorageInstance, err error) {
+func (st *State) AllStorageInstances() ([]StorageInstance, error) {
+	return st.storageInstances(nil)
+}
+
+func (st *State) storageInstances(query bson.D) ([]StorageInstance, error) {
 	storageCollection, closer := st.getCollection(storageInstancesC)
 	defer closer()
 
 	sdocs := []storageInstanceDoc{}
-	err = storageCollection.Find(nil).All(&sdocs)
+	err := storageCollection.Find(nil).All(&sdocs)
 	if err != nil {
-		return nil, errors.Annotate(err, "cannot get all storage instances")
+		return nil, errors.Annotate(err, "getting storage instances")
 	}
-	for _, doc := range sdocs {
-		storageInstances = append(storageInstances, &storageInstance{st, doc})
+	storageInstances := make([]StorageInstance, len(sdocs))
+	for i, doc := range sdocs {
+		storageInstances[i] = &storageInstance{st, doc}
 	}
-	return
+	return storageInstances, nil
 }
 
 // DestroyStorageInstance ensures that the storage instance and all its
@@ -302,11 +312,18 @@ func createStorageOps(
 		cons        StorageConstraints
 	}
 
-	createdShared := false
+	createShared := false
+	var service names.ServiceTag
 	switch entity := entity.(type) {
 	case names.ServiceTag:
-		createdShared = true
+		createShared = true
+		service = entity
 	case names.UnitTag:
+		unitService, err := names.UnitService(entity.Id())
+		if err != nil {
+			return nil, -1, errors.Annotate(err, "getting unit service name")
+		}
+		service = names.NewServiceTag(unitService)
 	default:
 		return nil, -1, errors.Errorf("expected service or unit tag, got %T", entity)
 	}
@@ -324,7 +341,7 @@ func createStorageOps(
 		if !ok {
 			return nil, -1, errors.NotFoundf("charm storage %q", store)
 		}
-		if createdShared != charmStorage.Shared {
+		if createShared != charmStorage.Shared {
 			// services only get shared storage instances,
 			// units only get non-shared storage instances.
 			continue
@@ -365,6 +382,29 @@ func createStorageOps(
 				storage := names.NewStorageTag(id)
 				ops = append(ops, createStorageAttachmentOp(storage, unit))
 				numStorageAttachments++
+			} else {
+				switch kind {
+				case StorageKindBlock:
+					volumeOp, _, err := st.addVolumeOp(VolumeParams{
+						names.NewStorageTag(id),
+						t.cons.Pool,
+						t.cons.Size,
+					}, "")
+					if err != nil {
+						return nil, -1, errors.Annotate(err, "creating shared volume ops")
+					}
+					ops = append(ops, volumeOp)
+				case StorageKindFilesystem:
+					filesystemOps, _, _, err := st.addFilesystemOps(FilesystemParams{
+						names.NewStorageTag(id),
+						t.cons.Pool,
+						t.cons.Size,
+					}, "")
+					if err != nil {
+						return nil, -1, errors.Annotate(err, "creating shared filesystem ops")
+					}
+					ops = append(ops, filesystemOps...)
+				}
 			}
 			ops = append(ops, txn.Op{
 				C:      storageInstancesC,
@@ -375,9 +415,25 @@ func createStorageOps(
 		}
 	}
 
-	// TODO(axw) create storage attachments for each shared storage
-	// instance owned by the service.
-	//
+	if unit, ok := entity.(names.UnitTag); ok {
+		// Create attachments for each shared storage instance.
+		storageInstances, err := st.StorageInstances(service)
+		if err != nil {
+			return nil, -1, errors.Annotate(err, "getting shared storage instances")
+		}
+		for _, storageInstance := range storageInstances {
+			storage := storageInstance.StorageTag()
+			ops = append(ops, createStorageAttachmentOp(storage, unit))
+			ops = append(ops, txn.Op{
+				C:      storageInstancesC,
+				Id:     storage.Id(),
+				Assert: txn.DocExists,
+				Update: bson.D{{"$inc", bson.D{{"attachmentcount", 1}}}},
+			})
+			numStorageAttachments++
+		}
+	}
+
 	// TODO(axw) prevent creation of shared storage after service
 	// creation, because the only sane time to add storage attachments
 	// is when units are added to said service.
@@ -690,13 +746,15 @@ func validateStorageConstraints(st *State, allCons map[string]StorageConstraints
 		if !ok {
 			return errors.Errorf("charm %q has no store called %q", charmMeta.Name, name)
 		}
-		if charmStorage.Shared {
-			// TODO(axw) implement shared storage support.
-			return errors.Errorf(
-				"charm %q store %q: shared storage support not implemented",
-				charmMeta.Name, name,
-			)
-		}
+		/*
+			if charmStorage.Shared {
+				// TODO(axw) implement shared storage support.
+				return errors.Errorf(
+					"charm %q store %q: shared storage support not implemented",
+					charmMeta.Name, name,
+				)
+			}
+		*/
 		if cons.Count < uint64(charmStorage.CountMin) {
 			return errors.Errorf(
 				"charm %q store %q: %d instances required, %d specified",

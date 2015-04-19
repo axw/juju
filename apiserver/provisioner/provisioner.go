@@ -378,7 +378,7 @@ func (p *ProvisionerAPI) getProvisioningInfo(m *state.Machine) (*params.Provisio
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	filesystems, err := p.machineFilesystemParams(m)
+	filesystems, filesystemAttachments, err := p.machineFilesystemParams(m)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -397,13 +397,14 @@ func (p *ProvisionerAPI) getProvisioningInfo(m *state.Machine) (*params.Provisio
 		jobs = append(jobs, job.ToParams())
 	}
 	return &params.ProvisioningInfo{
-		Constraints: cons,
-		Series:      m.Series(),
-		Placement:   m.Placement(),
-		Networks:    networks,
-		Jobs:        jobs,
-		Volumes:     volumes,
-		Filesystems: filesystems,
+		Constraints:           cons,
+		Series:                m.Series(),
+		Placement:             m.Placement(),
+		Networks:              networks,
+		Jobs:                  jobs,
+		Volumes:               volumes,
+		Filesystems:           filesystems,
+		FilesystemAttachments: filesystemAttachments,
 	}, nil
 }
 
@@ -569,53 +570,75 @@ func (p *ProvisionerAPI) machineVolumeParams(m *state.Machine) ([]params.VolumeP
 // machineFilesystemParams retrieves FilesystemParams for the filesystems that should be
 // provisioned with, and attached to, the machine. The client should ignore
 // parameters that it does not know how to handle.
-func (p *ProvisionerAPI) machineFilesystemParams(m *state.Machine) ([]params.FilesystemParams, error) {
+func (p *ProvisionerAPI) machineFilesystemParams(m *state.Machine) (
+	[]params.FilesystemParams, []params.FilesystemAttachmentParams, error,
+) {
 	filesystemAttachments, err := p.st.MachineFilesystemAttachments(m.MachineTag())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(filesystemAttachments) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	poolManager := poolmanager.New(state.NewStateSettings(p.st))
 	allFilesystemParams := make([]params.FilesystemParams, 0, len(filesystemAttachments))
+	var allFilesystemAttachmentParams []params.FilesystemAttachmentParams
 	for _, filesystemAttachment := range filesystemAttachments {
 		filesystemTag := filesystemAttachment.Filesystem()
 		filesystem, err := p.st.Filesystem(filesystemTag)
 		if err != nil {
-			return nil, errors.Annotatef(err, "getting filesystem %q", filesystemTag.Id())
+			return nil, nil, errors.Annotatef(err, "getting filesystem %q", filesystemTag.Id())
 		}
 		filesystemAttachmentParams, ok := filesystemAttachment.Params()
 		if !ok {
-			// Already provisioned, so must be dynamic.
+			// Already provisioned.
 			continue
 		}
+		var providerName storage.ProviderType
+		var filesystemId string
 		filesystemParams, err := common.FilesystemParams(filesystem, poolManager)
-		if common.IsFilesystemAlreadyProvisioned(err) {
-			// Already provisioned, so must be dynamic.
-			continue
+		if err == nil {
+			// Filesystem is not provisioned yet.
+			providerName = storage.ProviderType(filesystemParams.Provider)
+		} else if common.IsFilesystemAlreadyProvisioned(err) {
+			// Already provisioned, so must be shared.
+			filesystemInfo, err := filesystem.Info()
+			if err != nil {
+				return nil, nil, errors.Annotatef(err, "getting filesystem %q info", filesystemTag.Id())
+			}
+			logger.Debugf("info: %+v", filesystemInfo)
+			providerName, _, err = common.StoragePoolConfig(filesystemInfo.Pool, poolManager)
+			if err != nil {
+				return nil, nil, errors.Annotatef(err, "getting filesystem %q provider", filesystemTag.Id())
+			}
+			filesystemId = filesystemInfo.FilesystemId
 		} else if err != nil {
-			return nil, errors.Annotatef(err, "getting filesystem %q parameters", filesystemTag.Id())
+			return nil, nil, errors.Annotatef(err, "getting filesystem %q parameters", filesystemTag.Id())
 		}
-		provider, err := registry.StorageProvider(storage.ProviderType(filesystemParams.Provider))
+		provider, err := registry.StorageProvider(storage.ProviderType(providerName))
 		if err != nil {
-			return nil, errors.Annotate(err, "getting storage provider")
+			return nil, nil, errors.Annotate(err, "getting storage provider")
 		}
 		if provider.Dynamic() {
 			// Leave dynamic storage to the storage provisioner.
 			continue
 		}
-		// Not provisioned yet, so ask the cloud provisioner do it.
-		filesystemParams.Attachment = &params.FilesystemAttachmentParams{
+		filesystemAttachment := params.FilesystemAttachmentParams{
 			filesystemTag.String(),
 			m.Tag().String(),
 			"", // we're creating the machine, so it has no instance ID.
-			filesystemParams.Provider,
+			filesystemId,
+			string(providerName),
 			filesystemAttachmentParams.Location,
 		}
-		allFilesystemParams = append(allFilesystemParams, filesystemParams)
+		if filesystemId != "" {
+			allFilesystemAttachmentParams = append(allFilesystemAttachmentParams, filesystemAttachment)
+		} else {
+			filesystemParams.Attachment = &filesystemAttachment
+			allFilesystemParams = append(allFilesystemParams, filesystemParams)
+		}
 	}
-	return allFilesystemParams, nil
+	return allFilesystemParams, allFilesystemAttachmentParams, nil
 }
 
 // storageConfig returns the provider type and config attributes for the

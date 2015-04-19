@@ -706,6 +706,7 @@ func (s *StorageProvisionerAPI) FilesystemAttachmentParams(
 			filesystemAttachment.Filesystem().String(),
 			filesystemAttachment.Machine().String(),
 			string(instanceId),
+			"", // filesystem ID
 			string(providerType),
 			// TODO(axw) dealias MountPoint. We now have
 			// Path, MountPoint and Location in different

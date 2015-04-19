@@ -498,6 +498,11 @@ func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate)
 			})
 		}
 	}
+	for filesystemTag, f := range template.FilesystemAttachments {
+		fsAttachments = append(fsAttachments, filesystemAttachmentTemplate{
+			filesystemTag, f,
+		})
+	}
 
 	// Create volumes and volume attachments.
 	for _, v := range template.Volumes {

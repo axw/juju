@@ -541,22 +541,49 @@ func constructStartInstanceParams(
 			f.Attributes,
 			&storage.FilesystemAttachmentParams{
 				AttachmentParams: storage.AttachmentParams{
-					Machine: machineTag,
+					Provider: storage.ProviderType(f.Provider),
+					Machine:  machineTag,
 				},
 				Filesystem: filesystemTag,
 				Path:       f.Attachment.MountPoint,
 			},
 		}
 	}
+	filesystemAttachments := make([]storage.FilesystemAttachmentParams, len(provisioningInfo.FilesystemAttachments))
+	for i, f := range provisioningInfo.FilesystemAttachments {
+		filesystemTag, err := names.ParseFilesystemTag(f.FilesystemTag)
+		if err != nil {
+			return environs.StartInstanceParams{}, errors.Trace(err)
+		}
+		machineTag, err := names.ParseMachineTag(f.MachineTag)
+		if err != nil {
+			return environs.StartInstanceParams{}, errors.Trace(err)
+		}
+		if machineTag != machine.Tag() {
+			return environs.StartInstanceParams{}, errors.Errorf("filesystem attachment params has invalid machine tag")
+		}
+		if f.InstanceId != "" {
+			return environs.StartInstanceParams{}, errors.Errorf("filesystem attachment params specifies instance ID")
+		}
+		filesystemAttachments[i] = storage.FilesystemAttachmentParams{
+			AttachmentParams: storage.AttachmentParams{
+				Provider: storage.ProviderType(f.Provider),
+				Machine:  machineTag,
+			},
+			Filesystem: filesystemTag,
+			Path:       f.MountPoint,
+		}
+	}
 
 	return environs.StartInstanceParams{
-		Constraints:       provisioningInfo.Constraints,
-		Tools:             possibleTools,
-		MachineConfig:     machineConfig,
-		Placement:         provisioningInfo.Placement,
-		DistributionGroup: machine.DistributionGroup,
-		Volumes:           volumes,
-		Filesystems:       filesystems,
+		Constraints:           provisioningInfo.Constraints,
+		Tools:                 possibleTools,
+		MachineConfig:         machineConfig,
+		Placement:             provisioningInfo.Placement,
+		DistributionGroup:     machine.DistributionGroup,
+		Volumes:               volumes,
+		Filesystems:           filesystems,
+		FilesystemAttachments: filesystemAttachments,
 	}, nil
 }
 

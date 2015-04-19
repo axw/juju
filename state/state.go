@@ -1258,6 +1258,11 @@ func (st *State) AddService(
 	if err := validateStorageConstraints(st, storage, ch.Meta()); err != nil {
 		return nil, errors.Trace(err)
 	}
+	storageOps, err := serviceStorageOps(st, name, ch, storage)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	serviceID := st.docID(name)
 	// Create the service addition operations.
 	peers := ch.Meta().Peers
@@ -1305,6 +1310,7 @@ func (st *State) AddService(
 		return nil, errors.Trace(err)
 	}
 	ops = append(ops, peerOps...)
+	ops = append(ops, storageOps...)
 
 	if err := st.runTransaction(ops); err == txn.ErrAborted {
 		err := env.Refresh()
@@ -1322,6 +1328,18 @@ func (st *State) AddService(
 		return nil, errors.Trace(err)
 	}
 	return svc, nil
+}
+
+// serviceStorageOps returns operations for creating shared
+// storage instances for a new service.
+func serviceStorageOps(st *State, serviceName string, ch *Charm, cons map[string]StorageConstraints) (ops []txn.Op, err error) {
+	meta := ch.Meta()
+	tag := names.NewServiceTag(serviceName)
+	ops, _, err = createStorageOps(st, tag, meta, cons)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return ops, nil
 }
 
 // AddIPAddress creates and returns a new IP address. It can return an

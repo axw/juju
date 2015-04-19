@@ -425,6 +425,27 @@ var createContainer = func(env *localEnviron, args environs.StartInstanceParams)
 		filesystems = append(filesystems, filesystem)
 		filesystemAttachments = append(filesystemAttachments, filesystemAttachment)
 	}
+	for _, f := range args.FilesystemAttachments {
+		if f.Provider != localStorageProviderType {
+			continue
+		}
+		source := filepath.Join(storageDir, f.Filesystem.String())
+		if err := os.MkdirAll(source, 0755); err != nil {
+			return nil, errors.Annotate(err, "creating bindmount source")
+		}
+		target := f.Path
+		if target == "" {
+			// TODO(axw) this should be set by worker/provisioner.
+			target = path.Join("/var/lib/juju/storage", f.Filesystem.String())
+		}
+		storageConfig.BindMounts[source] = target
+		filesystemAttachment := storage.FilesystemAttachment{
+			Filesystem: f.Filesystem,
+			Machine:    f.Machine,
+			Path:       target,
+		}
+		filesystemAttachments = append(filesystemAttachments, filesystemAttachment)
+	}
 
 	inst, hardware, err := env.containerManager.CreateContainer(
 		args.MachineConfig, series, network, storageConfig,

@@ -49,7 +49,6 @@ import (
 	"github.com/juju/juju/instance"
 	jujunames "github.com/juju/juju/juju/names"
 	"github.com/juju/juju/juju/paths"
-	"github.com/juju/juju/lease"
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/provider"
@@ -982,10 +981,12 @@ func (a *MachineAgent) StateWorker() (worker.Worker, error) {
 			a.startWorkerAfterUpgrade(runner, "restore", func() (worker.Worker, error) {
 				return a.newRestoreStateWatcherWorker(st)
 			})
-			a.startWorkerAfterUpgrade(runner, "lease manager", func() (worker.Worker, error) {
-				workerLoop := lease.WorkerLoop(st)
-				return worker.NewSimpleWorker(workerLoop), nil
-			})
+			/*
+				a.startWorkerAfterUpgrade(runner, "lease manager", func() (worker.Worker, error) {
+					workerLoop := lease.WorkerLoop(st)
+					return worker.NewSimpleWorker(workerLoop), nil
+				})
+			*/
 			certChangedChan := make(chan params.StateServingInfo, 1)
 			runner.StartWorker("apiserver", a.apiserverWorkerStarter(st, certChangedChan))
 			var stateServingSetter certupdater.StateServingInfoSetter = func(info params.StateServingInfo) error {

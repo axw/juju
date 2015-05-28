@@ -18,7 +18,6 @@ import (
 	leadershipapiserver "github.com/juju/juju/apiserver/leadership"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/leadership"
-	"github.com/juju/juju/lease"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/multiwatcher"
@@ -1585,7 +1584,7 @@ func leadershipSettingsAccessorFactory(
 		_, err = currentSettings.Write()
 		return errors.Annotate(err, "could not write changes")
 	}
-	ldrMgr := leadership.NewLeadershipManager(lease.Manager())
+	ldrMgr := leadership.NewLeadershipManager(st)
 	return leadershipapiserver.NewLeadershipSettingsAccessor(
 		auth,
 		registerWatcher,

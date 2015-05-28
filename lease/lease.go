@@ -6,6 +6,8 @@ package lease
 import (
 	"time"
 
+	"launchpad.net/tomb"
+
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 )
@@ -21,20 +23,10 @@ const (
 )
 
 var (
-	singleton           *leaseManager
 	LeaseClaimDeniedErr = errors.New("lease claim denied")
 	NotLeaseOwnerErr    = errors.Unauthorizedf("caller did not own lease for namespace")
 	logger              = loggo.GetLogger("juju.lease")
 )
-
-func init() {
-	singleton = &leaseManager{
-		claimLease:       make(chan claimLeaseMsg),
-		releaseLease:     make(chan releaseLeaseMsg),
-		leaseReleasedSub: make(chan leaseReleasedMsg),
-		copyOfTokens:     make(chan copyTokensMsg),
-	}
-}
 
 type leasePersistor interface {
 	WriteToken(string, Token) error
@@ -42,24 +34,33 @@ type leasePersistor interface {
 	PersistedTokens() ([]Token, error)
 }
 
-// WorkerLoop returns a function which can be utilized within a
-// worker.
-func WorkerLoop(persistor leasePersistor) func(<-chan struct{}) error {
-	singleton.leasePersistor = persistor
-	return singleton.workerLoop
+func NewManager(persistor leasePersistor, stop <-chan struct{}) *leaseManager {
+	m := &leaseManager{
+		leasePersistor:   persistor,
+		claimLease:       make(chan claimLeaseMsg),
+		releaseLease:     make(chan releaseLeaseMsg),
+		leaseReleasedSub: make(chan leaseReleasedMsg),
+		copyOfTokens:     make(chan copyTokensMsg),
+	}
+	go func() {
+		defer m.tomb.Done()
+		m.tomb.Kill(m.workerLoop(stop))
+	}()
+	return m
+}
+
+func (m *leaseManager) Kill() {
+	m.tomb.Kill(nil)
+}
+
+func (m *leaseManager) Wait() error {
+	return m.tomb.Wait()
 }
 
 // Token represents a lease claim.
 type Token struct {
 	Namespace, Id string
 	Expiration    time.Time
-}
-
-// Manager returns a manager.
-func Manager() *leaseManager {
-	// Guaranteed to be initialized because the init function runs
-	// first.
-	return singleton
 }
 
 //
@@ -83,8 +84,8 @@ type copyTokensMsg struct {
 }
 
 type leaseManager struct {
+	tomb             tomb.Tomb
 	leasePersistor   leasePersistor
-	retrieveLease    chan Token
 	claimLease       chan claimLeaseMsg
 	releaseLease     chan releaseLeaseMsg
 	leaseReleasedSub chan leaseReleasedMsg
@@ -95,8 +96,15 @@ type leaseManager struct {
 // by the manager.
 func (m *leaseManager) CopyOfLeaseTokens() []Token {
 	ch := make(chan []Token)
-	m.copyOfTokens <- copyTokensMsg{ch}
-	return <-ch
+	for {
+		select {
+		case <-m.tomb.Dying():
+			return nil
+		case m.copyOfTokens <- copyTokensMsg{ch}:
+		case result := <-ch:
+			return result
+		}
+	}
 }
 
 // RetrieveLease returns the lease token currently stored for the
@@ -120,15 +128,19 @@ func (m *leaseManager) ClaimLease(namespace, id string, forDur time.Duration) (l
 	ch := make(chan Token)
 	token := Token{namespace, id, time.Now().Add(forDur)}
 	message := claimLeaseMsg{token, ch}
-	m.claimLease <- message
-	activeClaim := <-ch
-
-	leaseOwnerId = activeClaim.Id
-	if id != leaseOwnerId {
-		err = LeaseClaimDeniedErr
+	for {
+		select {
+		case <-m.tomb.Dying():
+			return "", tomb.ErrDying
+		case m.claimLease <- message:
+		case activeClaim := <-ch:
+			leaseOwnerId = activeClaim.Id
+			if id != leaseOwnerId {
+				err = LeaseClaimDeniedErr
+			}
+			return leaseOwnerId, err
+		}
 	}
-
-	return leaseOwnerId, err
 }
 
 // ReleaseLease releases the lease held for namespace by id.
@@ -137,8 +149,15 @@ func (m *leaseManager) ReleaseLease(namespace, id string) (err error) {
 	ch := make(chan error)
 	token := Token{Namespace: namespace, Id: id}
 	message := releaseLeaseMsg{token, ch}
-	m.releaseLease <- message
-	err = <-ch
+	for {
+		select {
+		case <-m.tomb.Dying():
+			return tomb.ErrDying
+		case m.releaseLease <- message:
+		case err = <-ch:
+			break
+		}
+	}
 
 	if err != nil {
 		err = errors.Annotatef(err, `could not release lease for namespace %q, id %q`, namespace, id)
@@ -160,11 +179,15 @@ func (m *leaseManager) ReleaseLease(namespace, id string) (err error) {
 // notified of when a lease is released for namespace. This channel is
 // reusable, but will be closed if it does not respond within
 // "notificationTimeout".
-func (m *leaseManager) LeaseReleasedNotifier(namespace string) (notifier <-chan struct{}) {
+func (m *leaseManager) LeaseReleasedNotifier(namespace string) (notifier <-chan struct{}, err error) {
 	watcher := make(chan struct{})
-	m.leaseReleasedSub <- leaseReleasedMsg{watcher, namespace}
-
-	return watcher
+	select {
+	case <-m.tomb.Dying():
+		close(watcher)
+		return nil, tomb.ErrDying
+	case m.leaseReleasedSub <- leaseReleasedMsg{watcher, namespace}:
+	}
+	return watcher, nil
 }
 
 // workerLoop serializes all requests into a single thread.

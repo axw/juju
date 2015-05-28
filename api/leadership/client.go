@@ -67,7 +67,7 @@ func (c *client) ReleaseLeadership(serviceId, unitId string) error {
 }
 
 // BlockUntilLeadershipReleased implements LeadershipManager.
-func (c *client) BlockUntilLeadershipReleased(serviceId string) error {
+func (c *client) BlockUntilLeadershipReleased(serviceId string, _ <-chan struct{}) error {
 	const friendlyErrMsg = "error blocking on leadership release"
 	var result params.ErrorResult
 	err := c.FacadeCall("BlockUntilLeadershipReleased", names.NewServiceTag(serviceId), &result)

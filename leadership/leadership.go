@@ -6,6 +6,8 @@ package leadership
 import (
 	"time"
 
+	"launchpad.net/tomb"
+
 	"github.com/juju/errors"
 
 	"github.com/juju/juju/lease"
@@ -30,7 +32,11 @@ type Manager struct {
 // Leader returns whether or not the given unit id is currently the
 // leader for the given service ID.
 func (m *Manager) Leader(sid, uid string) bool {
-	tok := m.leaseMgr.RetrieveLease(leadershipNamespace(sid))
+	tok, err := m.leaseMgr.RetrieveLease(leadershipNamespace(sid))
+	if err != nil {
+		// FIXME
+		panic(err)
+	}
 	return tok.Id == uid
 }
 
@@ -55,10 +61,14 @@ func (m *Manager) ReleaseLeadership(sid, uid string) error {
 }
 
 // BlockUntilLeadershipReleased implements the LeadershipManager interface.
-func (m *Manager) BlockUntilLeadershipReleased(serviceId string) error {
+func (m *Manager) BlockUntilLeadershipReleased(serviceId string, abort <-chan struct{}) error {
 	notifier := m.leaseMgr.LeaseReleasedNotifier(leadershipNamespace(serviceId))
-	<-notifier
-	return nil
+	select {
+	case <-abort:
+		return tomb.ErrDying
+	case <-notifier:
+		return nil
+	}
 }
 
 func leadershipNamespace(serviceId string) string {

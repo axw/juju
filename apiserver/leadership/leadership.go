@@ -6,6 +6,8 @@ package leadership
 import (
 	"time"
 
+	"launchpad.net/tomb"
+
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
@@ -13,7 +15,6 @@ import (
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/leadership"
-	"github.com/juju/juju/lease"
 	"github.com/juju/juju/state"
 )
 
@@ -37,8 +38,8 @@ var (
 	// Begin injection-chain so we can instantiate leadership
 	// services. Exposed as variables so we can change the
 	// implementation for testing purposes.
-	leaseMgr  = lease.Manager()
-	leaderMgr = leadership.NewLeadershipManager(leaseMgr)
+	//leaseMgr  = lease.Manager()
+	//leaderMgr = leadership.NewLeadershipManager(leaseMgr)
 )
 
 func init() {
@@ -46,24 +47,9 @@ func init() {
 	common.RegisterStandardFacade(
 		FacadeName,
 		1,
-		NewLeadershipServiceFn(leaderMgr),
+		NewLeadershipService,
+		//NewLeadershipServiceFn(leaderMgr),
 	)
-}
-
-// NewLeadershipServiceFn returns a function which can construct a
-// LeadershipService when passed a state, resources, and authorizer.
-// This function signature conforms to Juju's required API server
-// signature.
-func NewLeadershipServiceFn(
-	leadershipMgr leadership.LeadershipManager,
-) func(*state.State, *common.Resources, common.Authorizer) (LeadershipService, error) {
-	return func(
-		state *state.State,
-		resources *common.Resources,
-		authorizer common.Authorizer,
-	) (LeadershipService, error) {
-		return NewLeadershipService(state, resources, authorizer, leadershipMgr)
-	}
 }
 
 // NewLeadershipService constructs a new LeadershipService.
@@ -71,16 +57,18 @@ func NewLeadershipService(
 	state *state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
-	leadershipMgr leadership.LeadershipManager,
 ) (LeadershipService, error) {
 
 	if !authorizer.AuthUnitAgent() {
 		return nil, common.ErrPerm
 	}
 
+	leadershipMgr := leadership.NewLeadershipManager(state)
+
 	return &leadershipService{
 		state:             state,
 		authorizer:        authorizer,
+		resources:         resources,
 		LeadershipManager: leadershipMgr,
 	}, nil
 }
@@ -90,6 +78,7 @@ func NewLeadershipService(
 type leadershipService struct {
 	state      *state.State
 	authorizer common.Authorizer
+	resources  *common.Resources
 	leadership.LeadershipManager
 }
 
@@ -165,10 +154,22 @@ func (m *leadershipService) BlockUntilLeadershipReleased(serviceTag names.Servic
 		return params.ErrorResult{Error: common.ServerError(common.ErrPerm)}, nil
 	}
 
-	if err := m.LeadershipManager.BlockUntilLeadershipReleased(serviceTag.Id()); err != nil {
+	r := &tombResource{}
+	m.resources.Register(r)
+
+	if err := m.LeadershipManager.BlockUntilLeadershipReleased(serviceTag.Id(), r.Dying()); err != nil {
 		return params.ErrorResult{Error: common.ServerError(err)}, nil
 	}
 	return params.ErrorResult{}, nil
+}
+
+type tombResource struct {
+	tomb.Tomb
+}
+
+func (r *tombResource) Stop() error {
+	r.Kill(nil)
+	return nil
 }
 
 // parseServiceAndUnitTags takes in string representations of service

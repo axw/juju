@@ -6,6 +6,7 @@ package state
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/juju/errors"
 	"github.com/juju/names"
@@ -261,7 +262,10 @@ func newState(session *mgo.Session, mongoInfo *mongo.MongoInfo, policy Policy) (
 			}
 		}
 	}()
-	st.LeasePersistor = NewLeasePersistor(leaseC, st.runTransaction, st.getCollection)
+	st.LeasePersistor = &LeasePersistor{
+		leaseC, st.runTransaction, st.run, st.getCollection, st.docID,
+		st.mongoInfo.Tag, map[names.Tag]time.Duration{st.mongoInfo.Tag: 0},
+	}
 
 	// Create DB indexes.
 	for _, item := range indexes {

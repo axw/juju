@@ -98,6 +98,7 @@ var multiEnvCollections = set.NewStrings(
 	unitsC,
 	volumesC,
 	volumeAttachmentsC,
+	leaseC,
 )
 
 func newStateCollection(coll *mgo.Collection, envUUID string) stateCollection {

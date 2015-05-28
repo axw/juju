@@ -16,6 +16,9 @@ import (
 var ErrClaimDenied = errors.New("leadership claim denied")
 
 type LeadershipManager interface {
+	// TODO
+	//Leader(sid, uid string) bool
+
 	// ClaimLeadership claims a leadership for the given serviceId and
 	// unitId. If successful, the leadership will persist for the supplied
 	// duration (or until released).
@@ -27,7 +30,7 @@ type LeadershipManager interface {
 
 	// BlockUntilLeadershipReleased blocks the caller until leadership is
 	// released for the given serviceId.
-	BlockUntilLeadershipReleased(serviceId string) (err error)
+	BlockUntilLeadershipReleased(serviceId string, abort <-chan struct{}) (err error)
 }
 
 type LeadershipLeaseManager interface {
@@ -43,11 +46,21 @@ type LeadershipLeaseManager interface {
 	// RetrieveLease retrieves the current lease token for a given
 	// namespace. This is not intended to be exposed to clients, and is
 	// only available within a server-process.
-	RetrieveLease(namespace string) lease.Token
+	RetrieveLease(namespace string) (lease.Token, error)
 
 	// LeaseReleasedNotifier returns a channel a caller can block on to be
 	// notified of when a lease is released for namespace. This channel is
 	// reusable, but will be closed if it does not respond within
 	// "notificationTimeout".
 	LeaseReleasedNotifier(namespace string) (notifier <-chan struct{})
+
+	//WatchLease(namespace string) NotifyWatcher
+}
+
+// NotifyWatcher will send events when something changes.
+// It does not send content for those changes.
+type NotifyWatcher interface {
+	Changes() <-chan struct{}
+	Stop() error
+	Err() error
 }

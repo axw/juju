@@ -495,6 +495,29 @@ func IsHasContainersError(err error) bool {
 	return ok
 }
 
+type HasMachineStorageError struct {
+	MachineId             string
+	VolumeAttachments     []VolumeAttachment
+	FilesystemAttachments []FilesystemAttachment
+}
+
+func (e *HasMachineStorageError) Error() string {
+	var volumes []string
+	var filesystems []string
+	for _, a := range e.VolumeAttachments {
+		volumes = append(volumes, a.Volume().Id())
+	}
+	for _, a := range e.FilesystemAttachments {
+		filesystems = append(filesystems, a.Filesystem().Id())
+	}
+	return fmt.Sprintf(
+		"machine %s has attachments to volumes %q and filesystems %q",
+		e.MachineId,
+		strings.Join(volumes, ","),
+		strings.Join(filesystems, ","),
+	)
+}
+
 // advanceLifecycle ensures that the machine's lifecycle is no earlier
 // than the supplied value. If the machine already has that lifecycle
 // value, or a later one, no changes will be made to remote state. If
@@ -538,6 +561,7 @@ func (original *Machine) advanceLifecycle(life Life) (err error) {
 			{{"principals", bson.D{{"$exists", false}}}},
 		},
 	}
+	cleanupOp := m.st.newCleanupOp(cleanupDyingMachine, m.doc.Id)
 	// multiple attempts: one with original data, one with refreshed data, and a final
 	// one intended to determine the cause of failure of the preceding attempt.
 	buildTxn := func(attempt int) ([]txn.Op, error) {
@@ -629,7 +653,7 @@ func (original *Machine) advanceLifecycle(life Life) (err error) {
 						{{"children", bson.D{{"$exists", false}}}},
 					}}},
 				}
-				return []txn.Op{op, containerCheck}, nil
+				return []txn.Op{op, containerCheck, cleanupOp}, nil
 			}
 		}
 		if len(m.doc.Principals) > 0 {
@@ -638,9 +662,26 @@ func (original *Machine) advanceLifecycle(life Life) (err error) {
 				UnitNames: m.doc.Principals,
 			}
 		}
+		if life == Dead {
+			volumeAttachments, err := m.st.MachineVolumeAttachments(m.MachineTag())
+			if err != nil {
+				return nil, err
+			}
+			filesystemAttachments, err := m.st.MachineFilesystemAttachments(m.MachineTag())
+			if err != nil {
+				return nil, err
+			}
+			if len(volumeAttachments)+len(filesystemAttachments) > 0 {
+				return nil, &HasMachineStorageError{
+					MachineId:             original.doc.Id,
+					VolumeAttachments:     volumeAttachments,
+					FilesystemAttachments: filesystemAttachments,
+				}
+			}
+		}
 		// Add the additional asserts needed for this transaction.
 		op.Assert = append(advanceAsserts, noUnits)
-		return []txn.Op{op}, nil
+		return []txn.Op{op, cleanupOp}, nil
 	}
 	if err = m.st.run(buildTxn); err == jujutxn.ErrExcessiveContention {
 		err = errors.Annotatef(err, "machine %s cannot advance lifecycle", m)

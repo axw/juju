@@ -623,3 +623,67 @@ func (a *API) AddToUnit(args params.StoragesAddParams) (params.ErrorResults, err
 	}
 	return params.ErrorResults{Results: result}, nil
 }
+
+func (a *API) DetachMachineStorage(args params.MachineStorageIds) (params.ErrorResults, error) {
+	// Check if changes are allowed and the operation may proceed.
+	blockChecker := common.NewBlockChecker(a.storage)
+	if err := blockChecker.ChangeAllowed(); err != nil {
+		return params.ErrorResults{}, errors.Trace(err)
+	}
+	results := params.ErrorResults{
+		Results: make([]params.ErrorResult, len(args.Ids)),
+	}
+	one := func(id params.MachineStorageId) error {
+		attachment, err := names.ParseTag(id.AttachmentTag)
+		if err != nil {
+			return err
+		}
+		var machineTag names.MachineTag
+		if id.MachineTag != "" {
+			machineTag, err = names.ParseMachineTag(id.MachineTag)
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+		switch attachment := attachment.(type) {
+		default:
+			return errors.Errorf("unexpected %q tag", attachment.Kind())
+		case names.VolumeTag:
+			if id.MachineTag == "" {
+				attachments, err := a.storage.VolumeAttachments(attachment)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if len(attachments) != 1 {
+					return errors.Errorf(
+						"%s does not have exactly one attachment: has %d",
+						names.ReadableString(attachment), len(attachments),
+					)
+				}
+				machineTag = attachments[0].Machine()
+			}
+			return a.storage.DetachVolume(machineTag, attachment)
+		case names.FilesystemTag:
+			if id.MachineTag == "" {
+				attachments, err := a.storage.FilesystemAttachments(attachment)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if len(attachments) != 1 {
+					return errors.Errorf(
+						"%s does not have exactly one attachment: has %d",
+						names.ReadableString(attachment), len(attachments),
+					)
+				}
+				machineTag = attachments[0].Machine()
+			}
+			return a.storage.DetachFilesystem(machineTag, attachment)
+		}
+	}
+	for i, id := range args.Ids {
+		if err := one(id); err != nil {
+			results.Results[i].Error = common.ServerError(err)
+		}
+	}
+	return results, nil
+}

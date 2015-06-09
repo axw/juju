@@ -215,9 +215,20 @@ func (lvs *loopVolumeSource) attachVolume(arg storage.VolumeAttachmentParams) (s
 }
 
 // DetachVolumes is defined on the VolumeSource interface.
-func (lvs *loopVolumeSource) DetachVolumes([]storage.VolumeAttachmentParams) error {
-	// TODO(axw)
-	return errors.NotSupportedf("detaching loop devices")
+func (lvs *loopVolumeSource) DetachVolumes(args []storage.VolumeAttachmentParams) error {
+	for _, arg := range args {
+		loopFilePath := lvs.volumeFilePath(arg.VolumeId)
+		loopDevices, err := associatedLoopDevices(lvs.run, loopFilePath)
+		if err != nil {
+			return errors.Annotatef(err, "finding loop devices for volume %s", arg.Volume.Id())
+		}
+		for _, loopDevice := range loopDevices {
+			if err := detachLoopDevice(lvs.run, loopDevice); err != nil {
+				return errors.Annotatef(err, "detaching volume %s", arg.Volume.Id())
+			}
+		}
+	}
+	return nil
 }
 
 // createBlockFile creates a file at the specified path, with the

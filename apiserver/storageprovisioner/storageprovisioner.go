@@ -475,6 +475,45 @@ func (s *StorageProvisionerAPI) VolumeAttachments(args params.MachineStorageIds)
 	return results, nil
 }
 
+// RemoveAttachment detaches the specified machine storage.
+func (s *StorageProvisionerAPI) RemoveAttachment(args params.MachineStorageIds) (params.ErrorResults, error) {
+	canAccess, err := s.getAttachmentAuthFunc()
+	if err != nil {
+		return params.ErrorResults{}, common.ServerError(common.ErrPerm)
+	}
+	results := params.ErrorResults{
+		Results: make([]params.ErrorResult, len(args.Ids)),
+	}
+	one := func(arg params.MachineStorageId) error {
+		machineTag, err := names.ParseMachineTag(arg.MachineTag)
+		if err != nil {
+			return err
+		}
+		attachment, err := names.ParseTag(arg.AttachmentTag)
+		if err != nil {
+			return err
+		}
+		if !canAccess(machineTag, attachment) {
+			return common.ErrPerm
+		}
+		switch attachment := attachment.(type) {
+		default:
+			// should be impossible, due to canAccess check.
+			return errors.Errorf("expected volume or filesystem attachment, got %q", attachment.Kind())
+		case names.VolumeTag:
+			return s.st.RemoveVolumeAttachment(machineTag, attachment)
+		case names.FilesystemTag:
+			return s.st.RemoveFilesystemAttachment(machineTag, attachment)
+		}
+	}
+	for i, arg := range args.Ids {
+		if err := one(arg); err != nil {
+			results.Results[i].Error = common.ServerError(err)
+		}
+	}
+	return results, nil
+}
+
 // VolumeBlockDevices returns details of the block devices corresponding to the
 // volume attachments with the specified IDs.
 func (s *StorageProvisionerAPI) VolumeBlockDevices(args params.MachineStorageIds) (params.BlockDeviceResults, error) {
@@ -599,6 +638,7 @@ func (s *StorageProvisionerAPI) VolumeParams(args params.Entities) (params.Volum
 			volumeParams.Attachment = &params.VolumeAttachmentParams{
 				tag.String(),
 				machineTag.String(),
+				"", // volumeID
 				string(instanceId),
 				volumeParams.Provider,
 				volumeAttachmentParams.ReadOnly,
@@ -702,6 +742,7 @@ func (s *StorageProvisionerAPI) VolumeAttachmentParams(
 		if err != nil {
 			return params.VolumeAttachmentParams{}, err
 		}
+		var volumeId string
 		var pool string
 		if volumeParams, ok := volume.Params(); ok {
 			pool = volumeParams.Pool
@@ -710,6 +751,7 @@ func (s *StorageProvisionerAPI) VolumeAttachmentParams(
 			if err != nil {
 				return params.VolumeAttachmentParams{}, err
 			}
+			volumeId = volumeInfo.VolumeId
 			pool = volumeInfo.Pool
 		}
 		providerType, _, err := common.StoragePoolConfig(pool, poolManager)
@@ -731,6 +773,7 @@ func (s *StorageProvisionerAPI) VolumeAttachmentParams(
 		return params.VolumeAttachmentParams{
 			volumeAttachment.Volume().String(),
 			volumeAttachment.Machine().String(),
+			volumeId,
 			string(instanceId),
 			string(providerType),
 			readOnly,

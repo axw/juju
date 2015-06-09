@@ -9,6 +9,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/names"
+	jujutxn "github.com/juju/txn"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mgo.v2/txn"
@@ -304,6 +305,48 @@ func (st *State) volumeAttachments(query bson.D) ([]VolumeAttachment, error) {
 		attachments[i] = &volumeAttachment{doc}
 	}
 	return attachments, nil
+}
+
+// DetachVolume marks the volume attachment identified by the specified machine
+// and volume tags as Dying, if it is Alive.
+func (st *State) DetachVolume(machine names.MachineTag, volume names.VolumeTag) (err error) {
+	defer errors.DeferredAnnotatef(&err, "detaching volume %s from machine %s", volume.Id(), machine.Id())
+	buildTxn := func(attempt int) ([]txn.Op, error) {
+		va, err := st.VolumeAttachment(machine, volume)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		if va.Life() != Alive {
+			return nil, jujutxn.ErrNoOperations
+		}
+		return []txn.Op{{
+			C:      volumeAttachmentsC,
+			Id:     volumeAttachmentId(machine.Id(), volume.Id()),
+			Assert: notDeadDoc,
+			Update: bson.D{{"$set", bson.D{{"life", Dying}}}},
+		}}, nil
+	}
+	return st.run(buildTxn)
+}
+
+// RemoveVolumeAttachment removes the volume attachment from state.
+func (st *State) RemoveVolumeAttachment(machine names.MachineTag, volume names.VolumeTag) (err error) {
+	defer errors.DeferredAnnotatef(&err, "removing attachment of volume %s from machine %s", volume.Id(), machine.Id())
+	buildTxn := func(attempt int) ([]txn.Op, error) {
+		_, err := st.VolumeAttachment(machine, volume)
+		if errors.IsNotFound(err) {
+			return nil, jujutxn.ErrNoOperations
+		} else if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return []txn.Op{{
+			C:      volumeAttachmentsC,
+			Id:     volumeAttachmentId(machine.Id(), volume.Id()),
+			Assert: txn.DocExists,
+			Remove: true,
+		}}, nil
+	}
+	return st.run(buildTxn)
 }
 
 // newVolumeName returns a unique volume name.

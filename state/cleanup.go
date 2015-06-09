@@ -22,6 +22,7 @@ const (
 	cleanupDyingUnit                   cleanupKind = "dyingUnit"
 	cleanupRemovedUnit                 cleanupKind = "removedUnit"
 	cleanupServicesForDyingEnvironment cleanupKind = "services"
+	cleanupDyingMachine                cleanupKind = "dyingMachine"
 	cleanupForceDestroyedMachine       cleanupKind = "machine"
 	cleanupAttachmentsForDyingStorage  cleanupKind = "storageAttachments"
 )
@@ -84,6 +85,8 @@ func (st *State) Cleanup() error {
 			err = st.cleanupRemovedUnit(doc.Prefix)
 		case cleanupServicesForDyingEnvironment:
 			err = st.cleanupServicesForDyingEnvironment()
+		case cleanupDyingMachine:
+			err = st.cleanupDyingMachine(doc.Prefix)
 		case cleanupForceDestroyedMachine:
 			err = st.cleanupForceDestroyedMachine(doc.Prefix)
 		case cleanupAttachmentsForDyingStorage:
@@ -243,6 +246,18 @@ func (st *State) cleanupRemovedUnit(unitId string) error {
 	return nil
 }
 
+// cleanupDyingMachine marks resources owned by the machine as dying, to ensure
+// they are cleaned up as well.
+func (st *State) cleanupDyingMachine(machineId string) error {
+	machine, err := st.Machine(machineId)
+	if errors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return cleanupDyingMachineResources(machine)
+}
+
 // cleanupForceDestroyedMachine systematically destroys and removes all entities
 // that depend upon the supplied machine, and removes the machine from state. It's
 // expected to be used in response to destroy-machine --force.
@@ -251,6 +266,9 @@ func (st *State) cleanupForceDestroyedMachine(machineId string) error {
 	if errors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
+		return err
+	}
+	if err := cleanupDyingMachineResources(machine); err != nil {
 		return err
 	}
 	// In an ideal world, we'd call machine.Destroy() here, and thus prevent
@@ -316,6 +334,38 @@ func (st *State) cleanupContainers(machine *Machine) error {
 		if err := container.Remove(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func cleanupDyingMachineResources(m *Machine) error {
+	volumeAttachments, err := m.st.MachineVolumeAttachments(m.MachineTag())
+	if err != nil {
+		return errors.Annotate(err, "getting machine volume attachments")
+	}
+	for _, va := range volumeAttachments {
+		if err := m.st.DetachVolume(va.Machine(), va.Volume()); err != nil {
+			if errors.IsNotFound(err) {
+				continue
+			}
+			return errors.Trace(err)
+		}
+		// When the machine is removed, machine-scoped volumes will be
+		// removed along with it.
+	}
+	filesystemAttachments, err := m.st.MachineFilesystemAttachments(m.MachineTag())
+	if err != nil {
+		return errors.Annotate(err, "getting machine filesystem attachments")
+	}
+	for _, fsa := range filesystemAttachments {
+		if err := m.st.DetachFilesystem(fsa.Machine(), fsa.Filesystem()); err != nil {
+			if errors.IsNotFound(err) {
+				continue
+			}
+			return errors.Trace(err)
+		}
+		// When the machine is removed, machine-scoped filesystems will be
+		// removed along with it.
 	}
 	return nil
 }

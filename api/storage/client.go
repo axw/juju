@@ -102,6 +102,19 @@ func (c *Client) ListVolumes(machines []string) ([]params.VolumeItem, error) {
 	return found.Results, nil
 }
 
+// DetachMachineStorage detaches machine storage. The storage IDs
+// may have the machine ID omitted, which will detach the storage
+// from its attached machine if it has only one; if there is more
+// than one, an error will be reported.
+func (c *Client) DetachMachineStorage(ids []params.MachineStorageId) (params.ErrorResults, error) {
+	args := params.MachineStorageIds{ids}
+	var results params.ErrorResults
+	if err := c.facade.FacadeCall("DetachMachineStorage", args, &results); err != nil {
+		return params.ErrorResults{}, errors.Trace(err)
+	}
+	return results, nil
+}
+
 // AddToUnit adds specified storage to desired units.
 func (c *Client) AddToUnit(storages []params.StorageAddParams) ([]params.ErrorResult, error) {
 	out := params.ErrorResults{}

@@ -215,6 +215,7 @@ type VolumeParams struct {
 type VolumeAttachmentParams struct {
 	VolumeTag  string `json:"volumetag"`
 	MachineTag string `json:"machinetag"`
+	VolumeId   string `json:"volumeid,omitempty"`
 	InstanceId string `json:"instanceid,omitempty"`
 	Provider   string `json:"provider"`
 	ReadOnly   bool   `json:"read-only,omitempty"`

@@ -47,6 +47,12 @@ type storageAccess interface {
 	// EnvName is required for pool functionality.
 	EnvName() (string, error)
 
+	// FilesystemAttachments is required for filesystem functionality.
+	FilesystemAttachments(names.FilesystemTag) ([]state.FilesystemAttachment, error)
+
+	// DetachFilesystem is required for filesystem functionality.
+	DetachFilesystem(names.MachineTag, names.FilesystemTag) error
+
 	// AllVolumes is required for volume functionality.
 	AllVolumes() ([]state.Volume, error)
 
@@ -55,6 +61,9 @@ type storageAccess interface {
 
 	// MachineVolumeAttachments is required for volume functionality.
 	MachineVolumeAttachments(machine names.MachineTag) ([]state.VolumeAttachment, error)
+
+	// DetachVolume is required for volume functionality.
+	DetachVolume(names.MachineTag, names.VolumeTag) error
 
 	// Volume is required for volume functionality.
 	Volume(tag names.VolumeTag) (state.Volume, error)

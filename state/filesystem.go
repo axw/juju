@@ -9,6 +9,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/names"
+	jujutxn "github.com/juju/txn"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mgo.v2/txn"
@@ -290,24 +291,84 @@ func (st *State) FilesystemAttachment(machine names.MachineTag, filesystem names
 	return &att, nil
 }
 
+// FilesystemAttachments returns all of the FilesystemAttachments for the
+// specified filesystem.
+func (st *State) FilesystemAttachments(filesystem names.FilesystemTag) ([]FilesystemAttachment, error) {
+	attachments, err := st.filesystemAttachments(bson.D{{"filesystemid", filesystem.Id()}})
+	if err != nil {
+		return nil, errors.Annotatef(err, "getting attachments for filesystem %q", filesystem.Id())
+	}
+	return attachments, nil
+}
+
 // MachineFilesystemAttachments returns all of the FilesystemAttachments for the
 // specified machine.
 func (st *State) MachineFilesystemAttachments(machine names.MachineTag) ([]FilesystemAttachment, error) {
+	attachments, err := st.filesystemAttachments(bson.D{{"machineid", machine.Id()}})
+	if err != nil {
+		return nil, errors.Annotatef(err, "getting filesystem attachments for machine %q", machine.Id())
+	}
+	return attachments, nil
+}
+
+func (st *State) filesystemAttachments(query bson.D) ([]FilesystemAttachment, error) {
 	coll, cleanup := st.getCollection(filesystemAttachmentsC)
 	defer cleanup()
 
 	var docs []filesystemAttachmentDoc
-	err := coll.Find(bson.D{{"machineid", machine.Id()}}).All(&docs)
+	err := coll.Find(query).All(&docs)
 	if err == mgo.ErrNotFound {
 		return nil, nil
 	} else if err != nil {
-		return nil, errors.Annotatef(err, "getting filesystem attachments for machine %q", machine.Id())
+		return nil, errors.Trace(err)
 	}
 	attachments := make([]FilesystemAttachment, len(docs))
 	for i, doc := range docs {
 		attachments[i] = &filesystemAttachment{doc}
 	}
 	return attachments, nil
+}
+
+// DetachFilesystem marks the filesystem attachment identified by the specified machine
+// and filesystem tags as Dying, if it is Alive.
+func (st *State) DetachFilesystem(machine names.MachineTag, filesystem names.FilesystemTag) (err error) {
+	defer errors.DeferredAnnotatef(&err, "detaching filesystem %s from machine %s", filesystem.Id(), machine.Id())
+	buildTxn := func(attempt int) ([]txn.Op, error) {
+		fsa, err := st.FilesystemAttachment(machine, filesystem)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		if fsa.Life() != Alive {
+			return nil, jujutxn.ErrNoOperations
+		}
+		return []txn.Op{{
+			C:      filesystemAttachmentsC,
+			Id:     filesystemAttachmentId(machine.Id(), filesystem.Id()),
+			Assert: notDeadDoc,
+			Update: bson.D{{"$set", bson.D{{"life", Dying}}}},
+		}}, nil
+	}
+	return st.run(buildTxn)
+}
+
+// RemoveFilesystemAttachment removes the filesystem attachment from state.
+func (st *State) RemoveFilesystemAttachment(machine names.MachineTag, filesystem names.FilesystemTag) (err error) {
+	defer errors.DeferredAnnotatef(&err, "removing attachment of filesystem %s from machine %s", filesystem.Id(), machine.Id())
+	buildTxn := func(attempt int) ([]txn.Op, error) {
+		_, err := st.FilesystemAttachment(machine, filesystem)
+		if errors.IsNotFound(err) {
+			return nil, jujutxn.ErrNoOperations
+		} else if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return []txn.Op{{
+			C:      filesystemAttachmentsC,
+			Id:     filesystemAttachmentId(machine.Id(), filesystem.Id()),
+			Assert: txn.DocExists,
+			Remove: true,
+		}}, nil
+	}
+	return st.run(buildTxn)
 }
 
 // filesystemAttachmentId returns a filesystem attachment document ID,

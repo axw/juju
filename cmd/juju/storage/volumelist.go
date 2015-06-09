@@ -49,7 +49,7 @@ func (c *VolumeListCommand) Info() *cmd.Info {
 
 // SetFlags implements Command.SetFlags.
 func (c *VolumeListCommand) SetFlags(f *gnuflag.FlagSet) {
-	c.StorageCommandBase.SetFlags(f)
+	c.VolumeCommandBase.SetFlags(f)
 
 	c.out.AddFlags(f, "tabular", map[string]cmd.Formatter{
 		"yaml":    cmd.FormatYaml,

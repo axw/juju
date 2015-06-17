@@ -93,6 +93,7 @@ func (s *managedFilesystemSource) createFilesystem(arg storage.FilesystemParams)
 		storage.FilesystemInfo{
 			arg.Tag.String(),
 			blockDevice.Size,
+			"", // pool is not set by the provisioner
 		},
 	}, nil
 }

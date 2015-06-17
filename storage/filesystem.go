@@ -26,6 +26,10 @@ type FilesystemInfo struct {
 
 	// Size is the size of the filesystem, in MiB.
 	Size uint64
+
+	// Pool is the name of the storage pool that the filesystem was
+	// created from.
+	Pool string
 }
 
 // FilesystemAttachment describes machine-specific filesystem attachment information,

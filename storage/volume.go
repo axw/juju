@@ -27,6 +27,10 @@ type VolumeInfo struct {
 	// Size is the size of the volume, in MiB.
 	Size uint64
 
+	// Pool is the name of the storage pool that the volume was
+	// created from.
+	Pool string
+
 	// Persistent reflects whether the volume is destroyed with the
 	// machine to which it is attached.
 	Persistent bool

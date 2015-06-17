@@ -25,7 +25,6 @@ func init() {
 // StorageProvisionerAPI provides access to the Provisioner API facade.
 type StorageProvisionerAPI struct {
 	*common.LifeGetter
-	*common.DeadEnsurer
 	*common.EnvironWatcher
 	*common.InstanceIdGetter
 
@@ -161,7 +160,6 @@ func NewStorageProvisionerAPI(st *state.State, resources *common.Resources, auth
 	settings := getSettingsManager(st)
 	return &StorageProvisionerAPI{
 		LifeGetter:       common.NewLifeGetter(stateInterface, lifeAuthFunc),
-		DeadEnsurer:      common.NewDeadEnsurer(stateInterface, getStorageEntityAuthFunc),
 		EnvironWatcher:   common.NewEnvironWatcher(stateInterface, resources, authorizer),
 		InstanceIdGetter: common.NewInstanceIdGetter(st, getMachineAuthFunc),
 
@@ -1090,6 +1088,133 @@ func (s *StorageProvisionerAPI) AttachmentLife(args params.MachineStorageIds) (p
 		} else {
 			results.Results[i].Life = life
 		}
+	}
+	return results, nil
+}
+
+// StoragePools returns the details of the named storage pools.
+func (s *StorageProvisionerAPI) StoragePools(args params.StoragePoolNames) (params.StoragePoolResults, error) {
+	results := params.StoragePoolResults{
+		Results: make([]params.StoragePoolResult, len(args.Names)),
+	}
+	poolManager := poolmanager.New(s.settings)
+	one := func(name string) (params.StoragePool, error) {
+		providerType, cfg, err := common.StoragePoolConfig(name, poolManager)
+		if err != nil {
+			return params.StoragePool{}, errors.Trace(err)
+		}
+		return params.StoragePool{name, string(providerType), cfg.Attrs()}, nil
+	}
+	for i, name := range args.Names {
+		var result params.StoragePoolResult
+		pool, err := one(name)
+		if err != nil {
+			result.Error = common.ServerError(err)
+		} else {
+			result.Result = pool
+		}
+		results.Results[i] = result
+	}
+	return results, nil
+}
+
+// VolumeDependents returns the identities of dependents of volumes with the
+// specified tags.
+func (s *StorageProvisionerAPI) VolumeDependents(args params.Entities) (params.VolumeDependentsResults, error) {
+	canAccess, err := s.getStorageEntityAuthFunc()
+	if err != nil {
+		return params.VolumeDependentsResults{}, common.ServerError(common.ErrPerm)
+	}
+	results := params.VolumeDependentsResults{
+		Results: make([]params.VolumeDependentsResult, len(args.Entities)),
+	}
+	one := func(arg params.Entity) (params.VolumeDependents, error) {
+		var dependents params.VolumeDependents
+		tag, err := names.ParseVolumeTag(arg.Tag)
+		if err != nil {
+			return dependents, errors.Trace(err)
+		}
+		if !canAccess(tag) {
+			return dependents, common.ErrPerm
+		}
+
+		attachments, err := s.st.VolumeAttachments(tag)
+		if err != nil {
+			return dependents, errors.Trace(err)
+		}
+		dependents.Attachments = make([]params.MachineStorageId, len(attachments))
+		for i, a := range attachments {
+			dependents.Attachments[i] = params.MachineStorageId{
+				MachineTag:    a.Machine().String(),
+				AttachmentTag: a.Volume().String(),
+			}
+		}
+
+		filesystem, err := s.st.VolumeFilesystem(tag)
+		if err == nil {
+			dependents.FilesystemTag = filesystem.FilesystemTag().String()
+		} else if !errors.IsNotFound(err) {
+			return dependents, errors.Trace(err)
+		}
+
+		return dependents, nil
+	}
+	for i, arg := range args.Entities {
+		var result params.VolumeDependentsResult
+		dependents, err := one(arg)
+		if err != nil {
+			result.Error = common.ServerError(err)
+		} else {
+			result.Result = dependents
+		}
+		results.Results[i] = result
+	}
+	return results, nil
+}
+
+// FilesystemDependents returns the identities of dependents of filesystems with the
+// specified tags.
+func (s *StorageProvisionerAPI) FilesystemDependents(args params.Entities) (params.FilesystemDependentsResults, error) {
+	canAccess, err := s.getStorageEntityAuthFunc()
+	if err != nil {
+		return params.FilesystemDependentsResults{}, common.ServerError(common.ErrPerm)
+	}
+	results := params.FilesystemDependentsResults{
+		Results: make([]params.FilesystemDependentsResult, len(args.Entities)),
+	}
+	one := func(arg params.Entity) (params.FilesystemDependents, error) {
+		var dependents params.FilesystemDependents
+		tag, err := names.ParseFilesystemTag(arg.Tag)
+		if err != nil {
+			return dependents, errors.Trace(err)
+		}
+		if !canAccess(tag) {
+			return dependents, common.ErrPerm
+		}
+
+		attachments, err := s.st.FilesystemAttachments(tag)
+		if err != nil {
+			return dependents, errors.Trace(err)
+		}
+		dependents.Attachments = make([]params.MachineStorageId, len(attachments))
+		for i, a := range attachments {
+			dependents.Attachments[i] = params.MachineStorageId{
+				MachineTag:    a.Machine().String(),
+				AttachmentTag: a.Filesystem().String(),
+			}
+		}
+
+		return dependents, nil
+	}
+	for i, arg := range args.Entities {
+		var result params.FilesystemDependentsResult
+		dependents, err := one(arg)
+		if err != nil {
+			result.Error = common.ServerError(err)
+		} else {
+			result.Result = dependents
+		}
+		results.Results[i] = result
 	}
 	return results, nil
 }

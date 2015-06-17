@@ -188,6 +188,7 @@ func (s *provisionerSuite) TestVolumesMachine(c *gc.C) {
 					VolumeId:   "abc",
 					HardwareId: "123",
 					Size:       1024,
+					Pool:       "machinescoped",
 					Persistent: true,
 				},
 			}},
@@ -219,6 +220,7 @@ func (s *provisionerSuite) TestVolumesEnviron(c *gc.C) {
 				Info: params.VolumeInfo{
 					VolumeId:   "def",
 					HardwareId: "456",
+					Pool:       "environscoped",
 					Size:       4096,
 				},
 			}},
@@ -254,6 +256,7 @@ func (s *provisionerSuite) TestFilesystems(c *gc.C) {
 				FilesystemTag: "filesystem-2",
 				Info: params.FilesystemInfo{
 					FilesystemId: "def",
+					Pool:         "environscoped",
 					Size:         4096,
 				},
 			}},
@@ -1010,21 +1013,6 @@ func (s *provisionerSuite) TestAttachmentLife(c *gc.C) {
 			{Life: params.Alive},
 			{Life: params.Alive},
 			{Error: &params.Error{"permission denied", "unauthorized access"}},
-		},
-	})
-}
-
-func (s *provisionerSuite) TestEnsureDead(c *gc.C) {
-	s.setupVolumes(c)
-	args := params.Entities{Entities: []params.Entity{{"volume-0-0"}, {"volume-1"}, {"volume-42"}}}
-	result, err := s.api.EnsureDead(args)
-	c.Assert(err, jc.ErrorIsNil)
-	// TODO(wallyworld) - this test will be updated when EnsureDead is supported
-	c.Assert(result, gc.DeepEquals, params.ErrorResults{
-		Results: []params.ErrorResult{
-			{Error: common.ServerError(common.NotSupportedError(names.NewVolumeTag("0/0"), "ensuring death"))},
-			{Error: common.ServerError(common.NotSupportedError(names.NewVolumeTag("1"), "ensuring death"))},
-			{Error: common.ServerError(errors.NotFoundf(`volume "42"`))},
 		},
 	})
 }

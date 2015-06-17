@@ -110,6 +110,7 @@ func FilesystemFromState(f state.Filesystem) (params.Filesystem, error) {
 		params.FilesystemInfo{
 			info.FilesystemId,
 			info.Size,
+			info.Pool,
 		},
 	}
 	volumeTag, err := f.Volume()

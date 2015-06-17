@@ -174,6 +174,7 @@ type VolumeInfo struct {
 	HardwareId string `json:"hardwareid,omitempty"`
 	// Size is the size of the volume in MiB.
 	Size       uint64 `json:"size"`
+	Pool       string `json:"pool"`
 	Persistent bool   `json:"persistent"`
 }
 
@@ -281,6 +282,24 @@ type VolumeAttachmentParamsResults struct {
 	Results []VolumeAttachmentParamsResult `json:"results,omitempty"`
 }
 
+// VolumeDependents describes a set of dependents of a volume. This is
+// used to gate the destruction of volumes.
+type VolumeDependents struct {
+	Attachments   []MachineStorageId `json:"attachments,omitempty"`
+	FilesystemTag string             `json:"filesystemtag,omitempty"`
+}
+
+// VolumeDependentsResult holds the dependents of a volume.
+type VolumeDependentsResult struct {
+	Result VolumeDependents `json:"result"`
+	Error  *Error           `json:"error,omitempty"`
+}
+
+// VolumeDependentsResults holds the dependents of a set of volumes.
+type VolumeDependentsResults struct {
+	Results []VolumeDependentsResult `json:"results,omitempty"`
+}
+
 // Filesystem identifies and describes a storage filesystem in the environment.
 type Filesystem struct {
 	FilesystemTag string         `json:"filesystemtag"`
@@ -293,6 +312,7 @@ type FilesystemInfo struct {
 	FilesystemId string `json:"filesystemid"`
 	// Size is the size of the filesystem in MiB.
 	Size uint64 `json:"size"`
+	Pool string `json:"pool"`
 }
 
 // Filesystems describes a set of storage filesystems in the environment.
@@ -388,6 +408,23 @@ type FilesystemAttachmentParamsResults struct {
 	Results []FilesystemAttachmentParamsResult `json:"results,omitempty"`
 }
 
+// FilesystemDependents describes a set of dependents of a filesystem. This is
+// used to gate the destruction of volumes.
+type FilesystemDependents struct {
+	Attachments []MachineStorageId `json:"attachments,omitempty"`
+}
+
+// FilesystemDependentsResult holds the dependents of a filesystem.
+type FilesystemDependentsResult struct {
+	Result FilesystemDependents `json:"result"`
+	Error  *Error               `json:"error,omitempty"`
+}
+
+// FilesystemDependentsResults holds the dependents of a set of filesystems.
+type FilesystemDependentsResults struct {
+	Results []FilesystemDependentsResult `json:"results,omitempty"`
+}
+
 // StorageDetails holds information about storage.
 type StorageDetails struct {
 
@@ -458,6 +495,22 @@ type StoragePoolFilter struct {
 
 	// Providers are pool's storage provider types to filter on.
 	Providers []string `json:"providers,omitempty"`
+}
+
+// StoragePoolResult holds a StoragePool.
+type StoragePoolResult struct {
+	Result StoragePool `json:"storagepool"`
+	Error  *Error      `json:"error,omitempty"`
+}
+
+// StoragePoolResults holds multiple StoragePools.
+type StoragePoolResults struct {
+	Results []StoragePoolResult `json:"storagepools,omitempty"`
+}
+
+// StoragePoolNames holds a set of storage pool names.
+type StoragePoolNames struct {
+	Names []string `json:"names,omitempty"`
 }
 
 // StoragePoolsResult holds a collection of pool instances.

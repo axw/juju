@@ -127,6 +127,7 @@ func VolumeFromState(v state.Volume) (params.Volume, error) {
 			info.VolumeId,
 			info.HardwareId,
 			info.Size,
+			info.Pool,
 			info.Persistent,
 		},
 	}, nil

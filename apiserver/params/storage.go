@@ -174,6 +174,7 @@ type VolumeInfo struct {
 	HardwareId string `json:"hardwareid,omitempty"`
 	// Size is the size of the volume in MiB.
 	Size       uint64 `json:"size"`
+	Pool       string `json:"pool"`
 	Persistent bool   `json:"persistent"`
 }
 
@@ -293,6 +294,7 @@ type FilesystemInfo struct {
 	FilesystemId string `json:"filesystemid"`
 	// Size is the size of the filesystem in MiB.
 	Size uint64 `json:"size"`
+	Pool string `json:"pool"`
 }
 
 // Filesystems describes a set of storage filesystems in the environment.
@@ -458,6 +460,22 @@ type StoragePoolFilter struct {
 
 	// Providers are pool's storage provider types to filter on.
 	Providers []string `json:"providers,omitempty"`
+}
+
+// StoragePoolResult holds a StoragePool.
+type StoragePoolResult struct {
+	Result StoragePool `json:"storagepool"`
+	Error  *Error      `json:"error,omitempty"`
+}
+
+// StoragePoolResults holds multiple StoragePools.
+type StoragePoolResults struct {
+	Results []StoragePoolResult `json:"storagepools,omitempty"`
+}
+
+// StoragePoolNames holds a set of storage pool names.
+type StoragePoolNames struct {
+	Names []string `json:"names,omitempty"`
 }
 
 // StoragePoolsResult holds a collection of pool instances.

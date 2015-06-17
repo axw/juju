@@ -21,6 +21,7 @@ import (
 	"github.com/juju/juju/state"
 	statetesting "github.com/juju/juju/state/testing"
 	"github.com/juju/juju/storage"
+	"github.com/juju/juju/storage/poolmanager"
 	"github.com/juju/juju/storage/provider/dummy"
 	"github.com/juju/juju/storage/provider/registry"
 	"github.com/juju/juju/testing"
@@ -188,6 +189,7 @@ func (s *provisionerSuite) TestVolumesMachine(c *gc.C) {
 					VolumeId:   "abc",
 					HardwareId: "123",
 					Size:       1024,
+					Pool:       "machinescoped",
 					Persistent: true,
 				},
 			}},
@@ -219,6 +221,7 @@ func (s *provisionerSuite) TestVolumesEnviron(c *gc.C) {
 				Info: params.VolumeInfo{
 					VolumeId:   "def",
 					HardwareId: "456",
+					Pool:       "environscoped",
 					Size:       4096,
 				},
 			}},
@@ -254,6 +257,7 @@ func (s *provisionerSuite) TestFilesystems(c *gc.C) {
 				FilesystemTag: "filesystem-2",
 				Info: params.FilesystemInfo{
 					FilesystemId: "def",
+					Pool:         "environscoped",
 					Size:         4096,
 				},
 			}},
@@ -1014,21 +1018,6 @@ func (s *provisionerSuite) TestAttachmentLife(c *gc.C) {
 	})
 }
 
-func (s *provisionerSuite) TestEnsureDead(c *gc.C) {
-	s.setupVolumes(c)
-	args := params.Entities{Entities: []params.Entity{{"volume-0-0"}, {"volume-1"}, {"volume-42"}}}
-	result, err := s.api.EnsureDead(args)
-	c.Assert(err, jc.ErrorIsNil)
-	// TODO(wallyworld) - this test will be updated when EnsureDead is supported
-	c.Assert(result, gc.DeepEquals, params.ErrorResults{
-		Results: []params.ErrorResult{
-			{Error: common.ServerError(common.NotSupportedError(names.NewVolumeTag("0/0"), "ensuring death"))},
-			{Error: common.ServerError(common.NotSupportedError(names.NewVolumeTag("1"), "ensuring death"))},
-			{Error: common.ServerError(errors.NotFoundf(`volume "42"`))},
-		},
-	})
-}
-
 func (s *provisionerSuite) TestWatchForEnvironConfigChanges(c *gc.C) {
 	result, err := s.api.WatchForEnvironConfigChanges()
 	c.Assert(err, jc.ErrorIsNil)
@@ -1058,6 +1047,73 @@ func (s *provisionerSuite) TestEnvironConfig(c *gc.C) {
 	result, err := s.api.EnvironConfig()
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(result.Config, jc.DeepEquals, params.EnvironConfig(stateEnvironConfig.AllAttrs()))
+}
+
+func (s *provisionerSuite) TestStoragePoolsMachineAgent(c *gc.C) {
+	s.authorizer.EnvironManager = false
+	results := s.assertStoragePools(c)
+	c.Assert(results, jc.DeepEquals, []params.StoragePoolResult{{
+		Result: params.StoragePool{
+			Name:     "machinescoped",
+			Provider: "machinescoped",
+			Attrs:    nil,
+		},
+	}, {
+		Result: params.StoragePool{
+			Name:     "machinescoped-pool",
+			Provider: "machinescoped",
+			Attrs:    map[string]interface{}{"def": 456},
+		},
+	}, {
+		Error: &params.Error{"permission denied", "unauthorized access"},
+	}, {
+		Error: &params.Error{"permission denied", "unauthorized access"},
+	}})
+}
+
+func (s *provisionerSuite) TestStoragePoolsEnvironManager(c *gc.C) {
+	s.authorizer.EnvironManager = true
+	results := s.assertStoragePools(c)
+	c.Assert(results, jc.DeepEquals, []params.StoragePoolResult{{
+		Error: &params.Error{"permission denied", "unauthorized access"},
+	}, {
+		Error: &params.Error{"permission denied", "unauthorized access"},
+	}, {
+		Result: params.StoragePool{
+			Name:     "environscoped",
+			Provider: "environscoped",
+			Attrs:    nil,
+		},
+	}, {
+		Result: params.StoragePool{
+			Name:     "environscoped-pool",
+			Provider: "environscoped",
+			Attrs:    map[string]interface{}{"abc": 123},
+		},
+	}})
+}
+
+func (s *provisionerSuite) assertStoragePools(c *gc.C) []params.StoragePoolResult {
+	pm := poolmanager.New(state.NewStateSettings(s.State))
+	_, err := pm.Create("environscoped-pool", "environscoped", map[string]interface{}{
+		"abc": 123,
+	})
+	c.Assert(err, jc.ErrorIsNil)
+	_, err = pm.Create("machinescoped-pool", "machinescoped", map[string]interface{}{
+		"def": 456,
+	})
+	c.Assert(err, jc.ErrorIsNil)
+
+	result, err := s.api.StoragePools(params.StoragePoolNames{
+		Names: []string{
+			"machinescoped",
+			"machinescoped-pool",
+			"environscoped",
+			"environscoped-pool",
+		},
+	})
+	c.Assert(err, jc.ErrorIsNil)
+	return result.Results
 }
 
 type byMachineAndEntity []params.MachineStorageId

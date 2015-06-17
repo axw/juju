@@ -726,6 +726,7 @@ func volumesToApiserver(volumes []storage.Volume) []params.Volume {
 				v.VolumeId,
 				v.HardwareId,
 				v.Size,
+				v.Pool,
 				v.Persistent,
 			},
 		}

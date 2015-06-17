@@ -14,6 +14,7 @@ import (
 	"github.com/juju/juju/state/watcher"
 	"github.com/juju/juju/storage"
 	"github.com/juju/juju/storage/poolmanager"
+	"github.com/juju/juju/storage/provider/registry"
 )
 
 var logger = loggo.GetLogger("juju.apiserver.storageprovisioner")
@@ -25,19 +26,19 @@ func init() {
 // StorageProvisionerAPI provides access to the Provisioner API facade.
 type StorageProvisionerAPI struct {
 	*common.LifeGetter
-	*common.DeadEnsurer
 	*common.EnvironWatcher
 	*common.InstanceIdGetter
 
-	st                       provisionerState
-	settings                 poolmanager.SettingsManager
-	resources                *common.Resources
-	authorizer               common.Authorizer
-	getScopeAuthFunc         common.GetAuthFunc
-	getStorageEntityAuthFunc common.GetAuthFunc
-	getMachineAuthFunc       common.GetAuthFunc
-	getBlockDevicesAuthFunc  common.GetAuthFunc
-	getAttachmentAuthFunc    func() (func(names.MachineTag, names.Tag) bool, error)
+	st                         provisionerState
+	settings                   poolmanager.SettingsManager
+	resources                  *common.Resources
+	authorizer                 common.Authorizer
+	getScopeAuthFunc           common.GetAuthFunc
+	getStorageEntityAuthFunc   common.GetAuthFunc
+	getMachineAuthFunc         common.GetAuthFunc
+	getBlockDevicesAuthFunc    common.GetAuthFunc
+	getAttachmentAuthFunc      func() (func(names.MachineTag, names.Tag) bool, error)
+	getStorageProviderAuthFunc func() (func(storage.ProviderType) bool, error)
 }
 
 var getState = func(st *state.State) provisionerState {
@@ -141,6 +142,23 @@ func NewStorageProvisionerAPI(st *state.State, resources *common.Resources, auth
 			return !hasMachineScope || machineScope == authorizer.GetAuthTag()
 		}, nil
 	}
+	getStorageProviderAuthFunc := func() (func(storage.ProviderType) bool, error) {
+		// getAttachmentAuthFunc returns a function that validates
+		// access by the authenticated user to a storage provider.
+		return func(providerType storage.ProviderType) bool {
+			// Machine agents can access machine-scoped storage
+			// providers. Environment managers can access environ-
+			// scoped storage providers.
+			provider, err := registry.StorageProvider(providerType)
+			if err != nil {
+				return false
+			}
+			if authorizer.AuthEnvironManager() {
+				return provider.Scope() == storage.ScopeEnviron
+			}
+			return provider.Scope() == storage.ScopeMachine
+		}, nil
+	}
 	getMachineAuthFunc := func() (common.AuthFunc, error) {
 		return func(tag names.Tag) bool {
 			if tag, ok := tag.(names.MachineTag); ok {
@@ -161,19 +179,19 @@ func NewStorageProvisionerAPI(st *state.State, resources *common.Resources, auth
 	settings := getSettingsManager(st)
 	return &StorageProvisionerAPI{
 		LifeGetter:       common.NewLifeGetter(stateInterface, lifeAuthFunc),
-		DeadEnsurer:      common.NewDeadEnsurer(stateInterface, getStorageEntityAuthFunc),
 		EnvironWatcher:   common.NewEnvironWatcher(stateInterface, resources, authorizer),
 		InstanceIdGetter: common.NewInstanceIdGetter(st, getMachineAuthFunc),
 
-		st:                       stateInterface,
-		settings:                 settings,
-		resources:                resources,
-		authorizer:               authorizer,
-		getScopeAuthFunc:         getScopeAuthFunc,
-		getStorageEntityAuthFunc: getStorageEntityAuthFunc,
-		getAttachmentAuthFunc:    getAttachmentAuthFunc,
-		getMachineAuthFunc:       getMachineAuthFunc,
-		getBlockDevicesAuthFunc:  getBlockDevicesAuthFunc,
+		st:                         stateInterface,
+		settings:                   settings,
+		resources:                  resources,
+		authorizer:                 authorizer,
+		getScopeAuthFunc:           getScopeAuthFunc,
+		getStorageEntityAuthFunc:   getStorageEntityAuthFunc,
+		getAttachmentAuthFunc:      getAttachmentAuthFunc,
+		getStorageProviderAuthFunc: getStorageProviderAuthFunc,
+		getMachineAuthFunc:         getMachineAuthFunc,
+		getBlockDevicesAuthFunc:    getBlockDevicesAuthFunc,
 	}, nil
 }
 
@@ -1090,6 +1108,39 @@ func (s *StorageProvisionerAPI) AttachmentLife(args params.MachineStorageIds) (p
 		} else {
 			results.Results[i].Life = life
 		}
+	}
+	return results, nil
+}
+
+// StoragePools returns the details of the named storage pools.
+func (s *StorageProvisionerAPI) StoragePools(args params.StoragePoolNames) (params.StoragePoolResults, error) {
+	canAccessStorageProvider, err := s.getStorageProviderAuthFunc()
+	if err != nil {
+		return params.StoragePoolResults{}, err
+	}
+	results := params.StoragePoolResults{
+		Results: make([]params.StoragePoolResult, len(args.Names)),
+	}
+	poolManager := poolmanager.New(s.settings)
+	one := func(name string) (params.StoragePool, error) {
+		providerType, cfg, err := common.StoragePoolConfig(name, poolManager)
+		if err != nil {
+			return params.StoragePool{}, errors.Trace(err)
+		}
+		if !canAccessStorageProvider(providerType) {
+			return params.StoragePool{}, common.ErrPerm
+		}
+		return params.StoragePool{name, string(providerType), cfg.Attrs()}, nil
+	}
+	for i, name := range args.Names {
+		var result params.StoragePoolResult
+		pool, err := one(name)
+		if err != nil {
+			result.Error = common.ServerError(err)
+		} else {
+			result.Result = pool
+		}
+		results.Results[i] = result
 	}
 	return results, nil
 }

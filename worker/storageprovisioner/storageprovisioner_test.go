@@ -62,6 +62,7 @@ func (s *storageProvisionerSuite) TestStartStop(c *gc.C) {
 		&mockLifecycleManager{},
 		newMockEnvironAccessor(c),
 		newMockMachineAccessor(c),
+		newMockPoolAccessor(),
 	)
 	worker.Kill()
 	c.Assert(worker.Wait(), gc.IsNil)
@@ -75,6 +76,7 @@ func (s *storageProvisionerSuite) TestVolumeAdded(c *gc.C) {
 			HardwareId: "serial-1",
 			Size:       1024,
 			Persistent: true,
+			Pool:       "ebs",
 		},
 	}, {
 		VolumeTag: "volume-2",
@@ -82,6 +84,7 @@ func (s *storageProvisionerSuite) TestVolumeAdded(c *gc.C) {
 			VolumeId:   "id-2",
 			HardwareId: "serial-2",
 			Size:       1024,
+			Pool:       "ebs",
 		},
 	}}
 	expectedVolumeAttachments := []params.VolumeAttachment{{
@@ -218,6 +221,8 @@ func (s *storageProvisionerSuite) TestVolumeNonDynamic(c *gc.C) {
 }
 
 func (s *storageProvisionerSuite) TestVolumeAttachmentAdded(c *gc.C) {
+	provisionedVolume := names.NewVolumeTag("1")
+
 	// We should get two volume attachments:
 	//   - volume-1 to machine-1, because the volume and
 	//     machine are provisioned, but the attachment is not.
@@ -226,14 +231,14 @@ func (s *storageProvisionerSuite) TestVolumeAttachmentAdded(c *gc.C) {
 	//     in a previous session, so a reattachment is
 	//     requested.
 	expectedVolumeAttachments := []params.VolumeAttachment{{
-		VolumeTag:  "volume-1",
+		VolumeTag:  provisionedVolume.String(),
 		MachineTag: "machine-1",
 		Info: params.VolumeAttachmentInfo{
 			DeviceName: "/dev/sda1",
 			ReadOnly:   true,
 		},
 	}, {
-		VolumeTag:  "volume-1",
+		VolumeTag:  provisionedVolume.String(),
 		MachineTag: "machine-0",
 		Info: params.VolumeAttachmentInfo{
 			DeviceName: "/dev/sda1",
@@ -251,12 +256,7 @@ func (s *storageProvisionerSuite) TestVolumeAttachmentAdded(c *gc.C) {
 	}
 
 	// volume-1, machine-0, and machine-1 are provisioned.
-	volumeAccessor.provisionedVolumes["volume-1"] = params.Volume{
-		VolumeTag: "volume-1",
-		Info: params.VolumeInfo{
-			VolumeId: "vol-123",
-		},
-	}
+	volumeAccessor.provisionVolume(provisionedVolume)
 	volumeAccessor.provisionedMachines["machine-0"] = instance.Id("already-provisioned-0")
 	volumeAccessor.provisionedMachines["machine-1"] = instance.Id("already-provisioned-1")
 
@@ -264,11 +264,11 @@ func (s *storageProvisionerSuite) TestVolumeAttachmentAdded(c *gc.C) {
 	// We should see a reattachment.
 	alreadyAttached := params.MachineStorageId{
 		MachineTag:    "machine-0",
-		AttachmentTag: "volume-1",
+		AttachmentTag: provisionedVolume.String(),
 	}
 	volumeAccessor.provisionedAttachments[alreadyAttached] = params.VolumeAttachment{
-		MachineTag: "machine-0",
-		VolumeTag:  "volume-1",
+		MachineTag: alreadyAttached.MachineTag,
+		VolumeTag:  alreadyAttached.AttachmentTag,
 	}
 
 	args := &workerArgs{volumes: volumeAccessor}
@@ -277,16 +277,16 @@ func (s *storageProvisionerSuite) TestVolumeAttachmentAdded(c *gc.C) {
 	defer worker.Kill()
 
 	volumeAccessor.attachmentsWatcher.changes <- []params.MachineStorageId{{
-		MachineTag: "machine-1", AttachmentTag: "volume-1",
+		MachineTag: "machine-1", AttachmentTag: provisionedVolume.String(),
 	}, {
 		MachineTag: "machine-1", AttachmentTag: "volume-2",
 	}, {
-		MachineTag: "machine-2", AttachmentTag: "volume-1",
+		MachineTag: "machine-2", AttachmentTag: provisionedVolume.String(),
 	}, {
-		MachineTag: "machine-0", AttachmentTag: "volume-1",
+		MachineTag: "machine-0", AttachmentTag: provisionedVolume.String(),
 	}}
 	assertNoEvent(c, volumeAttachmentInfoSet, "volume attachment info set")
-	volumeAccessor.volumesWatcher.changes <- []string{"1"}
+	volumeAccessor.volumesWatcher.changes <- []string{provisionedVolume.Id()}
 	args.environ.watcher.changes <- struct{}{}
 	waitChannel(c, volumeAttachmentInfoSet, "waiting for volume attachments to be set")
 	c.Assert(allVolumeAttachments, jc.SameContents, expectedVolumeAttachments)
@@ -297,6 +297,8 @@ func (s *storageProvisionerSuite) TestVolumeAttachmentAdded(c *gc.C) {
 }
 
 func (s *storageProvisionerSuite) TestFilesystemAttachmentAdded(c *gc.C) {
+	provisionedFilesystem := names.NewFilesystemTag("1")
+
 	// We should only get a single filesystem attachment, because it is the
 	// only combination where both machine and filesystem are already
 	// provisioned, and the attachmenti s not.
@@ -307,16 +309,16 @@ func (s *storageProvisionerSuite) TestFilesystemAttachmentAdded(c *gc.C) {
 	//     machine, and attachment are provisioned, but in a
 	//     previous session, so a reattachment is requested.
 	expectedFilesystemAttachments := []params.FilesystemAttachment{{
-		FilesystemTag: "filesystem-1",
+		FilesystemTag: provisionedFilesystem.String(),
 		MachineTag:    "machine-1",
 		Info: params.FilesystemAttachmentInfo{
-			MountPoint: "/srv/fs-123",
+			MountPoint: "/srv/fs-1",
 		},
 	}, {
-		FilesystemTag: "filesystem-1",
+		FilesystemTag: provisionedFilesystem.String(),
 		MachineTag:    "machine-0",
 		Info: params.FilesystemAttachmentInfo{
-			MountPoint: "/srv/fs-123",
+			MountPoint: "/srv/fs-1",
 		},
 	}}
 
@@ -330,12 +332,7 @@ func (s *storageProvisionerSuite) TestFilesystemAttachmentAdded(c *gc.C) {
 	}
 
 	// filesystem-1 and machine-1 are provisioned.
-	filesystemAccessor.provisionedFilesystems["filesystem-1"] = params.Filesystem{
-		FilesystemTag: "filesystem-1",
-		Info: params.FilesystemInfo{
-			FilesystemId: "fs-123",
-		},
-	}
+	filesystemAccessor.provisionFilesystem(provisionedFilesystem)
 	filesystemAccessor.provisionedMachines["machine-0"] = instance.Id("already-provisioned-0")
 	filesystemAccessor.provisionedMachines["machine-1"] = instance.Id("already-provisioned-1")
 
@@ -343,11 +340,11 @@ func (s *storageProvisionerSuite) TestFilesystemAttachmentAdded(c *gc.C) {
 	// We should see a reattachment.
 	alreadyAttached := params.MachineStorageId{
 		MachineTag:    "machine-0",
-		AttachmentTag: "filesystem-1",
+		AttachmentTag: provisionedFilesystem.String(),
 	}
 	filesystemAccessor.provisionedAttachments[alreadyAttached] = params.FilesystemAttachment{
 		MachineTag:    "machine-0",
-		FilesystemTag: "filesystem-1",
+		FilesystemTag: provisionedFilesystem.String(),
 	}
 
 	args := &workerArgs{filesystems: filesystemAccessor}
@@ -356,17 +353,17 @@ func (s *storageProvisionerSuite) TestFilesystemAttachmentAdded(c *gc.C) {
 	defer worker.Kill()
 
 	filesystemAccessor.attachmentsWatcher.changes <- []params.MachineStorageId{{
-		MachineTag: "machine-1", AttachmentTag: "filesystem-1",
+		MachineTag: "machine-1", AttachmentTag: provisionedFilesystem.String(),
 	}, {
 		MachineTag: "machine-1", AttachmentTag: "filesystem-2",
 	}, {
-		MachineTag: "machine-2", AttachmentTag: "filesystem-1",
+		MachineTag: "machine-2", AttachmentTag: provisionedFilesystem.String(),
 	}, {
-		MachineTag: "machine-0", AttachmentTag: "filesystem-1",
+		MachineTag: "machine-0", AttachmentTag: provisionedFilesystem.String(),
 	}}
 	// ... but not until the environment config is available.
 	assertNoEvent(c, filesystemAttachmentInfoSet, "filesystem attachment info set")
-	filesystemAccessor.filesystemsWatcher.changes <- []string{"1"}
+	filesystemAccessor.filesystemsWatcher.changes <- []string{provisionedFilesystem.Id()}
 	args.environ.watcher.changes <- struct{}{}
 	waitChannel(c, filesystemAttachmentInfoSet, "waiting for filesystem attachments to be set")
 	c.Assert(allFilesystemAttachments, jc.SameContents, expectedFilesystemAttachments)
@@ -636,6 +633,8 @@ func (s *storageProvisionerSuite) TestDetachVolumesUnattached(c *gc.C) {
 }
 
 func (s *storageProvisionerSuite) TestDetachVolumes(c *gc.C) {
+	provisionedVolume := names.NewVolumeTag("1")
+
 	var attached bool
 	volumeAttachmentInfoSet := make(chan interface{})
 	volumeAccessor := newMockVolumeAccessor()
@@ -653,7 +652,7 @@ func (s *storageProvisionerSuite) TestDetachVolumes(c *gc.C) {
 	}
 
 	expectedAttachmentIds := []params.MachineStorageId{{
-		MachineTag: "machine-1", AttachmentTag: "volume-1",
+		MachineTag: "machine-1", AttachmentTag: provisionedVolume.String(),
 	}}
 
 	attachmentLife := func(ids []params.MachineStorageId) ([]params.LifeResult, error) {
@@ -682,12 +681,7 @@ func (s *storageProvisionerSuite) TestDetachVolumes(c *gc.C) {
 	}
 
 	// volume-1 and machine-1 are provisioned.
-	volumeAccessor.provisionedVolumes["volume-1"] = params.Volume{
-		VolumeTag: "volume-1",
-		Info: params.VolumeInfo{
-			VolumeId: "vol-123",
-		},
-	}
+	volumeAccessor.provisionVolume(provisionedVolume)
 	volumeAccessor.provisionedMachines["machine-1"] = instance.Id("already-provisioned-1")
 
 	args := &workerArgs{
@@ -701,15 +695,11 @@ func (s *storageProvisionerSuite) TestDetachVolumes(c *gc.C) {
 	defer func() { c.Assert(worker.Wait(), gc.IsNil) }()
 	defer worker.Kill()
 
-	volumeAccessor.attachmentsWatcher.changes <- []params.MachineStorageId{{
-		MachineTag: "machine-1", AttachmentTag: "volume-1",
-	}}
+	volumeAccessor.attachmentsWatcher.changes <- expectedAttachmentIds
 	volumeAccessor.volumesWatcher.changes <- []string{"1"}
 	args.environ.watcher.changes <- struct{}{}
 	waitChannel(c, volumeAttachmentInfoSet, "waiting for volume attachments to be set")
-	volumeAccessor.attachmentsWatcher.changes <- []params.MachineStorageId{{
-		MachineTag: "machine-1", AttachmentTag: "volume-1",
-	}}
+	volumeAccessor.attachmentsWatcher.changes <- expectedAttachmentIds
 	waitChannel(c, detached, "waiting for volume to be detached")
 	waitChannel(c, removed, "waiting for attachment to be removed")
 }
@@ -740,6 +730,8 @@ func (s *storageProvisionerSuite) TestDetachFilesystemsUnattached(c *gc.C) {
 }
 
 func (s *storageProvisionerSuite) TestDetachFilesystems(c *gc.C) {
+	provisionedFilesystem := names.NewFilesystemTag("1")
+
 	var attached bool
 	filesystemAttachmentInfoSet := make(chan interface{})
 	filesystemAccessor := newMockFilesystemAccessor()
@@ -757,7 +749,7 @@ func (s *storageProvisionerSuite) TestDetachFilesystems(c *gc.C) {
 	}
 
 	expectedAttachmentIds := []params.MachineStorageId{{
-		MachineTag: "machine-1", AttachmentTag: "filesystem-1",
+		MachineTag: "machine-1", AttachmentTag: provisionedFilesystem.String(),
 	}}
 
 	attachmentLife := func(ids []params.MachineStorageId) ([]params.LifeResult, error) {
@@ -786,12 +778,7 @@ func (s *storageProvisionerSuite) TestDetachFilesystems(c *gc.C) {
 	}
 
 	// filesystem-1 and machine-1 are provisioned.
-	filesystemAccessor.provisionedFilesystems["filesystem-1"] = params.Filesystem{
-		FilesystemTag: "filesystem-1",
-		Info: params.FilesystemInfo{
-			FilesystemId: "fs-id",
-		},
-	}
+	filesystemAccessor.provisionFilesystem(provisionedFilesystem)
 	filesystemAccessor.provisionedMachines["machine-1"] = instance.Id("already-provisioned-1")
 
 	args := &workerArgs{
@@ -805,17 +792,170 @@ func (s *storageProvisionerSuite) TestDetachFilesystems(c *gc.C) {
 	defer func() { c.Assert(worker.Wait(), gc.IsNil) }()
 	defer worker.Kill()
 
-	filesystemAccessor.attachmentsWatcher.changes <- []params.MachineStorageId{{
-		MachineTag: "machine-1", AttachmentTag: "filesystem-1",
-	}}
-	filesystemAccessor.filesystemsWatcher.changes <- []string{"1"}
+	filesystemAccessor.attachmentsWatcher.changes <- expectedAttachmentIds
+	filesystemAccessor.filesystemsWatcher.changes <- []string{provisionedFilesystem.Id()}
 	args.environ.watcher.changes <- struct{}{}
 	waitChannel(c, filesystemAttachmentInfoSet, "waiting for filesystem attachments to be set")
-	filesystemAccessor.attachmentsWatcher.changes <- []params.MachineStorageId{{
-		MachineTag: "machine-1", AttachmentTag: "filesystem-1",
-	}}
+	filesystemAccessor.attachmentsWatcher.changes <- expectedAttachmentIds
 	waitChannel(c, detached, "waiting for filesystem to be detached")
 	waitChannel(c, removed, "waiting for attachment to be removed")
+}
+
+func (s *storageProvisionerSuite) TestDestroyVolumes(c *gc.C) {
+	var (
+		provisionedNoDependents   = names.NewVolumeTag("101")
+		provisionedWithDependents = names.NewVolumeTag("102")
+		unprovisioned             = names.NewVolumeTag("103")
+
+		dyingVolumeAttachmentId = params.MachineStorageId{
+			MachineTag:    "machine-0",
+			AttachmentTag: provisionedWithDependents.String(),
+		}
+
+		dyingFilesystem = names.NewFilesystemTag("101")
+	)
+
+	volumeAccessor := newMockVolumeAccessor()
+	volumeAccessor.provisionVolume(provisionedNoDependents)
+	volumeAccessor.provisionVolume(provisionedWithDependents)
+	volumeAccessor.volumeDependents = func(tags []names.VolumeTag) ([]params.VolumeDependentsResult, error) {
+		results := make([]params.VolumeDependentsResult, len(tags))
+		for i, tag := range tags {
+			switch tag {
+			case provisionedNoDependents, unprovisioned:
+			case provisionedWithDependents:
+				results[i] = params.VolumeDependentsResult{
+					Result: params.VolumeDependents{
+						Attachments: []params.MachineStorageId{
+							dyingVolumeAttachmentId,
+						},
+						FilesystemTag: dyingFilesystem.String(),
+					},
+				}
+			}
+		}
+		return results, nil
+	}
+
+	removedChan := make(chan interface{}, 1)
+	remove := func(tags []names.Tag) ([]params.ErrorResult, error) {
+		removedChan <- tags
+		return make([]params.ErrorResult, len(tags)), nil
+	}
+
+	args := &workerArgs{
+		volumes: volumeAccessor,
+		life: &mockLifecycleManager{
+			attachmentLife: allAttachmentsDying,
+			remove:         remove,
+		},
+	}
+	worker := newStorageProvisioner(c, args)
+	defer func() { c.Assert(worker.Wait(), gc.IsNil) }()
+	defer worker.Kill()
+
+	volumeAccessor.volumesWatcher.changes <- []string{
+		provisionedNoDependents.Id(),
+		provisionedWithDependents.Id(),
+		unprovisioned.Id(),
+	}
+	args.environ.watcher.changes <- struct{}{}
+
+	// The unprovisioned volume and the provisioned volume without any
+	// dependents should be removed immediately.
+	var removed []names.Tag
+	for len(removed) < 2 {
+		tags := waitChannel(c, removedChan, "waiting for volumes to be removed").([]names.Tag)
+		removed = append(removed, tags...)
+	}
+	c.Assert(removed, jc.SameContents, []names.Tag{provisionedNoDependents, unprovisioned})
+	assertNoEvent(c, removedChan, "volumes removed")
+
+	// Removing the volume attachment and filesystem of
+	// provisionedWithDependents should trigger its removal.
+	args.filesystems.filesystemsWatcher.changes <- []string{dyingFilesystem.Id()}
+	removed = waitChannel(c, removedChan, "waiting for filesystem to be removed").([]names.Tag)
+	c.Assert(removed, jc.DeepEquals, []names.Tag{dyingFilesystem})
+	assertNoEvent(c, removedChan, "storage entities removed")
+	volumeAccessor.attachmentsWatcher.changes <- []params.MachineStorageId{dyingVolumeAttachmentId}
+	removed = waitChannel(c, removedChan, "waiting for volume to be removed").([]names.Tag)
+	c.Assert(removed, jc.DeepEquals, []names.Tag{provisionedWithDependents})
+	assertNoEvent(c, removedChan, "storage entities removed")
+}
+
+func (s *storageProvisionerSuite) TestDestroyFilesystems(c *gc.C) {
+	var (
+		provisionedNoDependents   = names.NewFilesystemTag("101")
+		provisionedWithDependents = names.NewFilesystemTag("102")
+		unprovisioned             = names.NewFilesystemTag("103")
+
+		dyingFilesystemAttachmentId = params.MachineStorageId{
+			MachineTag:    "machine-0",
+			AttachmentTag: provisionedWithDependents.String(),
+		}
+	)
+
+	filesystemAccessor := newMockFilesystemAccessor()
+	filesystemAccessor.provisionFilesystem(provisionedNoDependents)
+	filesystemAccessor.provisionFilesystem(provisionedWithDependents)
+	filesystemAccessor.filesystemDependents = func(tags []names.FilesystemTag) ([]params.FilesystemDependentsResult, error) {
+		results := make([]params.FilesystemDependentsResult, len(tags))
+		for i, tag := range tags {
+			switch tag {
+			case provisionedNoDependents, unprovisioned:
+			case provisionedWithDependents:
+				results[i] = params.FilesystemDependentsResult{
+					Result: params.FilesystemDependents{
+						Attachments: []params.MachineStorageId{
+							dyingFilesystemAttachmentId,
+						},
+					},
+				}
+			}
+		}
+		return results, nil
+	}
+
+	removedChan := make(chan interface{}, 1)
+	remove := func(tags []names.Tag) ([]params.ErrorResult, error) {
+		removedChan <- tags
+		return make([]params.ErrorResult, len(tags)), nil
+	}
+
+	args := &workerArgs{
+		filesystems: filesystemAccessor,
+		life: &mockLifecycleManager{
+			attachmentLife: allAttachmentsDying,
+			remove:         remove,
+		},
+	}
+	worker := newStorageProvisioner(c, args)
+	defer func() { c.Assert(worker.Wait(), gc.IsNil) }()
+	defer worker.Kill()
+
+	filesystemAccessor.filesystemsWatcher.changes <- []string{
+		provisionedNoDependents.Id(),
+		provisionedWithDependents.Id(),
+		unprovisioned.Id(),
+	}
+	args.environ.watcher.changes <- struct{}{}
+
+	// The unprovisioned filesystem and the provisioned filesystem without any
+	// dependents should be removed immediately.
+	var removed []names.Tag
+	for len(removed) < 2 {
+		tags := waitChannel(c, removedChan, "waiting for filesystems to be removed").([]names.Tag)
+		removed = append(removed, tags...)
+	}
+	c.Assert(removed, jc.SameContents, []names.Tag{provisionedNoDependents, unprovisioned})
+	assertNoEvent(c, removedChan, "filesystems removed")
+
+	// Removing the filesystem attachment of provisionedWithDependents
+	// should trigger its removal.
+	filesystemAccessor.attachmentsWatcher.changes <- []params.MachineStorageId{dyingFilesystemAttachmentId}
+	removed = waitChannel(c, removedChan, "waiting for filesystem to be removed").([]names.Tag)
+	c.Assert(removed, jc.DeepEquals, []names.Tag{provisionedWithDependents})
+	assertNoEvent(c, removedChan, "filesystems removed")
 }
 
 func newStorageProvisioner(c *gc.C, args *workerArgs) worker.Worker {
@@ -840,6 +980,9 @@ func newStorageProvisioner(c *gc.C, args *workerArgs) worker.Worker {
 	if args.machines == nil {
 		args.machines = newMockMachineAccessor(c)
 	}
+	if args.pools == nil {
+		args.pools = newMockPoolAccessor()
+	}
 	return storageprovisioner.NewStorageProvisioner(
 		args.scope,
 		"storage-dir",
@@ -848,6 +991,7 @@ func newStorageProvisioner(c *gc.C, args *workerArgs) worker.Worker {
 		args.life,
 		args.environ,
 		args.machines,
+		args.pools,
 	)
 }
 
@@ -858,6 +1002,7 @@ type workerArgs struct {
 	life        *mockLifecycleManager
 	environ     *mockEnvironAccessor
 	machines    *mockMachineAccessor
+	pools       *mockPoolAccessor
 }
 
 func waitChannel(c *gc.C, ch <-chan interface{}, activity string) interface{} {
@@ -872,10 +1017,8 @@ func waitChannel(c *gc.C, ch <-chan interface{}, activity string) interface{} {
 
 func assertNoEvent(c *gc.C, ch <-chan interface{}, event string) {
 	select {
-	case <-ch:
-		c.Fatalf("unexpected " + event)
+	case v, ok := <-ch:
+		c.Fatalf("unexpected %s (%v, %v)", event, v, ok)
 	case <-time.After(coretesting.ShortWait):
 	}
 }
-
-// TODO(wallyworld) - test destroying volumes when done

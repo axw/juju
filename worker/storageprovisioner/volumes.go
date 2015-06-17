@@ -6,6 +6,7 @@ package storageprovisioner
 import (
 	"github.com/juju/errors"
 	"github.com/juju/names"
+	"github.com/juju/utils/set"
 
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/environs/config"
@@ -24,47 +25,35 @@ func volumesChanged(ctx *context, changes []string) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// TODO(axw) wait for volumes to have no attachments first.
-	// We can then have the removal of the last attachment trigger
-	// the volume's Life being transitioned to Dead, or watch the
-	// attachments until they're all gone. We need to watch
-	// attachments *anyway*, so we can probably integrate the two
-	// things.
 	logger.Debugf("volumes alive: %v, dying: %v, dead: %v", alive, dying, dead)
-	if err := ensureDead(ctx, dying); err != nil {
-		return errors.Annotate(err, "ensuring volumes dead")
+	if len(dead) != 0 {
+		// We should not see dead volumes; they go directly
+		// from Dying to removed.
+		logger.Debugf("unexpected dead volumes: %v", dead)
 	}
-	// Once the entities are Dead, they can be removed from state
-	// after the corresponding cloud storage resources are removed.
-	dead = append(dead, dying...)
-	if len(alive)+len(dead) == 0 {
+	if len(alive)+len(dying) == 0 {
 		return nil
 	}
 
-	// Get volume information for alive and dead volumes, so
+	// Get volume information for alive and dying volumes, so
 	// we can provision/deprovision.
-	volumeTags := make([]names.VolumeTag, 0, len(alive)+len(dead))
+	volumeTags := make([]names.VolumeTag, 0, len(alive)+len(dying))
 	for _, tag := range alive {
 		volumeTags = append(volumeTags, tag.(names.VolumeTag))
 	}
-	for _, tag := range dead {
+	for _, tag := range dying {
 		volumeTags = append(volumeTags, tag.(names.VolumeTag))
 	}
 	volumeResults, err := ctx.volumeAccessor.Volumes(volumeTags)
 	if err != nil {
 		return errors.Annotatef(err, "getting volume information")
 	}
-
-	// Deprovision "dead" volumes, and then remove from state.
-	if err := processDeadVolumes(ctx, volumeTags[len(alive):], volumeResults[len(alive):]); err != nil {
-		return errors.Annotate(err, "deprovisioning volumes")
+	if err := processDyingVolumes(ctx, volumeTags[len(alive):], volumeResults[len(alive):]); err != nil {
+		return errors.Annotate(err, "provisioning volumes")
 	}
-
-	// Provision "alive" volumes.
 	if err := processAliveVolumes(ctx, alive, volumeResults[:len(alive)]); err != nil {
 		return errors.Annotate(err, "provisioning volumes")
 	}
-
 	return nil
 }
 
@@ -108,35 +97,81 @@ func volumeAttachmentsChanged(ctx *context, ids []params.MachineStorageId) error
 	return nil
 }
 
-// processDeadVolumes processes the VolumeResults for Dead volumes,
+// processDyingVolumes processes the VolumeResults for Dying volumes,
 // deprovisioning volumes and removing from state as necessary.
-func processDeadVolumes(ctx *context, tags []names.VolumeTag, volumeResults []params.VolumeResult) error {
+func processDyingVolumes(ctx *context, tags []names.VolumeTag, volumeResults []params.VolumeResult) error {
 	for _, tag := range tags {
 		delete(ctx.pendingVolumes, tag)
 	}
-	volumes := make([]params.Volume, len(volumeResults))
+	var pending []names.VolumeTag
 	for i, result := range volumeResults {
-		if result.Error != nil {
-			return errors.Annotatef(result.Error, "getting volume information for volume %q", tags[i].Id())
+		tag := tags[i]
+		if result.Error == nil {
+			logger.Debugf("volume %q is provisioned, queuing for destruction", tags[i].Id())
+			volume, err := volumeFromParams(result.Result)
+			if err != nil {
+				return errors.Annotate(err, "getting volume info")
+			}
+			ctx.volumes[tag] = volume
+			pending = append(pending, tag)
+			continue
 		}
-		volumes[i] = result.Result
+		if params.IsCodeNotProvisioned(result.Error) {
+			logger.Debugf("volume %q is not provisioned, queuing for removal", tags[i].Id())
+			ctx.pendingDyingVolumes[tag] = nil
+			continue
+		}
+		return errors.Annotatef(result.Error, "getting volume information for volume %q", tag.Id())
 	}
-	if len(volumes) == 0 {
+	if len(pending) == 0 {
 		return nil
 	}
-	errorResults, err := destroyVolumes(volumes)
+	// Gather dependents for provisioned volumes, so we can wait until they
+	// are removed before attempting to destroy the volume.
+	dependents, err := volumeDependents(ctx, pending)
+	if err != nil {
+		return errors.Annotate(err, "getting volume dependents")
+	}
+	for i, dependents := range dependents {
+		ctx.pendingDyingVolumes[pending[i]] = dependents
+	}
+	return nil
+}
+
+// processPendingDyingVolumes destroys as many of the dying volumes as
+// possible, first ensuring that they have no remaining dependents.
+func processPendingDyingVolumes(ctx *context) error {
+	if len(ctx.pendingDyingVolumes) == 0 {
+		logger.Tracef("no pending dying volumes")
+	}
+	var remove []names.Tag
+	var destroy []names.VolumeTag
+	for tag, dependents := range ctx.pendingDyingVolumes {
+		if !dependents.IsEmpty() {
+			logger.Debugf("volume %v has dependents: %v", tag.Id(), dependents.SortedValues())
+			continue
+		}
+		delete(ctx.pendingDyingVolumes, tag)
+		if _, ok := ctx.volumes[tag]; ok {
+			destroy = append(destroy, tag)
+		} else {
+			remove = append(remove, tag)
+		}
+	}
+	if len(destroy)+len(remove) == 0 {
+		return nil
+	}
+	errorResults, err := destroyVolumes(ctx, destroy)
 	if err != nil {
 		return errors.Annotate(err, "destroying volumes")
 	}
-	destroyed := make([]names.Tag, 0, len(tags))
-	for i, tag := range tags {
+	for i, tag := range destroy {
 		if err := errorResults[i]; err != nil {
-			logger.Errorf("destroying %s: %v", names.ReadableString(tag), err)
-			continue
+			return errors.Annotatef(err, "destroying %s", names.ReadableString(tag))
 		}
-		destroyed = append(destroyed, tag)
+		remove = append(remove, tag)
 	}
-	if err := removeEntities(ctx, destroyed); err != nil {
+	if err := removeEntities(ctx, remove); err != nil {
 		return errors.Annotate(err, "removing volumes from state")
 	}
 	return nil
@@ -181,6 +216,21 @@ func processDyingVolumeAttachments(
 	}
 	if err := removeAttachments(ctx, remove); err != nil {
 		return errors.Annotate(err, "removing attachments from state")
+	}
+	// Inform pending-dying volumes of the removal of attachments.
+	for _, id := range remove {
+		volumeTag, err := names.ParseVolumeTag(id.AttachmentTag)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		dependents, ok := ctx.pendingDyingVolumes[volumeTag]
+		if ok {
+			machineTag, err := names.ParseMachineTag(id.MachineTag)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			dependents.Remove(machineTag)
+		}
 	}
 	return nil
 }
@@ -524,14 +574,54 @@ func setVolumeAttachmentInfo(ctx *context, volumeAttachments []storage.VolumeAtt
 	return nil
 }
 
-func destroyVolumes(volumes []params.Volume) ([]error, error) {
-	// TODO(axw) implement destroy
-	err := errors.New("destroy volumes is not implemented")
-	errs := make([]error, len(volumes))
-	for i := range errs {
-		errs[i] = err
+func destroyVolumes(ctx *context, tags []names.VolumeTag) ([]error, error) {
+	poolNames := make(set.Strings)
+	volumeIdsByPool := make(map[string][]string)
+	for _, tag := range tags {
+		volume, ok := ctx.volumes[tag]
+		if !ok {
+			return nil, errors.NotFoundf("volume %s info", tag.Id())
+		}
+		if volume.Pool == "" {
+			return nil, errors.Errorf("volume %s has no pool", tag.Id())
+		}
+		volumeIdsByPool[volume.Pool] = append(volumeIdsByPool[volume.Pool], volume.VolumeId)
+		poolNames.Add(volume.Pool)
+	}
+	volumeSources, err := poolVolumeSources(ctx, poolNames.SortedValues())
+	if err != nil {
+		return nil, errors.Annotate(err, "getting volume sources")
+	}
+	var errs []error
+	for pool, volumeIds := range volumeIdsByPool {
+		logger.Debugf("destroying volumes from %q pool: %v", pool, volumeIds)
+		volumeSource := volumeSources[pool]
+		errs = append(errs, volumeSource.DestroyVolumes(volumeIds)...)
 	}
 	return errs, nil
+}
+
+func poolVolumeSources(ctx *context, names []string) (map[string]storage.VolumeSource, error) {
+	poolResults, err := ctx.poolAccessor.StoragePools(names)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	volumeSources := make(map[string]storage.VolumeSource)
+	for i, result := range poolResults {
+		if result.Error != nil {
+			return nil, errors.Annotatef(result.Error, "getting storage pool %q", names[i])
+		}
+		// TODO(axw) the volume source should take the attributes too.
+		volumeSource, err := volumeSource(
+			ctx.environConfig, ctx.storageDir,
+			names[i], storage.ProviderType(result.Result.Provider),
+		)
+		if err != nil {
+			return nil, errors.Annotatef(err, "getting volume source for pool %q", names[i])
+		}
+		volumeSources[names[i]] = volumeSource
+	}
+	return volumeSources, nil
 }
 
 func detachVolumes(ctx *context, attachments []storage.VolumeAttachmentParams) error {
@@ -579,6 +669,45 @@ func volumeAttachmentParamsBySource(
 	return paramsBySource, volumeSources, nil
 }
 
+// volumeDependents queries the specified volumes' dependent entities.
+func volumeDependents(ctx *context, tags []names.VolumeTag) ([]set.Tags, error) {
+	results, err := ctx.volumeAccessor.VolumeDependents(tags)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting volume dependents")
+	}
+	allDependents := make([]set.Tags, len(tags))
+	for i, result := range results {
+		dependents, err := volumeDependentsFromParams(result)
+		if err != nil {
+			return nil, errors.Annotatef(err, "getting dependents for volume %s", tags[i].Id())
+		}
+		allDependents[i] = dependents
+	}
+	return allDependents, nil
+}
+
+func volumeDependentsFromParams(result params.VolumeDependentsResult) (set.Tags, error) {
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	dependents := make(set.Tags)
+	for _, a := range result.Result.Attachments {
+		tag, err := names.ParseMachineTag(a.MachineTag)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		dependents.Add(tag)
+	}
+	if result.Result.FilesystemTag != "" {
+		tag, err := names.ParseFilesystemTag(result.Result.FilesystemTag)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		dependents.Add(tag)
+	}
+	return dependents, nil
+}
+
 func volumesFromStorage(in []storage.Volume) []params.Volume {
 	out := make([]params.Volume, len(in))
 	for i, v := range in {
@@ -588,6 +717,7 @@ func volumesFromStorage(in []storage.Volume) []params.Volume {
 				v.VolumeId,
 				v.HardwareId,
 				v.Size,
+				v.Pool,
 				v.Persistent,
 			},
 		}
@@ -621,6 +751,7 @@ func volumeFromParams(in params.Volume) (storage.Volume, error) {
 			in.Info.VolumeId,
 			in.Info.HardwareId,
 			in.Info.Size,
+			in.Info.Pool,
 			in.Info.Persistent,
 		},
 	}, nil

@@ -41,6 +41,10 @@ type VolumeAccessor interface {
 	// Volumes returns details of volumes with the specified tags.
 	Volumes([]names.VolumeTag) ([]params.VolumeResult, error)
 
+	// VolumeDependents returns the identities of the dependents of the
+	// specified volumes.
+	VolumeDependents([]names.VolumeTag) ([]params.VolumeDependentsResult, error)
+
 	// VolumeBlockDevices returns details of block devices corresponding to
 	// the specified volume attachment IDs.
 	VolumeBlockDevices([]params.MachineStorageId) ([]params.BlockDeviceResult, error)
@@ -79,6 +83,10 @@ type FilesystemAccessor interface {
 	// Filesystems returns details of filesystems with the specified tags.
 	Filesystems([]names.FilesystemTag) ([]params.FilesystemResult, error)
 
+	// FilesystemDependents returns the identities of the dependents of the
+	// specified filesystems.
+	FilesystemDependents([]names.FilesystemTag) ([]params.FilesystemDependentsResult, error)
+
 	// FilesystemAttachments returns details of filesystem attachments with
 	// the specified tags.
 	FilesystemAttachments([]params.MachineStorageId) ([]params.FilesystemAttachmentResult, error)
@@ -116,10 +124,6 @@ type LifecycleManager interface {
 	// Life returns the lifecycle state of the specified entities.
 	Life([]names.Tag) ([]params.LifeResult, error)
 
-	// EnsureDead ensures that the specified entities become Dead if
-	// they are Alive or Dying.
-	EnsureDead([]names.Tag) ([]params.ErrorResult, error)
-
 	// Remove removes the specified entities from state.
 	Remove([]names.Tag) ([]params.ErrorResult, error)
 
@@ -144,6 +148,13 @@ type EnvironAccessor interface {
 	EnvironConfig() (*config.Config, error)
 }
 
+// StoragePoolAccessor defines an interface used to enable a storage
+// provisioner worker to read storage pool configurations, to use when
+// provisioning and deprovisioning storage.
+type StoragePoolAccessor interface {
+	StoragePools(poolNames []string) ([]params.StoragePoolResult, error)
+}
+
 // NewStorageProvisioner returns a Worker which manages
 // provisioning (deprovisioning), and attachment (detachment)
 // of first-class volumes and filesystems.
@@ -160,6 +171,7 @@ func NewStorageProvisioner(
 	l LifecycleManager,
 	e EnvironAccessor,
 	m MachineAccessor,
+	p StoragePoolAccessor,
 ) worker.Worker {
 	w := &storageprovisioner{
 		scope:       scope,
@@ -169,6 +181,7 @@ func NewStorageProvisioner(
 		life:        l,
 		environ:     e,
 		machines:    m,
+		pools:       p,
 	}
 	go func() {
 		defer w.tomb.Done()
@@ -186,6 +199,7 @@ type storageprovisioner struct {
 	life        LifecycleManager
 	environ     EnvironAccessor
 	machines    MachineAccessor
+	pools       StoragePoolAccessor
 }
 
 // Kill implements Worker.Kill().
@@ -268,6 +282,7 @@ func (w *storageprovisioner) loop() error {
 		filesystemAccessor:           w.filesystems,
 		life:                         w.life,
 		machineAccessor:              w.machines,
+		poolAccessor:                 w.pools,
 		volumes:                      make(map[names.VolumeTag]storage.Volume),
 		volumeAttachments:            make(map[params.MachineStorageId]storage.VolumeAttachment),
 		volumeBlockDevices:           make(map[names.VolumeTag]storage.BlockDevice),
@@ -276,9 +291,11 @@ func (w *storageprovisioner) loop() error {
 		machines:                     make(map[names.MachineTag]*machineWatcher),
 		machineChanges:               machineChanges,
 		pendingVolumes:               make(map[names.VolumeTag]storage.VolumeParams),
+		pendingDyingVolumes:          make(map[names.VolumeTag]set.Tags),
 		pendingVolumeAttachments:     make(map[params.MachineStorageId]storage.VolumeAttachmentParams),
 		pendingVolumeBlockDevices:    make(set.Tags),
 		pendingFilesystems:           make(map[names.FilesystemTag]storage.FilesystemParams),
+		pendingDyingFilesystems:      make(map[names.FilesystemTag]set.Tags),
 		pendingFilesystemAttachments: make(map[params.MachineStorageId]storage.FilesystemAttachmentParams),
 	}
 	ctx.managedFilesystemSource = newManagedFilesystemSource(
@@ -361,6 +378,12 @@ func (w *storageprovisioner) loop() error {
 // processPending checks if the pending operations' prerequisites have
 // been met, and processes them if so.
 func processPending(ctx *context) error {
+	if err := processPendingDyingFilesystems(ctx); err != nil {
+		return errors.Annotate(err, "processing pending dying filesystems")
+	}
+	if err := processPendingDyingVolumes(ctx); err != nil {
+		return errors.Annotate(err, "processing pending dying volumes")
+	}
 	if err := processPendingVolumes(ctx); err != nil {
 		return errors.Annotate(err, "processing pending volumes")
 	}
@@ -393,6 +416,7 @@ type context struct {
 	filesystemAccessor FilesystemAccessor
 	life               LifecycleManager
 	machineAccessor    MachineAccessor
+	poolAccessor       StoragePoolAccessor
 
 	// volumes contains information about provisioned volumes.
 	volumes map[names.VolumeTag]storage.Volume
@@ -422,6 +446,11 @@ type context struct {
 	// created.
 	pendingVolumes map[names.VolumeTag]storage.VolumeParams
 
+	// pendingDyingVolumes contains the dependent entities (machines and
+	// filesystems) of dying volumes. When the set of dependents is empty,
+	// the volume can be destroyed.
+	pendingDyingVolumes map[names.VolumeTag]set.Tags
+
 	// pendingVolumeAttachments contains parameters for volume attachments
 	// that are yet to be created.
 	pendingVolumeAttachments map[params.MachineStorageId]storage.VolumeAttachmentParams
@@ -429,6 +458,11 @@ type context struct {
 	// pendingVolumeBlockDevices contains the tags of volumes about whose
 	// block devices we wish to enquire.
 	pendingVolumeBlockDevices set.Tags
+
+	// pendingDyingFilesystems contains the dependent entities (currently
+	// just machines) filesystems) of dying filesystems. When the set of
+	// dependents is empty, the filesystem can be destroyed.
+	pendingDyingFilesystems map[names.FilesystemTag]set.Tags
 
 	// pendingFilesystems contains parameters for filesystems that are
 	// yet to be created.

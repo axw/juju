@@ -127,6 +127,7 @@ type mockVolumeAccessor struct {
 
 	setVolumeInfo           func([]params.Volume) ([]params.ErrorResult, error)
 	setVolumeAttachmentInfo func([]params.VolumeAttachment) ([]params.ErrorResult, error)
+	volumeDependents        func([]names.VolumeTag) ([]params.VolumeDependentsResult, error)
 }
 
 func (w *mockVolumeAccessor) WatchVolumes() (apiwatcher.StringsWatcher, error) {
@@ -232,6 +233,13 @@ func (v *mockVolumeAccessor) VolumeAttachmentParams(ids []params.MachineStorageI
 	return result, nil
 }
 
+func (v *mockVolumeAccessor) VolumeDependents(tags []names.VolumeTag) ([]params.VolumeDependentsResult, error) {
+	if v.volumeDependents != nil {
+		return v.volumeDependents(tags)
+	}
+	return make([]params.VolumeDependentsResult, len(tags)), nil
+}
+
 func (v *mockVolumeAccessor) SetVolumeInfo(volumes []params.Volume) ([]params.ErrorResult, error) {
 	return v.setVolumeInfo(volumes)
 }
@@ -264,6 +272,7 @@ type mockFilesystemAccessor struct {
 
 	setFilesystemInfo           func([]params.Filesystem) ([]params.ErrorResult, error)
 	setFilesystemAttachmentInfo func([]params.FilesystemAttachment) ([]params.ErrorResult, error)
+	filesystemDependents        func([]names.FilesystemTag) ([]params.FilesystemDependentsResult, error)
 }
 
 func (w *mockFilesystemAccessor) WatchFilesystems() (apiwatcher.StringsWatcher, error) {
@@ -344,6 +353,13 @@ func (f *mockFilesystemAccessor) FilesystemAttachmentParams(ids []params.Machine
 		}})
 	}
 	return result, nil
+}
+
+func (f *mockFilesystemAccessor) FilesystemDependents(tags []names.FilesystemTag) ([]params.FilesystemDependentsResult, error) {
+	if f.filesystemDependents != nil {
+		return f.filesystemDependents(tags)
+	}
+	return make([]params.FilesystemDependentsResult, len(tags)), nil
 }
 
 func (f *mockFilesystemAccessor) SetFilesystemInfo(filesystems []params.Filesystem) ([]params.ErrorResult, error) {
@@ -659,4 +675,22 @@ func newMockMachineAccessor(c *gc.C) *mockMachineAccessor {
 		instanceIds: make(map[names.MachineTag]instance.Id),
 		watcher:     &mockNotifyWatcher{make(chan struct{}, 1)},
 	}
+}
+
+type mockPoolAccessor struct {
+}
+
+func (*mockPoolAccessor) StoragePools(names []string) ([]params.StoragePoolResult, error) {
+	pools := make([]params.StoragePoolResult, len(names))
+	for i := range pools {
+		pools[i].Result = params.StoragePool{
+			Name:     names[i],
+			Provider: "dummy",
+		}
+	}
+	return pools, nil
+}
+
+func newMockPoolAccessor() *mockPoolAccessor {
+	return &mockPoolAccessor{}
 }

@@ -116,10 +116,6 @@ type LifecycleManager interface {
 	// Life returns the lifecycle state of the specified entities.
 	Life([]names.Tag) ([]params.LifeResult, error)
 
-	// EnsureDead ensures that the specified entities become Dead if
-	// they are Alive or Dying.
-	EnsureDead([]names.Tag) ([]params.ErrorResult, error)
-
 	// Remove removes the specified entities from state.
 	Remove([]names.Tag) ([]params.ErrorResult, error)
 
@@ -144,6 +140,13 @@ type EnvironAccessor interface {
 	EnvironConfig() (*config.Config, error)
 }
 
+// StoragePoolAccessor defines an interface used to enable a storage
+// provisioner worker to read storage pool configurations, to use when
+// provisioning and deprovisioning storage.
+type StoragePoolAccessor interface {
+	StoragePools(poolNames []string) ([]params.StoragePoolResult, error)
+}
+
 // NewStorageProvisioner returns a Worker which manages
 // provisioning (deprovisioning), and attachment (detachment)
 // of first-class volumes and filesystems.
@@ -160,6 +163,7 @@ func NewStorageProvisioner(
 	l LifecycleManager,
 	e EnvironAccessor,
 	m MachineAccessor,
+	p StoragePoolAccessor,
 ) worker.Worker {
 	w := &storageprovisioner{
 		scope:       scope,
@@ -169,6 +173,7 @@ func NewStorageProvisioner(
 		life:        l,
 		environ:     e,
 		machines:    m,
+		pools:       p,
 	}
 	go func() {
 		defer w.tomb.Done()
@@ -186,6 +191,7 @@ type storageprovisioner struct {
 	life        LifecycleManager
 	environ     EnvironAccessor
 	machines    MachineAccessor
+	pools       StoragePoolAccessor
 }
 
 // Kill implements Worker.Kill().
@@ -268,6 +274,7 @@ func (w *storageprovisioner) loop() error {
 		filesystemAccessor:           w.filesystems,
 		life:                         w.life,
 		machineAccessor:              w.machines,
+		poolAccessor:                 w.pools,
 		volumes:                      make(map[names.VolumeTag]storage.Volume),
 		volumeAttachments:            make(map[params.MachineStorageId]storage.VolumeAttachment),
 		volumeBlockDevices:           make(map[names.VolumeTag]storage.BlockDevice),
@@ -393,6 +400,7 @@ type context struct {
 	filesystemAccessor FilesystemAccessor
 	life               LifecycleManager
 	machineAccessor    MachineAccessor
+	poolAccessor       StoragePoolAccessor
 
 	// volumes contains information about provisioned volumes.
 	volumes map[names.VolumeTag]storage.Volume

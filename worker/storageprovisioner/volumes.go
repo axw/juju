@@ -24,24 +24,16 @@ func volumesChanged(ctx *context, changes []string) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// TODO(axw) wait for volumes to have no attachments first.
-	// We can then have the removal of the last attachment trigger
-	// the volume's Life being transitioned to Dead, or watch the
-	// attachments until they're all gone. We need to watch
-	// attachments *anyway*, so we can probably integrate the two
-	// things.
 	logger.Debugf("volumes alive: %v, dying: %v, dead: %v", alive, dying, dead)
-	if err := ensureDead(ctx, dying); err != nil {
-		return errors.Annotate(err, "ensuring volumes dead")
-	}
-	// Once the entities are Dead, they can be removed from state
-	// after the corresponding cloud storage resources are removed.
-	dead = append(dead, dying...)
+	// Note: we don't take any action for Dying volumes. This is an
+	// intermediate state in which a volume exists until all of its
+	// dependents are removed from state, at which point it becomes
+	// Dead.
 	if len(alive)+len(dead) == 0 {
 		return nil
 	}
 
-	// Get volume information for alive and dead volumes, so
+	// Get volume information for alive and dying volumes, so
 	// we can provision/deprovision.
 	volumeTags := make([]names.VolumeTag, 0, len(alive)+len(dead))
 	for _, tag := range alive {
@@ -54,17 +46,12 @@ func volumesChanged(ctx *context, changes []string) error {
 	if err != nil {
 		return errors.Annotatef(err, "getting volume information")
 	}
-
-	// Deprovision "dead" volumes, and then remove from state.
 	if err := processDeadVolumes(ctx, volumeTags[len(alive):], volumeResults[len(alive):]); err != nil {
 		return errors.Annotate(err, "deprovisioning volumes")
 	}
-
-	// Provision "alive" volumes.
 	if err := processAliveVolumes(ctx, alive, volumeResults[:len(alive)]); err != nil {
 		return errors.Annotate(err, "provisioning volumes")
 	}
-
 	return nil
 }
 
@@ -588,6 +575,7 @@ func volumesFromStorage(in []storage.Volume) []params.Volume {
 				v.VolumeId,
 				v.HardwareId,
 				v.Size,
+				v.Pool,
 				v.Persistent,
 			},
 		}
@@ -621,6 +609,7 @@ func volumeFromParams(in params.Volume) (storage.Volume, error) {
 			in.Info.VolumeId,
 			in.Info.HardwareId,
 			in.Info.Size,
+			in.Info.Pool,
 			in.Info.Persistent,
 		},
 	}, nil

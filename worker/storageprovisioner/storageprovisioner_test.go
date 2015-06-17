@@ -62,6 +62,7 @@ func (s *storageProvisionerSuite) TestStartStop(c *gc.C) {
 		&mockLifecycleManager{},
 		newMockEnvironAccessor(c),
 		newMockMachineAccessor(c),
+		newMockPoolAccessor(),
 	)
 	worker.Kill()
 	c.Assert(worker.Wait(), gc.IsNil)
@@ -840,6 +841,9 @@ func newStorageProvisioner(c *gc.C, args *workerArgs) worker.Worker {
 	if args.machines == nil {
 		args.machines = newMockMachineAccessor(c)
 	}
+	if args.pools == nil {
+		args.pools = newMockPoolAccessor()
+	}
 	return storageprovisioner.NewStorageProvisioner(
 		args.scope,
 		"storage-dir",
@@ -848,6 +852,7 @@ func newStorageProvisioner(c *gc.C, args *workerArgs) worker.Worker {
 		args.life,
 		args.environ,
 		args.machines,
+		args.pools,
 	)
 }
 
@@ -858,6 +863,7 @@ type workerArgs struct {
 	life        *mockLifecycleManager
 	environ     *mockEnvironAccessor
 	machines    *mockMachineAccessor
+	pools       *mockPoolAccessor
 }
 
 func waitChannel(c *gc.C, ch <-chan interface{}, activity string) interface{} {

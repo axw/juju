@@ -386,25 +386,6 @@ func (st *State) AttachmentLife(ids []params.MachineStorageId) ([]params.LifeRes
 	return results.Results, nil
 }
 
-// EnsureDead progresses the entities with the specified tags to the Dead
-// life cycle state, if they are Alive or Dying.
-func (st *State) EnsureDead(tags []names.Tag) ([]params.ErrorResult, error) {
-	var results params.ErrorResults
-	args := params.Entities{
-		Entities: make([]params.Entity, len(tags)),
-	}
-	for i, tag := range tags {
-		args.Entities[i].Tag = tag.String()
-	}
-	if err := st.facade.FacadeCall("EnsureDead", args, &results); err != nil {
-		return nil, err
-	}
-	if len(results.Results) != len(tags) {
-		return nil, errors.Errorf("expected %d result(s), got %d", len(tags), len(results.Results))
-	}
-	return results.Results, nil
-}
-
 // Remove removes the entities with the specified tags from state.
 func (st *State) Remove(tags []names.Tag) ([]params.ErrorResult, error) {
 	var results params.ErrorResults
@@ -450,8 +431,22 @@ func (st *State) InstanceIds(tags []names.MachineTag) ([]params.StringResult, er
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	if len(results.Results) != 1 {
-		return nil, errors.Errorf("expected %d result(s), got %d", len(results.Results), len(tags))
+	if len(results.Results) != len(tags) {
+		return nil, errors.Errorf("expected %d result(s), got %d", len(tags), len(results.Results))
+	}
+	return results.Results, nil
+}
+
+// StoragePools returns the details of the named storage pools.
+func (st *State) StoragePools(pools []string) ([]params.StoragePoolResult, error) {
+	var results params.StoragePoolResults
+	args := params.StoragePoolNames{Names: pools}
+	err := st.facade.FacadeCall("StoragePools", args, &results)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if len(results.Results) != len(pools) {
+		return nil, errors.Errorf("expected %d result(s), got %d", len(pools), len(results.Results))
 	}
 	return results.Results, nil
 }

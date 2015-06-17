@@ -662,12 +662,6 @@ func (s *provisionerSuite) TestRemove(c *gc.C) {
 	})
 }
 
-func (s *provisionerSuite) TestEnsureDead(c *gc.C) {
-	s.testOpWithTags(c, "EnsureDead", func(st *storageprovisioner.State, tags []names.Tag) ([]params.ErrorResult, error) {
-		return st.EnsureDead(tags)
-	})
-}
-
 func (s *provisionerSuite) TestLife(c *gc.C) {
 	var callCount int
 	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
@@ -739,13 +733,6 @@ func (s *provisionerSuite) TestRemoveAttachmentsClientError(c *gc.C) {
 func (s *provisionerSuite) TestSetVolumeInfoClientError(c *gc.C) {
 	s.testClientError(c, func(st *storageprovisioner.State) error {
 		_, err := st.SetVolumeInfo(nil)
-		return err
-	})
-}
-
-func (s *provisionerSuite) TestEnsureDeadClientError(c *gc.C) {
-	s.testClientError(c, func(st *storageprovisioner.State) error {
-		_, err := st.EnsureDead(nil)
 		return err
 	})
 }
@@ -853,12 +840,6 @@ func (s *provisionerSuite) TestRemoveServerError(c *gc.C) {
 	})
 }
 
-func (s *provisionerSuite) TestEnsureDeadServerError(c *gc.C) {
-	s.testServerError(c, func(st *storageprovisioner.State, tags []names.Tag) ([]params.ErrorResult, error) {
-		return st.EnsureDead(tags)
-	})
-}
-
 func (s *provisionerSuite) TestLifeServerError(c *gc.C) {
 	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
 		*(result.(*params.LifeResults)) = params.LifeResults{
@@ -912,4 +893,29 @@ func (s *provisionerSuite) TestEnvironConfig(c *gc.C) {
 	outputCfg, err := st.EnvironConfig()
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(outputCfg.AllAttrs(), jc.DeepEquals, inputCfg.AllAttrs())
+}
+
+func (s *provisionerSuite) TestStoragePools(c *gc.C) {
+	results := []params.StoragePoolResult{{
+		Result: params.StoragePool{
+			Name:     "fred",
+			Provider: "derf",
+		},
+	}}
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		c.Check(objType, gc.Equals, "StorageProvisioner")
+		c.Check(version, gc.Equals, 0)
+		c.Check(id, gc.Equals, "")
+		c.Check(request, gc.Equals, "StoragePools")
+		c.Assert(arg, jc.DeepEquals, params.StoragePoolNames{[]string{"fred"}})
+		c.Assert(result, gc.FitsTypeOf, &params.StoragePoolResults{})
+		*(result.(*params.StoragePoolResults)) = params.StoragePoolResults{
+			Results: results,
+		}
+		return nil
+	})
+	st := storageprovisioner.NewState(apiCaller, names.NewMachineTag("123"))
+	pools, err := st.StoragePools([]string{"fred"})
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(pools, jc.DeepEquals, results)
 }

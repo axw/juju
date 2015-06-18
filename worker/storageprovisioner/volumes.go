@@ -572,12 +572,10 @@ func volumeParamsBySource(
 			continue
 		}
 		err := volumeSource.ValidateVolumeParams(params)
-		switch errors.Cause(err) {
-		case nil:
-			paramsBySource[sourceName] = append(paramsBySource[sourceName], params)
-		default:
+		if err != nil {
 			return nil, nil, errors.Annotatef(err, "invalid parameters for volume %s", params.Tag.Id())
 		}
+		paramsBySource[sourceName] = append(paramsBySource[sourceName], params)
 	}
 	return paramsBySource, volumeSources, nil
 }

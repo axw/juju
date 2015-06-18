@@ -230,18 +230,11 @@ func processAliveFilesystems(ctx *context, tags []names.Tag, filesystemResults [
 	if len(pending) == 0 {
 		return nil
 	}
-	paramsResults, err := ctx.filesystemAccessor.FilesystemParams(pending)
+	params, err := filesystemParams(ctx, pending)
 	if err != nil {
 		return errors.Annotate(err, "getting filesystem params")
 	}
-	for i, result := range paramsResults {
-		if result.Error != nil {
-			return errors.Annotate(result.Error, "getting filesystem parameters")
-		}
-		params, err := filesystemParamsFromParams(result.Result)
-		if err != nil {
-			return errors.Annotate(err, "getting filesystem parameters")
-		}
+	for i, params := range params {
 		ctx.pendingFilesystems[pending[i]] = params
 		if params.Volume != (names.VolumeTag{}) {
 			// The filesystem is volume-backed: we must watch for
@@ -485,46 +478,10 @@ func setFilesystemAttachmentInfo(ctx *context, filesystemAttachments []storage.F
 
 // createFilesystems creates filesystems with the specified parameters.
 func createFilesystems(ctx *context, params []storage.FilesystemParams) ([]storage.Filesystem, error) {
-	// TODO(axw) later we may have multiple instantiations (sources)
-	// for a storage provider, e.g. multiple Ceph installations. For
-	// now we assume a single source for each provider type, with no
-	// configuration.
-
-	// Create filesystem sources.
-	filesystemSources := make(map[string]storage.FilesystemSource)
-	for _, params := range params {
-		sourceName := string(params.Provider)
-		if _, ok := filesystemSources[sourceName]; ok {
-			continue
-		}
-		if params.Volume != (names.VolumeTag{}) {
-			filesystemSources[sourceName] = ctx.managedFilesystemSource
-			continue
-		}
-		filesystemSource, err := filesystemSource(
-			ctx.environConfig, ctx.storageDir, sourceName, params.Provider,
-		)
-		if err != nil {
-			return nil, errors.Annotate(err, "getting filesystem source")
-		}
-		filesystemSources[sourceName] = filesystemSource
+	paramsBySource, filesystemSources, err := filesystemParamsBySource(ctx, params)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
-
-	// Validate and gather filesystem parameters.
-	paramsBySource := make(map[string][]storage.FilesystemParams)
-	for _, params := range params {
-		sourceName := string(params.Provider)
-		filesystemSource := filesystemSources[sourceName]
-		err := filesystemSource.ValidateFilesystemParams(params)
-		if err != nil {
-			// TODO(axw) we should set an error status for params.Tag
-			// here, and we should retry periodically.
-			logger.Errorf("ignoring invalid filesystem: %v", err)
-			continue
-		}
-		paramsBySource[sourceName] = append(paramsBySource[sourceName], params)
-	}
-
 	var allFilesystems []storage.Filesystem
 	for sourceName, params := range paramsBySource {
 		logger.Debugf("creating filesystems: %v", params)
@@ -561,8 +518,87 @@ func createFilesystemAttachments(
 }
 
 func destroyFilesystems(ctx *context, tags []names.FilesystemTag) ([]error, error) {
-	// TODO(axw) add storage.FilesystemSource.DestroyFilesystems
-	return make([]error, len(tags)), nil
+	filesystemParams, err := filesystemParams(ctx, tags)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	paramsBySource, filesystemSources, err := filesystemParamsBySource(ctx, filesystemParams)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	var errs []error
+	for sourceName, params := range paramsBySource {
+		logger.Debugf("destroying filesystems from %q: %v", sourceName, params)
+		filesystemSource := filesystemSources[sourceName]
+		filesystemIds := make([]string, len(params))
+		for i, params := range params {
+			filesystem, ok := ctx.filesystems[params.Tag]
+			if !ok {
+				return nil, errors.NotFoundf("filesystem %s", params.Tag.Id())
+			}
+			filesystemIds[i] = filesystem.FilesystemId
+		}
+		errs = append(errs, filesystemSource.DestroyFilesystems(filesystemIds)...)
+	}
+	return errs, nil
+}
+
+// filesystemParams obtains the specified filesystems' parameters.
+func filesystemParams(ctx *context, tags []names.FilesystemTag) ([]storage.FilesystemParams, error) {
+	paramsResults, err := ctx.filesystemAccessor.FilesystemParams(tags)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting filesystem params")
+	}
+	allParams := make([]storage.FilesystemParams, len(tags))
+	for i, result := range paramsResults {
+		if result.Error != nil {
+			return nil, errors.Annotate(result.Error, "getting filesystem parameters")
+		}
+		params, err := filesystemParamsFromParams(result.Result)
+		if err != nil {
+			return nil, errors.Annotate(err, "getting filesystem parameters")
+		}
+		allParams[i] = params
+	}
+	return allParams, nil
+}
+
+func filesystemParamsBySource(
+	ctx *context, params []storage.FilesystemParams,
+) (map[string][]storage.FilesystemParams, map[string]storage.FilesystemSource, error) {
+	// TODO(axw) later we may have multiple instantiations (sources)
+	// for a storage provider, e.g. multiple Ceph installations. For
+	// now we assume a single source for each provider type, with no
+	// configuration.
+	filesystemSources := make(map[string]storage.FilesystemSource)
+	for _, params := range params {
+		sourceName := string(params.Provider)
+		if _, ok := filesystemSources[sourceName]; ok {
+			continue
+		}
+		if params.Volume != (names.VolumeTag{}) {
+			filesystemSources[sourceName] = ctx.managedFilesystemSource
+			continue
+		}
+		filesystemSource, err := filesystemSource(
+			ctx.environConfig, ctx.storageDir, sourceName, params.Provider,
+		)
+		if err != nil {
+			return nil, nil, errors.Annotate(err, "getting filesystem source")
+		}
+		filesystemSources[sourceName] = filesystemSource
+	}
+	paramsBySource := make(map[string][]storage.FilesystemParams)
+	for _, params := range params {
+		sourceName := string(params.Provider)
+		filesystemSource := filesystemSources[sourceName]
+		err := filesystemSource.ValidateFilesystemParams(params)
+		if err != nil {
+			return nil, nil, errors.Annotatef(err, "invalid parameters for filesystem %s", params.Tag.Id())
+		}
+		paramsBySource[sourceName] = append(paramsBySource[sourceName], params)
+	}
+	return paramsBySource, filesystemSources, nil
 }
 
 func detachFilesystems(ctx *context, attachments []storage.FilesystemAttachmentParams) error {

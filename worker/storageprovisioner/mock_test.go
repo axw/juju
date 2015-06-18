@@ -323,26 +323,22 @@ func (v *mockFilesystemAccessor) FilesystemAttachments(ids []params.MachineStora
 func (v *mockFilesystemAccessor) FilesystemParams(filesystems []names.FilesystemTag) ([]params.FilesystemParamsResult, error) {
 	var result []params.FilesystemParamsResult
 	for _, tag := range filesystems {
-		if _, ok := v.provisionedFilesystems[tag.String()]; ok {
-			result = append(result, params.FilesystemParamsResult{
-				Error: &params.Error{Message: "already provisioned"},
-			})
-		} else {
-			filesystemParams := params.FilesystemParams{
-				FilesystemTag: tag.String(),
-				Size:          1024,
-				Provider:      "dummy",
-				Tags: map[string]string{
-					"very": "fancy",
-				},
-			}
-			if _, ok := names.FilesystemMachine(tag); ok {
-				// place all volume-backed filesystems on machine-scoped
-				// volumes with the same ID as the filesystem.
-				filesystemParams.VolumeTag = names.NewVolumeTag(tag.Id()).String()
-			}
-			result = append(result, params.FilesystemParamsResult{Result: filesystemParams})
+		// Parameters are returned regardless of whether the filesystem
+		// exists; this is to support destruction.
+		filesystemParams := params.FilesystemParams{
+			FilesystemTag: tag.String(),
+			Size:          1024,
+			Provider:      "dummy",
+			Tags: map[string]string{
+				"very": "fancy",
+			},
 		}
+		if _, ok := names.FilesystemMachine(tag); ok {
+			// place all volume-backed filesystems on machine-scoped
+			// volumes with the same ID as the filesystem.
+			filesystemParams.VolumeTag = names.NewVolumeTag(tag.Id()).String()
+		}
+		result = append(result, params.FilesystemParamsResult{Result: filesystemParams})
 	}
 	return result, nil
 }
@@ -447,11 +443,12 @@ type dummyProvider struct {
 	storage.Provider
 	dynamic bool
 
-	volumeSourceFunc      func(*config.Config, *storage.Config) (storage.VolumeSource, error)
-	filesystemSourceFunc  func(*config.Config, *storage.Config) (storage.FilesystemSource, error)
-	detachVolumesFunc     func([]storage.VolumeAttachmentParams) error
-	detachFilesystemsFunc func([]storage.FilesystemAttachmentParams) error
-	destroyVolumesFunc    func([]string) []error
+	volumeSourceFunc       func(*config.Config, *storage.Config) (storage.VolumeSource, error)
+	filesystemSourceFunc   func(*config.Config, *storage.Config) (storage.FilesystemSource, error)
+	detachVolumesFunc      func([]storage.VolumeAttachmentParams) error
+	detachFilesystemsFunc  func([]storage.FilesystemAttachmentParams) error
+	destroyVolumesFunc     func([]string) []error
+	destroyFilesystemsFunc func([]string) []error
 }
 
 type dummyVolumeSource struct {
@@ -570,6 +567,13 @@ func (s *dummyFilesystemSource) CreateFilesystems(params []storage.FilesystemPar
 		})
 	}
 	return filesystems, nil
+}
+
+func (s *dummyFilesystemSource) DestroyFilesystems(filesystemIds []string) []error {
+	if s.provider.destroyFilesystemsFunc != nil {
+		return s.provider.destroyFilesystemsFunc(filesystemIds)
+	}
+	return make([]error, len(filesystemIds))
 }
 
 // AttachFilesystems attaches filesystems to machines.

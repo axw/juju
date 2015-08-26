@@ -1,0 +1,11 @@
+- in models, struct types are given "omitempty", but this is
+  ineffective. must use pointer-to-struct.
+- enum type names (e.g. VirtualMachineSizeTypes) should be made singular
+- having to make multiple queries to get the state of a machine is not
+  great. VM first, then network addresses. possible to include more
+  information in the compute model?
+- more thorough godoc would be helpful, if it's available in swagger
+  or cross-referenceable
+- I would prefer model struct fields were not anonymous types; this
+  makes using struct literals impossible, which in turn makes code
+  a bit more verbose.

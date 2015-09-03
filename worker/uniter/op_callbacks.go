@@ -9,7 +9,6 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/names"
 	corecharm "gopkg.in/juju/charm.v5"
-	"gopkg.in/juju/charm.v5/hooks"
 
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/worker/uniter/charm"
@@ -44,12 +43,6 @@ func (opc *operationCallbacks) PrepareHook(hi hook.Info) (string, error) {
 		name = fmt.Sprintf("%s-%s", storageName, hi.Kind)
 		// TODO(axw) if the agent is not installed yet,
 		// set the status to "preparing storage".
-	case hi.Kind == hooks.ConfigChanged:
-		// TODO(axw)
-		//opc.u.f.DiscardConfigEvent()
-	case hi.Kind == hook.LeaderSettingsChanged:
-		// TODO(axw)
-		//opc.u.f.DiscardLeaderSettingsEvent()
 	}
 	return name, nil
 }
@@ -61,8 +54,6 @@ func (opc *operationCallbacks) CommitHook(hi hook.Info) error {
 		return opc.u.relations.CommitHook(hi)
 	case hi.Kind.IsStorage():
 		return opc.u.storage.CommitHook(hi)
-	case hi.Kind == hooks.ConfigChanged:
-		opc.u.ranConfigChanged = true
 	}
 	return nil
 }

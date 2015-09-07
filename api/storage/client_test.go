@@ -99,8 +99,6 @@ func (s *storageMockSuite) TestShowFacadeCallError(c *gc.C) {
 }
 
 func (s *storageMockSuite) TestList(c *gc.C) {
-	one := "shared-fs/0"
-	oneTag := names.NewStorageTag(one)
 	two := "db-dir/1000"
 	twoTag := names.NewStorageTag(two)
 	msg := "call failure"
@@ -115,45 +113,33 @@ func (s *storageMockSuite) TestList(c *gc.C) {
 			c.Check(id, gc.Equals, "")
 			c.Check(request, gc.Equals, "List")
 			c.Check(a, gc.IsNil)
-
-			if results, k := result.(*params.StorageInfosResult); k {
-				instances := []params.StorageInfo{
-					params.StorageInfo{
-						params.StorageDetails{StorageTag: oneTag.String()},
-						common.ServerError(errors.New(msg)),
+			if result, ok := result.(*params.StorageDetailsResults); ok {
+				result.Results = []params.StorageDetailsResult{{
+					Error: common.ServerError(errors.New(msg)),
+				}, {
+					Result: params.StorageDetails{
+						StorageTag: twoTag.String(),
+						Status:     "attached",
+						Persistent: true,
 					},
-					params.StorageInfo{
-						params.StorageDetails{
-							StorageTag: twoTag.String(),
-							Status:     "attached",
-							Persistent: true,
-						},
-						nil,
-					},
-				}
-				results.Results = instances
+				}}
 			}
-
 			return nil
-		})
+		},
+	)
 	storageClient := storage.NewClient(apiCaller)
 	found, err := storageClient.List()
 	c.Check(err, jc.ErrorIsNil)
 	c.Assert(found, gc.HasLen, 2)
-	expected := []params.StorageInfo{
-		params.StorageInfo{
-			StorageDetails: params.StorageDetails{
-				StorageTag: "storage-shared-fs-0"},
-			Error: &params.Error{Message: msg},
+	expected := []params.StorageDetailsResult{{
+		Error: &params.Error{Message: msg},
+	}, {
+		Result: params.StorageDetails{
+			StorageTag: "storage-db-dir-1000",
+			Status:     "attached",
+			Persistent: true,
 		},
-		params.StorageInfo{
-			params.StorageDetails{
-				StorageTag: "storage-db-dir-1000",
-				Status:     "attached",
-				Persistent: true},
-			nil},
-	}
-
+	}}
 	c.Assert(found, jc.DeepEquals, expected)
 }
 

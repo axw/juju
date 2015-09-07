@@ -45,7 +45,7 @@ type VolumeInfo struct {
 	VolumeId string `yaml:"id" json:"id"`
 
 	// from params.Volume
-	HardwareId string `yaml:"hardwareid" json:"hardwareid"`
+	HardwareId string `yaml:"hardwareid,omitempty" json:"hardwareid,omitempty"`
 
 	// from params.Volume
 	Size uint64 `yaml:"size" json:"size"`
@@ -107,10 +107,6 @@ var idFromTag = func(s string) (string, error) {
 		return "", errors.Annotatef(err, "invalid tag %v", tag)
 	}
 	return tag.Id(), nil
-}
-
-func convertVolumeAttachments(item params.VolumeDetailsResult, all map[string]map[string]map[string]VolumeInfo) error {
-	return nil
 }
 
 func addOneToAll(machineId, storageId, storageOwnerId string, item VolumeInfo, all map[string]map[string]map[string]VolumeInfo) {

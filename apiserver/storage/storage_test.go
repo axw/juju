@@ -48,9 +48,9 @@ func (s *storageSuite) TestStorageListFilesystem(c *gc.C) {
 	s.assertCalls(c, expectedCalls)
 
 	c.Assert(found.Results, gc.HasLen, 1)
-	wantedDetails := s.createTestStorageDetailsResult()
+	wantedDetails := s.createTestStorageDetailsV1Result()
 	wantedDetails.Result.UnitTag = s.unitTag.String()
-	s.assertStorageDetailsError(c, found.Results[0], wantedDetails, "")
+	s.assertStorageDetailsV1Error(c, found.Results[0], wantedDetails, "")
 }
 
 func (s *storageSuite) TestStorageListVolume(c *gc.C) {
@@ -69,10 +69,10 @@ func (s *storageSuite) TestStorageListVolume(c *gc.C) {
 	s.assertCalls(c, expectedCalls)
 
 	c.Assert(found.Results, gc.HasLen, 1)
-	wantedDetails := s.createTestStorageDetailsResult()
+	wantedDetails := s.createTestStorageDetailsV1Result()
 	wantedDetails.Result.Kind = params.StorageKindBlock
 	wantedDetails.Result.UnitTag = s.unitTag.String()
-	s.assertStorageDetailsError(c, found.Results[0], wantedDetails, "")
+	s.assertStorageDetailsV1Error(c, found.Results[0], wantedDetails, "")
 }
 
 func (s *storageSuite) TestStorageListError(c *gc.C) {
@@ -111,9 +111,9 @@ func (s *storageSuite) TestStorageListInstanceError(c *gc.C) {
 	}
 	s.assertCalls(c, expectedCalls)
 	c.Assert(found.Results, gc.HasLen, 1)
-	wanted := s.createTestStorageDetailsResultWithError("",
+	wanted := s.createTestStorageDetailsV1ResultWithError("",
 		fmt.Sprintf("getting storage attachment info: getting storage instance: %v", msg))
-	s.assertStorageDetailsError(c, found.Results[0], wanted, msg)
+	s.assertStorageDetailsV1Error(c, found.Results[0], wanted, msg)
 }
 
 func (s *storageSuite) TestStorageListAttachmentError(c *gc.C) {
@@ -133,8 +133,8 @@ func (s *storageSuite) TestStorageListAttachmentError(c *gc.C) {
 	s.assertCalls(c, expectedCalls)
 	c.Assert(found.Results, gc.HasLen, 1)
 	expectedErr := "list test error"
-	wanted := s.createTestStorageDetailsResultWithError("", expectedErr)
-	s.assertStorageDetailsError(c, found.Results[0], wanted, expectedErr)
+	wanted := s.createTestStorageDetailsV1ResultWithError("", expectedErr)
+	s.assertStorageDetailsV1Error(c, found.Results[0], wanted, expectedErr)
 }
 
 func (s *storageSuite) TestStorageListMachineError(c *gc.C) {
@@ -155,9 +155,9 @@ func (s *storageSuite) TestStorageListMachineError(c *gc.C) {
 	}
 	s.assertCalls(c, expectedCalls)
 	c.Assert(found.Results, gc.HasLen, 1)
-	wanted := s.createTestStorageDetailsResultWithError("",
+	wanted := s.createTestStorageDetailsV1ResultWithError("",
 		fmt.Sprintf("getting unit for storage attachment: %v", msg))
-	s.assertStorageDetailsError(c, found.Results[0], wanted, msg)
+	s.assertStorageDetailsV1Error(c, found.Results[0], wanted, msg)
 }
 
 func (s *storageSuite) TestStorageListFilesystemError(c *gc.C) {
@@ -180,9 +180,9 @@ func (s *storageSuite) TestStorageListFilesystemError(c *gc.C) {
 	}
 	s.assertCalls(c, expectedCalls)
 	c.Assert(found.Results, gc.HasLen, 1)
-	wanted := s.createTestStorageDetailsResultWithError("",
+	wanted := s.createTestStorageDetailsV1ResultWithError("",
 		fmt.Sprintf("getting storage attachment info: getting filesystem: %v", msg))
-	s.assertStorageDetailsError(c, found.Results[0], wanted, msg)
+	s.assertStorageDetailsV1Error(c, found.Results[0], wanted, msg)
 }
 
 func (s *storageSuite) TestStorageListFilesystemAttachmentError(c *gc.C) {
@@ -203,13 +203,13 @@ func (s *storageSuite) TestStorageListFilesystemAttachmentError(c *gc.C) {
 	}
 	s.assertCalls(c, expectedCalls)
 	c.Assert(found.Results, gc.HasLen, 1)
-	wanted := s.createTestStorageDetailsResultWithError("",
+	wanted := s.createTestStorageDetailsV1ResultWithError("",
 		fmt.Sprintf("getting unit for storage attachment: %v", msg))
-	s.assertStorageDetailsError(c, found.Results[0], wanted, msg)
+	s.assertStorageDetailsV1Error(c, found.Results[0], wanted, msg)
 }
 
-func (s *storageSuite) createTestStorageDetailsResultWithError(code, msg string) params.StorageDetailsResult {
-	wanted := s.createTestStorageDetailsResult()
+func (s *storageSuite) createTestStorageDetailsV1ResultWithError(code, msg string) params.StorageDetailsV1Result {
+	wanted := s.createTestStorageDetailsV1Result()
 	wanted.Error = &params.Error{
 		Code:    code,
 		Message: fmt.Sprintf("getting attachments for storage data/0: %v", msg),
@@ -217,9 +217,9 @@ func (s *storageSuite) createTestStorageDetailsResultWithError(code, msg string)
 	return wanted
 }
 
-func (s *storageSuite) createTestStorageDetailsResult() params.StorageDetailsResult {
-	return params.StorageDetailsResult{
-		params.StorageDetails{
+func (s *storageSuite) createTestStorageDetailsV1Result() params.StorageDetailsV1Result {
+	return params.StorageDetailsV1Result{
+		params.StorageDetailsV1{
 			StorageTag: s.storageTag.String(),
 			OwnerTag:   s.unitTag.String(),
 			Kind:       params.StorageKindFilesystem,
@@ -229,7 +229,7 @@ func (s *storageSuite) createTestStorageDetailsResult() params.StorageDetailsRes
 	}
 }
 
-func (s *storageSuite) assertStorageDetailsError(c *gc.C, obtained params.StorageDetailsResult, wanted params.StorageDetailsResult, expected string) {
+func (s *storageSuite) assertStorageDetailsV1Error(c *gc.C, obtained params.StorageDetailsV1Result, wanted params.StorageDetailsV1Result, expected string) {
 	if expected != "" {
 		c.Assert(errors.Cause(obtained.Error), gc.ErrorMatches, fmt.Sprintf(".*%v.*", expected))
 	} else {
@@ -262,7 +262,7 @@ func (s *storageSuite) TestShowStorage(c *gc.C) {
 	one := found.Results[0]
 	c.Assert(one.Error, gc.IsNil)
 
-	expected := params.StorageDetails{
+	expected := params.StorageDetailsV1{
 		StorageTag: s.storageTag.String(),
 		OwnerTag:   s.unitTag.String(),
 		Kind:       params.StorageKindFilesystem,
@@ -283,6 +283,6 @@ func (s *storageSuite) TestShowStorageInvalidId(c *gc.C) {
 	instance := found.Results[0]
 	c.Assert(instance.Error, gc.ErrorMatches, `"foo" is not a valid tag`)
 
-	expected := params.StorageDetails{Kind: params.StorageKindUnknown}
+	expected := params.StorageDetailsV1{Kind: params.StorageKindUnknown}
 	c.Assert(instance.Result, gc.DeepEquals, expected)
 }

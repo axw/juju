@@ -392,7 +392,7 @@ type FilesystemAttachmentParamsResults struct {
 // StorageDetails holds information about storage.
 type StorageDetails struct {
 
-	// StorageTag holds tag for this storage.
+	// StorageTag holds the storage tag for this storage instance.
 	StorageTag string `json:"storagetag"`
 
 	// OwnerTag holds tag for the owner of this storage, unit or service.
@@ -404,8 +404,78 @@ type StorageDetails struct {
 	// Status indicates storage status, e.g. pending, provisioned, attached.
 	Status string `json:"status,omitempty"`
 
-	// UnitTag holds tag for unit for attached instances.
+	// Size is the size of the storage in MiB.
+	Size uint64 `json:"size,omitempty"`
+
+	// Persistent indicates whether the storage is persistent or not.
+	Persistent bool `json:"persistent"`
+
+	// UnitAttachments holds a mapping from unit tag to storage attachments.
+	UnitAttachments map[string]StorageAttachmentDetails
+}
+
+// StorageDetailsResult holds information about a storage instance or error
+// related to its retrieval.
+type StorageDetailsResult struct {
+	Result *StorageDetails `json:"result,omitempty"`
+	Error  *Error          `json:"error,omitempty"`
+}
+
+// StorageDetailsResults holds results for storage instance details.
+type StorageDetailsResults struct {
+	Results []StorageDetailsResult `json:"results,omitempty"`
+}
+
+// StorageAttachmentDetails holds information about storage.
+type StorageAttachmentDetails struct {
+
+	// StorageTag holds the storage tag for this attachment.
+	StorageTag string `json:"storagetag"`
+
+	// UnitTag holds the unit tag for this attachment.
+	UnitTag string `json:"unittag"`
+
+	// MachineTag holds the tag of the machine that the unit is
+	// assigned to, if any.
+	MachineTag string `json:"machinetag,omitempty"`
+
+	// Location holds the location at which the storage is attached.
+	Location string `json:"location,omitempty"`
+}
+
+// StorageAttachmentDetailsResult holds information about a storage attachment
+// or error related to its retrieval.
+type StorageAttachmentDetailsResult struct {
+	Result *StorageAttachmentDetails `json:"result,omitempty"`
+	Error  *Error                    `json:"error,omitempty"`
+}
+
+// StorageAttachmentDetailsResults holds results for storage attachment details.
+type StorageAttachmentDetailsResults struct {
+	Results []StorageAttachmentDetailsResult `json:"results,omitempty"`
+}
+
+// StorageDetailsV1 holds information about storage.
+//
+// NOTE: this is for backwards compatibility only. This struct
+// should not be changed!
+type StorageDetailsV1 struct {
+
+	// StorageTag holds the storage tag for this attachment.
+	StorageTag string `json:"storagetag"`
+
+	// UnitTag holds the unit tag for this attachment. For
+	// unattached storage, this will be empty.
 	UnitTag string `json:"unittag,omitempty"`
+
+	// OwnerTag holds tag for the owner of this storage, unit or service.
+	OwnerTag string `json:"ownertag"`
+
+	// Kind holds what kind of storage this instance is.
+	Kind StorageKind `json:"kind"`
+
+	// Status indicates storage status, e.g. pending, provisioned, attached.
+	Status string `json:"status,omitempty"`
 
 	// Location holds location for provisioned attached instances.
 	Location string `json:"location,omitempty"`
@@ -414,16 +484,16 @@ type StorageDetails struct {
 	Persistent bool `json:"persistent"`
 }
 
-// StorageDetailsResult holds information about a storage instance
-// or error related to its retrieval.
-type StorageDetailsResult struct {
-	Result StorageDetails `json:"result"`
-	Error  *Error         `json:"error,omitempty"`
+// StorageDetailsV1Result holds information about a storage instance or error
+// related to its retrieval.
+type StorageDetailsV1Result struct {
+	Result StorageDetailsV1 `json:"result,omitempty"`
+	Error  *Error           `json:"error,omitempty"`
 }
 
-// StorageDetailsResults holds results for storage details or related storage error.
-type StorageDetailsResults struct {
-	Results []StorageDetailsResult `json:"results,omitempty"`
+// StorageDetailsV1Results holds results for storage instance details.
+type StorageDetailsV1Results struct {
+	Results []StorageDetailsV1Result `json:"results,omitempty"`
 }
 
 // StoragePool holds data for a pool instance.
@@ -566,6 +636,49 @@ type VolumeDetailsResult struct {
 // VolumeDetailsResults holds volume details.
 type VolumeDetailsResults struct {
 	Results []VolumeDetailsResult `json:"results,omitempty"`
+}
+
+// FilesystemDetails describes a storage filesystem in the environment
+// for the purpose of filesystem CLI commands.
+//
+// This is kept separate from Filesystem which contains only information
+// specific to the filesystem model, whereas FilesystemDetails is intended
+// to contain complete information about a filesystem and related
+// information (status, attachments, storage).
+type FilesystemDetails struct {
+
+	// FilesystemTag is the tag for the filesystem.
+	FilesystemTag string `json:"filesystemtag"`
+
+	// Info contains information about the filesystem.
+	Info FilesystemInfo `json:"info"`
+
+	// Status contains the status of the filesystem.
+	Status EntityStatus `json:"status"`
+
+	// MachineAttachments contains a mapping from
+	// machine tag to filesystem attachment information.
+	MachineAttachments map[string]FilesystemAttachmentInfo `json:"machineattachments,omitempty"`
+
+	// Storage contains storage details, if the filesystem
+	// is assigned to a storage instance.
+	Storage *StorageDetails `json:"storage,omitempty"`
+}
+
+// FilesystemDetailsResult contains details about a filesystem, its attachments or
+// an error preventing retrieving those details.
+type FilesystemDetailsResult struct {
+
+	// Details describes the filesystem in detail.
+	Details *FilesystemDetails `json:"details,omitempty"`
+
+	// Error contains filesystem retrieval error.
+	Error *Error `json:"error,omitempty"`
+}
+
+// FilesystemDetailsResults holds filesystem details.
+type FilesystemDetailsResults struct {
+	Results []FilesystemDetailsResult `json:"results,omitempty"`
 }
 
 // StorageConstraints contains constraints for storage instance.

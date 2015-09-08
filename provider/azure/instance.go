@@ -4,7 +4,7 @@
 package azure
 
 import (
-	"github.com/azure/azure-sdk-for-go/arm/compute"
+	"github.com/Azure/azure-sdk-for-go/arm/compute"
 
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"

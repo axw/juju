@@ -73,7 +73,7 @@ func (prov azureEnvironProvider) SecretAttrs(cfg *config.Config) (map[string]str
 	if err != nil {
 		return nil, err
 	}
-	secretAttrs["management-certificate"] = azureCfg.managementCertificate()
+	secretAttrs[configClientKey] = azureCfg.managementCertificate()
 	return secretAttrs, nil
 }
 

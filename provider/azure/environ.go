@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/azure/azure-sdk-for-go/arm/compute"
+	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/juju/errors"
 	"github.com/juju/utils/set"
 
@@ -30,10 +30,6 @@ const (
 	// environement, in CIDR notation. This is the network used for
 	// machine-to-machine communication.
 	networkDefinition = "10.0.0.0/8"
-
-	// stateServerLabel is the label applied to the cloud service created
-	// for state servers.
-	stateServerLabel = "juju-state-server"
 )
 
 type azureEnviron struct {

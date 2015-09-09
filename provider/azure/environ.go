@@ -5,11 +5,14 @@ package azure
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
+	"github.com/Azure/azure-sdk-for-go/arm/resources"
+	"github.com/Azure/azure-sdk-for-go/arm/storage"
 	"github.com/juju/errors"
-	"github.com/juju/utils/set"
+	"github.com/juju/names"
 
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/constraints"
@@ -23,6 +26,7 @@ import (
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/provider/common"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/version"
 )
 
 const (
@@ -33,11 +37,15 @@ const (
 )
 
 type azureEnviron struct {
-	mu                 sync.Mutex
-	ecfg               *azureEnvironConfig
-	storageAccountKey  string
-	availableRoleSizes set.Strings
-	compute            compute.ComputeManagementClient
+	resourceGroup string
+
+	mu             sync.Mutex
+	config         *azureEnvironConfig
+	instanceTypes  map[string]instances.InstanceType
+	compute        compute.ComputeManagementClient
+	resources      resources.ResourceManagementClient
+	storage        storage.StorageManagementClient
+	storageAccount *storage.StorageAccount
 }
 
 // azureEnviron implements Environ and HasRegion.
@@ -52,15 +60,110 @@ func NewEnviron(cfg *config.Config) (*azureEnviron, error) {
 	if err != nil {
 		return nil, err
 	}
+	env.resourceGroup = resourceGroupName(cfg)
 	return &env, nil
 }
 
 // Bootstrap is specified in the Environ interface.
-func (env *azureEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.BootstrapParams) (arch, series string, _ environs.BootstrapFinalizer, err error) {
-	// TODO(axw) create resource group?
-	// TODO(axw) create affinity group?
-	// TODO(axw) create vnet
+func (env *azureEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.BootstrapParams) (arch, series string, _ environs.BootstrapFinalizer, _ error) {
+
+	location := env.config.location
+	tags, _ := env.config.ResourceTags()
+
+	var err error
+	resourceGroupsClient := resources.ResourceGroupsClient{env.resources}
+	_, err = resourceGroupsClient.CreateOrUpdate(env.resourceGroup, resources.ResourceGroup{
+		Name:     env.resourceGroup,
+		Location: location,
+		Tags:     tags,
+	})
+	if err != nil {
+		return "", "", nil, errors.Annotate(err, "creating resource group")
+	}
+
+	arch, series, finalizer, err := env.bootstrapResourceGroup(ctx, args, location, tags)
+	if err != nil {
+		if _, err := resourceGroupsClient.Delete(env.resourceGroup); err != nil {
+			logger.Errorf("failed to delete resource group %q: %v", env.resourceGroup, err)
+		}
+		return "", "", nil, errors.Trace(err)
+	}
+	return arch, series, finalizer, nil
+}
+
+func (env *azureEnviron) bootstrapResourceGroup(
+	ctx environs.BootstrapContext,
+	args environs.BootstrapParams,
+	location string,
+	tags map[string]string,
+) (arch, series string, _ environs.BootstrapFinalizer, _ error) {
+
+	// Create a storage account.
+	storageAccountsClient := storage.StorageAccountsClient{env.storage}
+	storageAccount, err := createStorageAccount(
+		storageAccountsClient, env.resourceGroup, location, tags,
+	)
+	if err != nil {
+		return "", "", nil, errors.Annotate(err, "creating storage account")
+	}
+	env.storageAccount = storageAccount
+
+	// TODO(axw) ensure user doesn't specify storage-account.
+	// Update the environment's config with generated config.
+	cfg, err := env.config.Config.Apply(map[string]interface{}{
+		configAttrStorageAccount: storageAccount.Name,
+	})
+	if err != nil {
+		return "", "", nil, errors.Trace(err)
+	}
+	if err := env.SetConfig(cfg); err != nil {
+		return "", "", nil, errors.Trace(err)
+	}
+
+	// TODO(axw) create default availability set?
+	// TODO(axw) create vnet?
 	return common.Bootstrap(ctx, env, args)
+}
+
+func createStorageAccount(
+	client storage.StorageAccountsClient,
+	resourceGroup string,
+	location string,
+	tags map[string]string,
+) (*storage.StorageAccount, error) {
+	const maxStorageAccountNameLen = 24
+	const maxAttempts = 10
+	validRunes := append([]rune(lowerAlpha), []rune(digits)...)
+	for remaining := maxAttempts; remaining > 0; remaining-- {
+		accountName := randomString(maxStorageAccountNameLen, validRunes)
+		result, err := client.CheckNameAvailability(
+			storage.StorageAccountCheckNameAvailabilityParameters{
+				Name: accountName,
+			},
+		)
+		if err != nil {
+			return nil, errors.Annotate(err, "checking account name availability")
+		}
+		if !result.NameAvailable {
+			logger.Debugf(
+				"%q is not available (%v): %v",
+				accountName, result.Reason, result.Message,
+			)
+			continue
+		}
+		createParams := storage.StorageAccountCreateParameters{
+			Location: location,
+			Tags:     tags,
+		}
+		// TODO(axw) make storage account type configurable?
+		createParams.Properties.AccountType = storage.StandardLRS
+		account, err := client.Create(resourceGroup, accountName, createParams)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return &account, nil
+	}
+	return nil, errors.New("could not find available storage account name")
 }
 
 // StateServerInstances is specified in the Environ interface.
@@ -86,35 +189,42 @@ func (env *azureEnviron) StateServerInstances() ([]instance.Id, error) {
 func (env *azureEnviron) Config() *config.Config {
 	env.mu.Lock()
 	defer env.mu.Unlock()
-	return env.ecfg.Config
+	return env.config.Config
 }
 
 // SetConfig is specified in the Environ interface.
 func (env *azureEnviron) SetConfig(cfg *config.Config) error {
-	env.Lock()
-	defer env.Unlock()
+	env.mu.Lock()
+	defer env.mu.Unlock()
 
 	var old *config.Config
-	if env.cfg != nil {
-		old = env.ecfg.Config
+	if env.config != nil {
+		old = env.config.Config
 	}
-	_, err = azureEnvironProvider{}.Validate(cfg, old)
+	ecfg, err := validateConfig(cfg, old)
 	if err != nil {
 		return err
 	}
+	env.config = ecfg
 
-	ecfg, err := azureEnvironProvider{}.newConfig(cfg)
-	if err != nil {
-		return err
+	// Initialise clients.
+	//
+	// TODO(axw) we need to set the URI in each of the
+	// SDK packages for the China locations.
+	env.compute = compute.New(env.config.subscriptionId)
+	env.compute.Authorizer = env.config.token
+	env.resources = resources.New(env.config.subscriptionId)
+	env.resources.Authorizer = env.config.token
+	env.storage = storage.New(env.config.subscriptionId)
+	env.storage.Authorizer = env.config.token
+
+	// Invalidate instance types when the location changes.
+	if old != nil {
+		oldLocation := old.UnknownAttrs()["location"].(string)
+		if env.config.location != oldLocation {
+			env.instanceTypes = nil
+		}
 	}
-	env.ecfg = ecfg
-
-	subscription := ecfg.managementSubscriptionId()
-	certKeyPEM := []byte(ecfg.managementCertificate())
-	location := ecfg.location()
-
-	// TODO(axw) initialise client, oauth token?
-	// TODO(axw) load available role sizes
 
 	return nil
 }
@@ -139,19 +249,19 @@ func (env *azureEnviron) ConstraintsValidator() (constraints.Validator, error) {
 	}
 	validator.RegisterVocabulary(constraints.Arch, supportedArches)
 
-	instanceTypes, err := listInstanceTypes(env)
+	instanceTypes, err := env.getInstanceTypes()
 	if err != nil {
 		return nil, err
 	}
-	instTypeNames := make([]string, len(instanceTypes))
-	for i, instanceType := range instanceTypes {
-		instTypeNames[i] = instanceType.Name
+	instTypeNames := make([]string, 0, len(instanceTypes))
+	for instTypeName := range instanceTypes {
+		instTypeNames = append(instTypeNames, instTypeName)
 	}
 	validator.RegisterVocabulary(constraints.InstanceType, instTypeNames)
 	validator.RegisterConflicts(
 		[]string{constraints.InstanceType},
-		[]string{constraints.Mem, constraints.CpuCores, constraints.Arch, constraints.RootDisk})
-
+		[]string{constraints.Mem, constraints.CpuCores, constraints.Arch, constraints.RootDisk},
+	)
 	return validator, nil
 }
 
@@ -164,7 +274,7 @@ func (env *azureEnviron) PrecheckInstance(series string, cons constraints.Value,
 		return nil
 	}
 	// Constraint has an instance-type constraint so let's see if it is valid.
-	instanceTypes, err := listInstanceTypes(env)
+	instanceTypes, err := env.getInstanceTypes()
 	if err != nil {
 		return err
 	}
@@ -197,18 +307,27 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	args.InstanceConfig.Tools = args.Tools[0]
 	logger.Infof("picked tools %q", args.InstanceConfig.Tools)
 
-	// Compose userdata.
-	customData, err := makeCustomData(args.InstanceConfig)
-	if err != nil {
-		return nil, errors.Annotate(err, "cannot compose user data")
-	}
-
-	// TODO(axw) take a snapshot like we used to?
+	// Get the required configuration and config-dependent information
+	// required to create the instance. We take the lock just once, to
+	// ensure we obtain all information based on the same configuration.
 	env.mu.Lock()
-	defer env.mu.Unlock()
+	location := env.config.location
+	envName := env.config.Name()
+	vmClient := compute.VirtualMachinesClient{env.compute}
+	instanceTypes, err := env.getInstanceTypesLocked()
+	if err != nil {
+		env.mu.Unlock()
+		return nil, errors.Trace(err)
+	}
+	storageAccount, err := env.getStorageAccountLocked()
+	if err != nil {
+		env.mu.Unlock()
+		return nil, errors.Trace(err)
+	}
+	env.mu.Unlock()
 
-	location := env.ecfg.location()
-	instanceType, sourceImageName, err := env.selectInstanceTypeAndImage(&instances.InstanceConstraint{
+	// Identify the instance type and image to provision.
+	instanceSpec, err := findInstanceSpec(env, instanceTypes, &instances.InstanceConstraint{
 		Region:      location,
 		Series:      args.Tools.OneSeries(),
 		Arches:      args.Tools.Arches(),
@@ -218,34 +337,40 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		return nil, err
 	}
 
+	// Prepare parameters for creating the instance.
+	machineTag := names.NewMachineTag(args.InstanceConfig.MachineId)
+	vmName := resourceName(machineTag, envName)
 	vmArgs := compute.VirtualMachine{
-		Type:     "", // TODO
 		Location: location,
 		Tags:     args.InstanceConfig.Tags,
 	}
-	vmArgs.Properties.HardwareProfile.VmSize = string(instanceType)
-	// TODO OS disk (using sourceImageName)
-	// TODO availability set
-	vmArgs.Properties.OsProfile.ComputerName = computerName
-	vmArgs.Properties.OsProfile.CustomData = customData
+	vmArgs.Properties.HardwareProfile.VmSize = compute.VirtualMachineSizeTypes(instanceSpec.InstanceType.Name)
+	if err := setVirtualMachineOsDisk(
+		&vmArgs, vmName, args.InstanceConfig.Series,
+		instanceSpec, storageAccount,
+	); err != nil {
+		return nil, errors.Trace(err)
+	}
+	if err := setVirtualMachineOsProfile(&vmArgs, vmName, args.InstanceConfig); err != nil {
+		return nil, errors.Trace(err)
+	}
 	// TODO network
-	// TODO ssh? is it handled by custom data?
-	// TODO firewall
+	// TODO availability set
+	// TODO firewall?
 
-	vmClient := compute.VirtualMachinesClient{env.compute}
-	vm, err := vmClient.CreateOrUpdate(resourceGroup, vmName, vmArgs)
+	vm, err := vmClient.CreateOrUpdate(env.resourceGroup, vmName, vmArgs)
 	// TODO(axw) check if autorest.Error is an interface type
 	if err != nil {
 		return nil, errors.Annotate(err, "creating virtual machine")
 	}
-	inst := &azureEnviron{vm}
+	inst := &azureInstance{vm}
 
 	amd64 := arch.AMD64
 	hc := &instance.HardwareCharacteristics{
 		Arch:     &amd64,
-		Mem:      &instanceType.Mem,
-		RootDisk: &instanceType.RootDisk,
-		CpuCores: &instanceType.CpuCores,
+		Mem:      &instanceSpec.InstanceType.Mem,
+		RootDisk: &instanceSpec.InstanceType.RootDisk,
+		CpuCores: &instanceSpec.InstanceType.CpuCores,
 	}
 	return &environs.StartInstanceResult{
 		Instance: inst,
@@ -253,26 +378,91 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	}, nil
 }
 
-/*
-// newOSDisk creates a gwacl.OSVirtualHardDisk object suitable for an
-// Azure Virtual Machine.
-func (env *azureEnviron) newOSDisk(sourceImageName string) *gwacl.OSVirtualHardDisk {
-	vhdName := gwacl.MakeRandomDiskName("juju")
-	vhdPath := fmt.Sprintf("vhds/%s", vhdName)
-	snap := env.getSnapshot()
-	storageAccount := snap.ecfg.storageAccountName()
-	mediaLink := gwacl.CreateVirtualHardDiskMediaLink(storageAccount, vhdPath)
-	// The disk label is optional and the disk name can be omitted if
-	// mediaLink is provided.
-	return gwacl.NewOSVirtualHardDisk("", "", "", mediaLink, sourceImageName, "Linux")
+// setVirtualMachineOsDisk sets the OS disk parameters for the
+// virtual machine, base on the series and chosen instance spec.
+func setVirtualMachineOsDisk(
+	vm *compute.VirtualMachine,
+	vmName string,
+	series string,
+	instanceSpec *instances.InstanceSpec,
+	storageAccount *storage.StorageAccount,
+) error {
+	storageProfile := &vm.Properties.StorageProfile
+	osDisk := &storageProfile.OsDisk
+
+	os, err := version.GetOSFromSeries(series)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	switch os {
+	case version.Ubuntu, version.CentOS, version.Arch:
+		osDisk.OsType = compute.Linux
+	case version.Windows:
+		osDisk.OsType = compute.Windows
+	default:
+		return errors.NotSupportedf("%s", os)
+	}
+
+	// TODO(axw) this should be using the image name from instanceSpec.
+	// There is currently no way to specify the image name in VirtualMachine.
+
+	switch os {
+	case version.Ubuntu:
+		storageProfile.ImageReference.Publisher = "Canonical"
+		storageProfile.ImageReference.Offer = "UbuntuServer"
+		storageProfile.ImageReference.Sku = "14.04.3-LTS"
+		storageProfile.ImageReference.Version = "latest"
+	default:
+		// TODO(axw)
+		return errors.NotImplementedf("%s", os)
+	}
+
+	osDisk.Name = vmName + "-osdisk"
+	osDisk.CreateOption = compute.FromImage
+	osDisk.Caching = compute.ReadWrite
+	osDisk.Vhd.Uri = storageAccount.Properties.PrimaryEndpoints.Blob + "vhds/" + osDisk.Name + ".vhd"
+	return nil
 }
-*/
+
+func setVirtualMachineOsProfile(
+	vm *compute.VirtualMachine,
+	vmName string,
+	instanceConfig *instancecfg.InstanceConfig,
+) error {
+	osProfile := &vm.Properties.OsProfile
+	osProfile.ComputerName = vmName
+
+	customData, err := makeCustomData(instanceConfig)
+	if err != nil {
+		return errors.Annotate(err, "composing custom data")
+	}
+	osProfile.CustomData = customData
+
+	os, err := version.GetOSFromSeries(instanceConfig.Series)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	switch os {
+	case version.Ubuntu, version.CentOS, version.Arch:
+		// SSH keys are handled by custom data.
+		osProfile.AdminUsername = "ubuntu"
+		osProfile.LinuxConfiguration.DisablePasswordAuthentication = true
+	default:
+		// TODO(axw) support Windows
+		return errors.NotSupportedf("%s", os)
+	}
+	return nil
+}
 
 // StopInstances is specified in the InstanceBroker interface.
 func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 	vmClient := compute.VirtualMachinesClient{env.compute}
 	for _, id := range ids {
-		_, err := vmClient.Delete(resourceGroup, string(id))
+		// TODO(axw) delete VMs in parallel.
+		_, err := vmClient.Delete(env.resourceGroup, string(id))
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 	return nil
 }
@@ -287,28 +477,31 @@ func (env *azureEnviron) Instances(ids []instance.Id) ([]instance.Instance, erro
 	for _, inst := range all {
 		byId[inst.Id()] = inst
 	}
-	found := true
-	matching := make([]instance.Id, len(ids))
+	var found int
+	matching := make([]instance.Instance, len(ids))
 	for i, id := range ids {
 		inst, ok := byId[id]
 		if !ok {
 			continue
 		}
 		matching[i] = inst
-		found = false
+		found++
 	}
 	if found == 0 {
 		return nil, environs.ErrNoInstances
 	} else if found < len(ids) {
-		return matching, environs.ErrNoInstances
+		return matching, environs.ErrPartialInstances
 	}
 	return matching, nil
 }
 
 // AllInstances is specified in the InstanceBroker interface.
 func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
+	env.mu.Lock()
 	vmClient := compute.VirtualMachinesClient{env.compute}
-	result, err := vmClient.List(resourceGroup)
+	env.mu.Unlock()
+
+	result, err := vmClient.List(env.resourceGroup)
 	if err != nil {
 		return nil, errors.Annotate(err, "listing virtual machines")
 	}
@@ -326,7 +519,10 @@ func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
 // Destroy is specified in the Environ interface.
 func (env *azureEnviron) Destroy() error {
 	logger.Debugf("destroying environment %q", env.Config().Name())
-	// TODO(axw) delete resource group. Is that all there is to it?
+	client := resources.ResourceGroupsClient{env.resources}
+	if _, err := client.Delete(env.resourceGroup); err != nil {
+		return errors.Annotatef(err, "deleting resource group %q", env.resourceGroup)
+	}
 	return nil
 }
 
@@ -358,17 +554,87 @@ func (env *azureEnviron) Provider() environs.EnvironProvider {
 
 // Region is specified in the HasRegion interface.
 func (env *azureEnviron) Region() (simplestreams.CloudSpec, error) {
-	/*
-		ecfg := env.getSnapshot().ecfg
-		return simplestreams.CloudSpec{
-			Region:   ecfg.location(),
-			Endpoint: string(gwacl.GetEndpoint(ecfg.location())),
-		}, nil
-	*/
-	panic("TODO")
+	env.mu.Lock()
+	location := env.config.location
+	env.mu.Unlock()
+	return simplestreams.CloudSpec{
+		Region:   location,
+		Endpoint: getEndpoint(location),
+	}, nil
 }
 
 // SupportsUnitPlacement is specified in the state.EnvironCapability interface.
 func (env *azureEnviron) SupportsUnitPlacement() error {
 	return nil
+}
+
+// resourceGroupName returns the name of the environment's resource group.
+func resourceGroupName(cfg *config.Config) string {
+	uuid, _ := cfg.UUID()
+	// UUID is always available for azure environments, since the (new)
+	// provider was introduced after environment UUIDs.
+	envTag := names.NewEnvironTag(uuid)
+	return resourceName(envTag, cfg.Name())
+}
+
+// resourceName returns the string to use for a resource's Name tag,
+// to help users identify Juju-managed resources in the AWS console.
+func resourceName(tag names.Tag, envName string) string {
+	return fmt.Sprintf("juju-%s-%s", envName, tag)
+}
+
+// getInstanceTypes gets the instance types available for the configured
+// location, keyed by name.
+func (env *azureEnviron) getInstanceTypes() (map[string]instances.InstanceType, error) {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	instanceTypes, err := env.getInstanceTypesLocked()
+	if err != nil {
+		return nil, errors.Annotate(err, "getting instance types")
+	}
+	return instanceTypes, nil
+}
+
+func (env *azureEnviron) getInstanceTypesLocked() (map[string]instances.InstanceType, error) {
+	if env.instanceTypes != nil {
+		return env.instanceTypes, nil
+	}
+
+	location := env.config.location
+	client := compute.VirtualMachineSizesClient{env.compute}
+
+	result, err := client.List(location)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	instanceTypes := make(map[string]instances.InstanceType)
+	for _, size := range result.Value {
+		instanceType := newInstanceType(size)
+		instanceTypes[instanceType.Name] = instanceType
+		// Create aliases for standard role sizes.
+		if strings.HasPrefix(instanceType.Name, "Standard_") {
+			instanceTypes[instanceType.Name[len("Standard_"):]] = instanceType
+		}
+	}
+
+	env.instanceTypes = instanceTypes
+	return instanceTypes, nil
+}
+
+func (env *azureEnviron) getStorageAccountLocked() (*storage.StorageAccount, error) {
+	if env.storageAccount != nil {
+		return env.storageAccount, nil
+	}
+
+	client := storage.StorageAccountsClient{env.storage}
+	resourceGroup := env.resourceGroup
+	accountName := env.config.storageAccount
+
+	account, err := client.GetProperties(resourceGroup, accountName)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting storage account")
+	}
+
+	env.storageAccount = &account
+	return &account, nil
 }

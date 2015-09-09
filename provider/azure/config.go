@@ -4,9 +4,6 @@
 package azure
 
 import (
-	"encoding/pem"
-	"fmt"
-
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/juju/errors"
 	"github.com/juju/schema"
@@ -20,6 +17,7 @@ const (
 	configAttrTenantId       = "tenant-id"
 	configAttrClientKey      = "client-key"
 	configAttrLocation       = "location"
+	configAttrStorageAccount = "storage-account"
 )
 
 var configFields = schema.Fields{
@@ -28,9 +26,10 @@ var configFields = schema.Fields{
 	configAttrSubscriptionId: schema.String(),
 	configAttrTenantId:       schema.String(),
 	configAttrClientKey:      schema.String(),
+	configAttrStorageAccount: schema.String(),
 }
 var configDefaults = schema.Defaults{
-	"location": "",
+	configAttrStorageAccount: schema.Omit,
 }
 
 type azureEnvironConfig struct {
@@ -38,6 +37,7 @@ type azureEnvironConfig struct {
 	token          *azure.ServicePrincipalToken
 	subscriptionId string
 	location       string
+	storageAccount string
 }
 
 func (prov azureEnvironProvider) newConfig(cfg *config.Config) (*azureEnvironConfig, error) {
@@ -72,13 +72,24 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 
 	// TODO(axw) ensure default is set correctly, so omitting location
 	// or setting it to "" will cause an error.
-	location := validated[configAttrLocation]
+	location := validated[configAttrLocation].(string)
 
-	// TODO(axw) ensure the below must be set, and omitting will cause an error.
-	clientId := validated[configAttrClientId]
-	subscriptionId := validated[configAttrSubscriptionId]
-	tenantId := validated[configAttrTenantId]
-	clientKey := validated[configAttrClientKey]
+	// TODO(axw) ensure required attributes must be set, and omitting will cause an error.
+	clientId := validated[configAttrClientId].(string)
+	subscriptionId := validated[configAttrSubscriptionId].(string)
+	tenantId := validated[configAttrTenantId].(string)
+	clientKey := validated[configAttrClientKey].(string)
+	storageAccount, haveStorageAccount := validated[configAttrStorageAccount].(string)
+
+	if oldCfg != nil {
+		oldUnknownAttrs := oldCfg.UnknownAttrs()
+		if haveStorageAccount {
+			oldStorageAccount, ok := oldUnknownAttrs[configAttrStorageAccount]
+			if ok && storageAccount != oldStorageAccount {
+				return nil, errors.Errorf("cannot change storage account")
+			}
+		}
+	}
 
 	token, err := azure.NewServicePrincipalToken(
 		clientId,
@@ -95,46 +106,10 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		token,
 		subscriptionId,
 		location,
+		storageAccount,
 	}
 
 	return azureConfig, nil
-}
-
-// Validate ensures that config is a valid configuration for this
-// provider like specified in the EnvironProvider interface.
-func (prov azureEnvironProvider) Validate(cfg, oldCfg *config.Config) (*config.Config, error) {
-	err := config.Validate(cfg, oldCfg)
-	if err != nil {
-		return nil, err
-	}
-
-	validated, err := cfg.ValidateUnknownAttrs(configFields, configDefaults)
-	if err != nil {
-		return nil, err
-	}
-	envCfg := new(azureEnvironConfig)
-	envCfg.Config = cfg
-	envCfg.attrs = validated
-
-	cert := envCfg.managementCertificate()
-	if cert == "" {
-		certPath := envCfg.attrs["management-certificate-path"].(string)
-		pemData, err := readPEMFile(certPath)
-		if err != nil {
-			return nil, fmt.Errorf("invalid management-certificate-path: %s", err)
-		}
-		envCfg.attrs["management-certificate"] = string(pemData)
-	} else {
-		if block, _ := pem.Decode([]byte(cert)); block == nil {
-			return nil, fmt.Errorf("invalid management-certificate: not a PEM encoded certificate")
-		}
-	}
-	delete(envCfg.attrs, "management-certificate-path")
-
-	if envCfg.location() == "" {
-		return nil, fmt.Errorf("environment has no location; you need to set one.  E.g. 'West US'")
-	}
-	return cfg.Apply(envCfg.attrs)
 }
 
 // TODO(axw) update with prose re credentials

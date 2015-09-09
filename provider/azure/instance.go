@@ -31,7 +31,7 @@ func (inst *azureInstance) Id() instance.Id {
 // Status is specified in the Instance interface.
 func (inst *azureInstance) Status() string {
 	// TODO(axw) is this the right thing to use?
-	return inst.ProvisioningState
+	return inst.Properties.ProvisioningState
 }
 
 // Refresh is specified in the Instance interface.

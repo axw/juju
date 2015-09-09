@@ -4,8 +4,41 @@
 - having to make multiple queries to get the state of a machine is not
   great. VM first, then network addresses. possible to include more
   information in the compute model?
-- more thorough godoc would be helpful, if it's available in swagger
-  or cross-referenceable
 - I would prefer model struct fields were not anonymous types; this
   makes using struct literals impossible, which in turn makes code
   a bit more verbose.
+- Location seems to need spaces stripped: "WestUS" works, but "West US"
+  does not. Could be an encoding issue in the Go SDK?
+- Deleting resource groups takes a very long time, regardless of
+  how many resources are within them. Is there some guarantee that
+  once a request to delete has been received, it will eventually be
+  completed successfully? We don't want to return to the user unless
+  it has been successfully deleted, but we also don't want to keep
+  them waiting such a long time if unnecessary.
+- It appears that the Go SDK does not automatically set the correct
+  base URI for China locations. It would be nice not to impose on
+  users the need to set the URI for standard Azure locations.
+- VirtualMachine.Properties.StorageProfile does not have a field
+  for specifying the image by name (equivalent to "--image-name" in
+  the CLI's "azure vm create"). Juju uses image metadata published
+  by Canonical to determine the image to provision, and this contains
+  the image name; it does not contain the other information necessary
+  to populate ImageReference. I can hard-code some of that for now,
+  but it would be great if the image-name could be specified.
+- Having methods return "autorest.Error" makes the use of the API
+  inline a bit cumbersome. Example:
+      account, err := storageAccountsClient.Create(...)
+      ...
+      foo, err := bar() // "func bar() (fooType, error)"
+           ^^^ cannot assign error to err (type autorest.Error)
+  IMO, it would be better to just return type "error" and have
+  users convert to autorest.Error if they need to inspect it.
+
+QUESTION FOR CANONICAL
+- Is there any benefit to using simplestreams in the azure provider?
+  we can just use image URN, Canonical:UbuntuServer:14.04.3-LTS:latest.
+  * Pros:
+      - we don't need to query the external streams data
+      - we can do the same kind of mapping for CentOS and Windows
+  * Cons: we need to list SKUs and select the best micro release (in this case, .3).
+

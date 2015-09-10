@@ -35,11 +35,19 @@
            ^^^ cannot assign error to err (type autorest.Error)
   IMO, it would be better to just return type "error" and have
   users convert to autorest.Error if they need to inspect it.
+- On the topic of errors, it would be helpful if responses contained
+  some hints on how a request is malformed. "400 Bad Request" is all
+  you get at the moment, which isn't all that helpful.
 - Inconsistent naming for clients: network.NetworkResourceProviderClient,
   whereas others I've come across are all FooManagementClient
 - autorest sometimes fails on valid status codes, e.g. "201 Created"
   when creating a resource group. only sometimes though. maybe
   related to polling?
+
+POSSIBLE BUGS
+- response to storage account creation does not include account name,
+  endpoints, etc. only location and account-type (both of which are
+  specified in params!)
 
 QUESTION FOR CANONICAL
 - Is there any benefit to using simplestreams in the azure provider?

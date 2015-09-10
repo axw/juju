@@ -108,13 +108,12 @@ func (env *azureEnviron) bootstrapResourceGroup(
 
 	// Create a storage account.
 	storageAccountsClient := storage.StorageAccountsClient{env.storage}
-	storageAccount, err := createStorageAccount(
+	storageAccountName, err := createStorageAccount(
 		storageAccountsClient, env.resourceGroup, location, tags,
 	)
 	if err != nil {
 		return "", "", nil, errors.Annotate(err, "creating storage account")
 	}
-	env.storageAccount = storageAccount
 
 	// Create a flat virtual network for all VMs to connect to.
 	virtualNetworksClient := network.VirtualNetworksClient{env.network}
@@ -130,7 +129,7 @@ func (env *azureEnviron) bootstrapResourceGroup(
 	// TODO(axw) ensure user doesn't specify storage-account.
 	// Update the environment's config with generated config.
 	cfg, err := env.config.Config.Apply(map[string]interface{}{
-		configAttrStorageAccount: storageAccount.Name,
+		configAttrStorageAccount: storageAccountName,
 	})
 	if err != nil {
 		return "", "", nil, errors.Trace(err)
@@ -148,7 +147,7 @@ func createStorageAccount(
 	resourceGroup string,
 	location string,
 	tags map[string]string,
-) (*storage.StorageAccount, error) {
+) (string, error) {
 	const maxStorageAccountNameLen = 24
 	const maxAttempts = 10
 	validRunes := append([]rune(lowerAlpha), []rune(digits)...)
@@ -163,7 +162,7 @@ func createStorageAccount(
 			},
 		)
 		if err != nil {
-			return nil, errors.Annotate(err, "checking account name availability")
+			return "", errors.Annotate(err, "checking account name availability")
 		}
 		if !result.NameAvailable {
 			logger.Debugf(
@@ -179,13 +178,12 @@ func createStorageAccount(
 		// TODO(axw) make storage account type configurable?
 		createParams.Properties.AccountType = storage.StandardLRS
 		logger.Debugf("creating storage account %q", accountName)
-		account, err := client.Create(resourceGroup, accountName, createParams)
-		if err != nil {
-			return nil, errors.Trace(err)
+		if _, err := client.Create(resourceGroup, accountName, createParams); err != nil {
+			return "", errors.Trace(err)
 		}
-		return &account, nil
+		return accountName, nil
 	}
-	return nil, errors.New("could not find available storage account name")
+	return "", errors.New("could not find available storage account name")
 }
 
 func createFlatVirtualNetwork(
@@ -439,6 +437,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	machineTag := names.NewMachineTag(args.InstanceConfig.MachineId)
 	vmName := resourceName(machineTag, envName)
 	vmArgs := compute.VirtualMachine{
+		Name:     vmName,
 		Location: location,
 		Tags:     args.InstanceConfig.Tags,
 	}
@@ -494,22 +493,8 @@ func setVirtualMachineOsDisk(
 	storageProfile := &vm.Properties.StorageProfile
 	osDisk := &storageProfile.OsDisk
 
-	os, err := version.GetOSFromSeries(series)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	switch os {
-	case version.Ubuntu, version.CentOS, version.Arch:
-		osDisk.OsType = compute.Linux
-	case version.Windows:
-		osDisk.OsType = compute.Windows
-	default:
-		return errors.NotSupportedf("%s", os)
-	}
-
-	// TODO(axw) this should be using the image name from instanceSpec.
+	// TODO(axw) We should be using the image name from instanceSpec.
 	// There is currently no way to specify the image name in VirtualMachine.
-
 	switch os {
 	case version.Ubuntu:
 		storageProfile.ImageReference.Publisher = "Canonical"
@@ -517,8 +502,8 @@ func setVirtualMachineOsDisk(
 		storageProfile.ImageReference.Sku = "14.04.3-LTS"
 		storageProfile.ImageReference.Version = "latest"
 	default:
-		// TODO(axw)
-		return errors.NotImplementedf("%s", os)
+		// TODO(axw) Windows, CentOS
+		return errors.NotSupportedf("%s", os)
 	}
 
 	osDisk.Name = vmName + "-osdisk"
@@ -550,7 +535,8 @@ func setVirtualMachineOsProfile(
 	case version.Ubuntu, version.CentOS, version.Arch:
 		// SSH keys are handled by custom data.
 		osProfile.AdminUsername = "ubuntu"
-		osProfile.LinuxConfiguration.DisablePasswordAuthentication = true
+		osProfile.AdminPassword = "UbUnTu111!1"
+		//osProfile.LinuxConfiguration.DisablePasswordAuthentication = true
 	default:
 		// TODO(axw) support Windows
 		return errors.NotSupportedf("%s", os)
@@ -779,6 +765,8 @@ func (env *azureEnviron) getStorageAccountLocked() (*storage.StorageAccount, err
 	if err != nil {
 		return nil, errors.Annotate(err, "getting storage account")
 	}
+	// TODO(axw) ensure the storage account is fully provisioned,
+	// retry until it is.
 
 	env.storageAccount = &account
 	return &account, nil

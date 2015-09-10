@@ -15,6 +15,7 @@ import (
 	"github.com/juju/juju/environs/imagemetadata"
 	"github.com/juju/juju/environs/instances"
 	"github.com/juju/juju/environs/simplestreams"
+	"github.com/juju/juju/juju/arch"
 )
 
 const defaultMem = 1024 // 1GiB
@@ -136,6 +137,7 @@ func newInstanceType(size compute.VirtualMachineSize) instances.InstanceType {
 	return instances.InstanceType{
 		Id:       size.Name,
 		Name:     size.Name,
+		Arches:   []string{arch.AMD64},
 		CpuCores: uint64(size.NumberOfCores),
 		Mem:      uint64(size.MemoryInMB),
 		RootDisk: uint64(size.OsDiskSizeInMB),

@@ -400,6 +400,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	// required to create the instance. We take the lock just once, to
 	// ensure we obtain all information based on the same configuration.
 	env.mu.Lock()
+	origLocation := env.config.origLocation
 	location := env.config.location
 	envName := env.config.Name()
 	vmClient := compute.VirtualMachinesClient{env.compute}
@@ -425,7 +426,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 
 	// Identify the instance type and image to provision.
 	instanceSpec, err := findInstanceSpec(env, instanceTypes, &instances.InstanceConstraint{
-		Region:      location,
+		Region:      origLocation,
 		Series:      args.Tools.OneSeries(),
 		Arches:      args.Tools.Arches(),
 		Constraints: args.Constraints,
@@ -699,7 +700,7 @@ func (env *azureEnviron) Provider() environs.EnvironProvider {
 // Region is specified in the HasRegion interface.
 func (env *azureEnviron) Region() (simplestreams.CloudSpec, error) {
 	env.mu.Lock()
-	location := env.config.location
+	location := env.config.origLocation
 	env.mu.Unlock()
 	return simplestreams.CloudSpec{
 		Region:   location,

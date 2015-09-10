@@ -38,7 +38,8 @@ type azureEnvironConfig struct {
 	*config.Config
 	token          *azure.ServicePrincipalToken
 	subscriptionId string
-	location       string
+	location       string // canonicalized
+	origLocation   string // unmodified
 	storageAccount string
 }
 
@@ -72,7 +73,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		return nil, err
 	}
 
-	location := canonicalLocation(validated[configAttrLocation].(string))
+	location := validated[configAttrLocation].(string)
 	clientId := validated[configAttrClientId].(string)
 	subscriptionId := validated[configAttrSubscriptionId].(string)
 	tenantId := validated[configAttrTenantId].(string)
@@ -103,6 +104,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		newCfg,
 		token,
 		subscriptionId,
+		canonicalLocation(location),
 		location,
 		storageAccount,
 	}

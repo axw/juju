@@ -4,6 +4,8 @@
 package azure
 
 import (
+	"strings"
+
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/juju/errors"
 	"github.com/juju/schema"
@@ -70,11 +72,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		return nil, err
 	}
 
-	// TODO(axw) ensure default is set correctly, so omitting location
-	// or setting it to "" will cause an error.
-	location := validated[configAttrLocation].(string)
-
-	// TODO(axw) ensure required attributes must be set, and omitting will cause an error.
+	location := canonicalLocation(validated[configAttrLocation].(string))
 	clientId := validated[configAttrClientId].(string)
 	subscriptionId := validated[configAttrSubscriptionId].(string)
 	tenantId := validated[configAttrTenantId].(string)
@@ -110,6 +108,15 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 	}
 
 	return azureConfig, nil
+}
+
+// canonicalLocation returns the canonicalized location string. This involves
+// stripping whitespace, and lowercasing. The ARM APIs do not support embedded
+// whitespace, whereas the old Service Management APIs used to; we allow the
+// user to provide either, and canonicalize them to one form that ARM allows.
+func canonicalLocation(s string) string {
+	s = strings.Replace(s, " ", "", -1)
+	return strings.ToLower(s)
 }
 
 // TODO(axw) update with prose re credentials

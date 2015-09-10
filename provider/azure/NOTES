@@ -1,5 +1,7 @@
 - in models, struct types are given "omitempty", but this is
   ineffective. must use pointer-to-struct.
+- it would be helpful to have godoc on model struct fields,
+  if it's available in swagger
 - enum type names (e.g. VirtualMachineSizeTypes) should be made singular
 - having to make multiple queries to get the state of a machine is not
   great. VM first, then network addresses. possible to include more
@@ -33,6 +35,11 @@
            ^^^ cannot assign error to err (type autorest.Error)
   IMO, it would be better to just return type "error" and have
   users convert to autorest.Error if they need to inspect it.
+- Inconsistent naming for clients: network.NetworkResourceProviderClient,
+  whereas others I've come across are all FooManagementClient
+- autorest sometimes fails on valid status codes, e.g. "201 Created"
+  when creating a resource group. only sometimes though. maybe
+  related to polling?
 
 QUESTION FOR CANONICAL
 - Is there any benefit to using simplestreams in the azure provider?

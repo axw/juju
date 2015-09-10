@@ -1,17 +1,21 @@
-// Copyright 2013 Canonical Ltd.
+// Copyright 2015 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
 package azure
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
+	"github.com/Azure/azure-sdk-for-go/arm/network"
 	"github.com/Azure/azure-sdk-for-go/arm/resources"
 	"github.com/Azure/azure-sdk-for-go/arm/storage"
+	"github.com/Azure/go-autorest/autorest"
 	"github.com/juju/errors"
+	"github.com/juju/loggo"
 	"github.com/juju/names"
 
 	"github.com/juju/juju/cloudconfig/instancecfg"
@@ -23,17 +27,17 @@ import (
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/juju/arch"
-	"github.com/juju/juju/network"
+	jujunetwork "github.com/juju/juju/network"
 	"github.com/juju/juju/provider/common"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/version"
 )
 
 const (
-	// Address space of the virtual network used by the nodes in this
-	// environement, in CIDR notation. This is the network used for
-	// machine-to-machine communication.
-	networkDefinition = "10.0.0.0/8"
+	flatVirtualNetworkName         = "vnet-flat"
+	flatVirtualNetworkPrefix       = "10.0.0.0/8"
+	flatVirtualNetworkSubnetName   = "vnet-flat-subnet"
+	flatVirtualNetworkSubnetPrefix = flatVirtualNetworkPrefix
 )
 
 type azureEnviron struct {
@@ -42,10 +46,13 @@ type azureEnviron struct {
 	mu             sync.Mutex
 	config         *azureEnvironConfig
 	instanceTypes  map[string]instances.InstanceType
-	compute        compute.ComputeManagementClient
-	resources      resources.ResourceManagementClient
-	storage        storage.StorageManagementClient
+	subnets        map[string]*network.Subnet
 	storageAccount *storage.StorageAccount
+	// azure management clients
+	compute   compute.ComputeManagementClient
+	resources resources.ResourceManagementClient
+	storage   storage.StorageManagementClient
+	network   network.NetworkResourceProviderClient
 }
 
 // azureEnviron implements Environ and HasRegion.
@@ -61,6 +68,7 @@ func NewEnviron(cfg *config.Config) (*azureEnviron, error) {
 		return nil, err
 	}
 	env.resourceGroup = resourceGroupName(cfg)
+	env.subnets = make(map[string]*network.Subnet)
 	return &env, nil
 }
 
@@ -72,8 +80,8 @@ func (env *azureEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.
 
 	var err error
 	resourceGroupsClient := resources.ResourceGroupsClient{env.resources}
+	logger.Debugf("creating resource group %q", env.resourceGroup)
 	_, err = resourceGroupsClient.CreateOrUpdate(env.resourceGroup, resources.ResourceGroup{
-		Name:     env.resourceGroup,
 		Location: location,
 		Tags:     tags,
 	})
@@ -108,6 +116,17 @@ func (env *azureEnviron) bootstrapResourceGroup(
 	}
 	env.storageAccount = storageAccount
 
+	// Create a flat virtual network for all VMs to connect to.
+	virtualNetworksClient := network.VirtualNetworksClient{env.network}
+	subnetsClient := network.SubnetsClient{env.network}
+	vnet, subnet, err := createFlatVirtualNetwork(
+		virtualNetworksClient, subnetsClient, env.resourceGroup, location, tags,
+	)
+	if err != nil {
+		return "", "", nil, errors.Annotate(err, "creating virtual network")
+	}
+	env.subnets[vnet.Name+":"+subnet.Name] = subnet
+
 	// TODO(axw) ensure user doesn't specify storage-account.
 	// Update the environment's config with generated config.
 	cfg, err := env.config.Config.Apply(map[string]interface{}{
@@ -121,7 +140,6 @@ func (env *azureEnviron) bootstrapResourceGroup(
 	}
 
 	// TODO(axw) create default availability set?
-	// TODO(axw) create vnet?
 	return common.Bootstrap(ctx, env, args)
 }
 
@@ -134,11 +152,14 @@ func createStorageAccount(
 	const maxStorageAccountNameLen = 24
 	const maxAttempts = 10
 	validRunes := append([]rune(lowerAlpha), []rune(digits)...)
+	logger.Debugf("creating storage account (finding available name)")
 	for remaining := maxAttempts; remaining > 0; remaining-- {
 		accountName := randomString(maxStorageAccountNameLen, validRunes)
+		logger.Debugf("- checking storage account name %q", accountName)
 		result, err := client.CheckNameAvailability(
 			storage.StorageAccountCheckNameAvailabilityParameters{
 				Name: accountName,
+				Type: "Microsoft.Storage/storageAccounts",
 			},
 		)
 		if err != nil {
@@ -157,6 +178,7 @@ func createStorageAccount(
 		}
 		// TODO(axw) make storage account type configurable?
 		createParams.Properties.AccountType = storage.StandardLRS
+		logger.Debugf("creating storage account %q", accountName)
 		account, err := client.Create(resourceGroup, accountName, createParams)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -166,8 +188,63 @@ func createStorageAccount(
 	return nil, errors.New("could not find available storage account name")
 }
 
+func createFlatVirtualNetwork(
+	vnetClient network.VirtualNetworksClient,
+	subnetClient network.SubnetsClient,
+	resourceGroup string,
+	location string,
+	tags map[string]string,
+) (*network.VirtualNetwork, *network.Subnet, error) {
+	// Vnet and subnet must be created separately. Vnet first.
+	virtualNetworkParams := network.VirtualNetwork{
+		Location: location,
+		Tags:     tags,
+	}
+	virtualNetworkParams.Properties.AddressSpace.AddressPrefixes = []string{
+		flatVirtualNetworkPrefix,
+	}
+	logger.Debugf("creating virtual network %q", flatVirtualNetworkName)
+	vnet, err := vnetClient.CreateOrUpdate(
+		resourceGroup, flatVirtualNetworkName, virtualNetworkParams,
+	)
+	if err != nil {
+		return nil, nil, errors.Annotatef(err, "creating virtual network %q", flatVirtualNetworkName)
+	}
+
+	// Now create a subnet with the same address prefix.
+	var subnetParams network.Subnet
+	subnetParams.Properties.AddressPrefix = flatVirtualNetworkSubnetPrefix
+	// TODO(axw) security group?
+	logger.Debugf("creating subnet %q", flatVirtualNetworkSubnetName)
+	subnet, err := subnetClient.CreateOrUpdate(
+		resourceGroup, flatVirtualNetworkName, flatVirtualNetworkSubnetName, subnetParams,
+	)
+	if err != nil {
+		return nil, nil, errors.Annotatef(err, "creating subnet %q", flatVirtualNetworkSubnetName)
+	}
+	return &vnet, &subnet, nil
+}
+
 // StateServerInstances is specified in the Environ interface.
 func (env *azureEnviron) StateServerInstances() ([]instance.Id, error) {
+	// StateServerInstances may be called before bootstrapping, to
+	// determine whether or not the environment is already bootstrapped.
+	//
+	// First check whether the resource group exists. Ideally we could
+	// just call AllInstances and check the error, but the error from
+	// the Azure SDK isn't well structured enough to support it nicely.
+	env.mu.Lock()
+	resourceGroupsClient := resources.ResourceGroupsClient{env.resources}
+	env.mu.Unlock()
+	if result, err := resourceGroupsClient.Get(env.resourceGroup); err != nil {
+		if result.StatusCode == http.StatusNotFound {
+			return nil, environs.ErrNoInstances
+		}
+		return nil, errors.Annotate(err, "querying resource group")
+	}
+
+	// State servers are tagged with tags.JujuStateServer, so just
+	// list the instances and pick those ones out.
 	instances, err := env.AllInstances()
 	if err != nil {
 		return nil, err
@@ -212,11 +289,23 @@ func (env *azureEnviron) SetConfig(cfg *config.Config) error {
 	// TODO(axw) we need to set the URI in each of the
 	// SDK packages for the China locations.
 	env.compute = compute.New(env.config.subscriptionId)
-	env.compute.Authorizer = env.config.token
 	env.resources = resources.New(env.config.subscriptionId)
-	env.resources.Authorizer = env.config.token
 	env.storage = storage.New(env.config.subscriptionId)
-	env.storage.Authorizer = env.config.token
+	env.network = network.New(env.config.subscriptionId)
+	clients := map[string]*autorest.Client{
+		"azure.compute":   &env.compute.Client,
+		"azure.resources": &env.resources.Client,
+		"azure.storage":   &env.storage.Client,
+		"azure.network":   &env.network.Client,
+	}
+	for id, client := range clients {
+		client.Authorizer = env.config.token
+		tracer := azureRequestTracer{
+			loggo.GetLogger(id),
+		}
+		client.RequestInspector = tracer
+		client.ResponseInspector = tracer
+	}
 
 	// Invalidate instance types when the location changes.
 	if old != nil {
@@ -314,12 +403,20 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	location := env.config.location
 	envName := env.config.Name()
 	vmClient := compute.VirtualMachinesClient{env.compute}
+	nicClient := network.NetworkInterfacesClient{env.network}
 	instanceTypes, err := env.getInstanceTypesLocked()
 	if err != nil {
 		env.mu.Unlock()
 		return nil, errors.Trace(err)
 	}
 	storageAccount, err := env.getStorageAccountLocked()
+	if err != nil {
+		env.mu.Unlock()
+		return nil, errors.Trace(err)
+	}
+	flatVirtualNetworkSubnet, err := env.getVirtualNetworkSubnetLocked(
+		flatVirtualNetworkName, flatVirtualNetworkSubnetName,
+	)
 	if err != nil {
 		env.mu.Unlock()
 		return nil, errors.Trace(err)
@@ -354,12 +451,18 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	if err := setVirtualMachineOsProfile(&vmArgs, vmName, args.InstanceConfig); err != nil {
 		return nil, errors.Trace(err)
 	}
-	// TODO network
+	if err := setVirtualMachineNetworkProfile(
+		nicClient, &vmArgs, vmName,
+		flatVirtualNetworkSubnet.Id,
+		env.resourceGroup, location,
+		args.InstanceConfig.Tags,
+	); err != nil {
+		return nil, errors.Trace(err)
+	}
 	// TODO availability set
 	// TODO firewall?
 
 	vm, err := vmClient.CreateOrUpdate(env.resourceGroup, vmName, vmArgs)
-	// TODO(axw) check if autorest.Error is an interface type
 	if err != nil {
 		return nil, errors.Annotate(err, "creating virtual machine")
 	}
@@ -454,11 +557,52 @@ func setVirtualMachineOsProfile(
 	return nil
 }
 
+func setVirtualMachineNetworkProfile(
+	client network.NetworkInterfacesClient,
+	vm *compute.VirtualMachine,
+	vmName string,
+	primarySubnetId string,
+	resourceGroup string,
+	location string,
+	tags map[string]string,
+) error {
+	// Create a primary NIC for the machine.
+	primaryNicName := vmName + "-primary"
+	primaryNicParams := network.NetworkInterface{
+		Location: location,
+		Tags:     tags,
+	}
+	primaryNicIpConfiguration := network.NetworkInterfaceIpConfiguration{
+		Name: "primary",
+	}
+	primaryNicIpConfiguration.Properties.PrivateIPAllocationMethod = network.Dynamic
+	primaryNicIpConfiguration.Properties.Subnet.Id = primarySubnetId
+	primaryNicParams.Properties.IpConfigurations = []network.NetworkInterfaceIpConfiguration{
+		primaryNicIpConfiguration,
+	}
+	primaryNic, err := client.CreateOrUpdate(resourceGroup, primaryNicName, primaryNicParams)
+	if err != nil {
+		return errors.Annotatef(err, "creating network interface for %q", vmName)
+	}
+
+	// For now we only attach a single, flat network to each machine.
+	primaryNicReference := compute.NetworkInterfaceReference{
+		Id: primaryNic.Id,
+	}
+	primaryNicReference.Properties.Primary = true
+	networkProfile := &vm.Properties.NetworkProfile
+	networkProfile.NetworkInterfaces = []compute.NetworkInterfaceReference{
+		primaryNicReference,
+	}
+	return nil
+}
+
 // StopInstances is specified in the InstanceBroker interface.
 func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 	vmClient := compute.VirtualMachinesClient{env.compute}
 	for _, id := range ids {
 		// TODO(axw) delete VMs in parallel.
+		// TODO(axw) delete associated resources, e.g. NICs.
 		_, err := vmClient.Delete(env.resourceGroup, string(id))
 		if err != nil {
 			return errors.Trace(err)
@@ -528,20 +672,20 @@ func (env *azureEnviron) Destroy() error {
 
 // OpenPorts is specified in the Environ interface. However, Azure does not
 // support the global firewall mode.
-func (env *azureEnviron) OpenPorts(ports []network.PortRange) error {
+func (env *azureEnviron) OpenPorts(ports []jujunetwork.PortRange) error {
 	return nil
 }
 
 // ClosePorts is specified in the Environ interface. However, Azure does not
 // support the global firewall mode.
-func (env *azureEnviron) ClosePorts(ports []network.PortRange) error {
+func (env *azureEnviron) ClosePorts(ports []jujunetwork.PortRange) error {
 	return nil
 }
 
 // Ports is specified in the Environ interface.
-func (env *azureEnviron) Ports() ([]network.PortRange, error) {
+func (env *azureEnviron) Ports() ([]jujunetwork.PortRange, error) {
 	// TODO: implement this.
-	return []network.PortRange{}, nil
+	return []jujunetwork.PortRange{}, nil
 }
 
 // Provider is specified in the Environ interface.
@@ -637,4 +781,22 @@ func (env *azureEnviron) getStorageAccountLocked() (*storage.StorageAccount, err
 
 	env.storageAccount = &account
 	return &account, nil
+}
+
+func (env *azureEnviron) getVirtualNetworkSubnetLocked(vnetName, subnetName string) (*network.Subnet, error) {
+	subnetKey := vnetName + ":" + subnetName
+	if subnet, ok := env.subnets[subnetKey]; ok {
+		return subnet, nil
+	}
+
+	client := network.SubnetsClient{env.network}
+	resourceGroup := env.resourceGroup
+
+	subnet, err := client.Get(resourceGroup, vnetName, subnetName)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting subnet")
+	}
+
+	env.subnets[subnetKey] = &subnet
+	return &subnet, nil
 }

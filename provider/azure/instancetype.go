@@ -147,23 +147,6 @@ func newInstanceType(size compute.VirtualMachineSize) instances.InstanceType {
 	}
 }
 
-// isLimitedRoleSize reports whether the named role size is limited to some
-// physical hosts only.
-func isLimitedRoleSize(name string) bool {
-	switch name {
-	case "ExtraSmall", "Small", "Medium", "Large", "ExtraLarge":
-		// At the time of writing, only the original role sizes are not limited.
-		return false
-	case "A5", "A6", "A7", "A8", "A9":
-		// We never used to filter out A5-A9 role sizes, so leave them in
-		// case users have been relying on them. It is *possible* that A-series
-		// role sizes are available, but we cannot automatically use them as
-		// they *may* not be.
-		return false
-	}
-	return true
-}
-
 // findInstanceSpec returns the InstanceSpec that best satisfies the supplied
 // InstanceConstraint.
 func findInstanceSpec(

@@ -48,6 +48,7 @@ POSSIBLE BUGS
 - response to storage account creation does not include account name,
   endpoints, etc. only location and account-type (both of which are
   specified in params!)
+- azure-sdk-for-go doesn't seem to respect "nextLink" in responses
 
 QUESTION FOR CANONICAL
 - Is there any benefit to using simplestreams in the azure provider?

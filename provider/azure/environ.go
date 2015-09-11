@@ -466,7 +466,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	if err != nil {
 		return nil, errors.Annotate(err, "creating virtual machine")
 	}
-	inst := &azureInstance{vm}
+	inst := &azureInstance{vm, nil, nil, env}
 
 	amd64 := arch.AMD64
 	hc := &instance.HardwareCharacteristics{
@@ -495,6 +495,10 @@ func setVirtualMachineOsDisk(
 
 	// TODO(axw) We should be using the image name from instanceSpec.
 	// There is currently no way to specify the image name in VirtualMachine.
+	os, err := version.GetOSFromSeries(series)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	switch os {
 	case version.Ubuntu:
 		storageProfile.ImageReference.Publisher = "Canonical"
@@ -533,10 +537,15 @@ func setVirtualMachineOsProfile(
 	}
 	switch os {
 	case version.Ubuntu, version.CentOS, version.Arch:
-		// SSH keys are handled by custom data.
+		// SSH keys are handled by custom data, but must also be
+		// specified in order to forego providing a password, and
+		// disable password authentication.
 		osProfile.AdminUsername = "ubuntu"
-		osProfile.AdminPassword = "UbUnTu111!1"
-		//osProfile.LinuxConfiguration.DisablePasswordAuthentication = true
+		osProfile.LinuxConfiguration.Ssh.PublicKeys = []compute.SshPublicKey{{
+			Path:    "/home/ubuntu/.ssh/authorized_keys",
+			KeyData: instanceConfig.AuthorizedKeys,
+		}}
+		osProfile.LinuxConfiguration.DisablePasswordAuthentication = true
 	default:
 		// TODO(axw) support Windows
 		return errors.NotSupportedf("%s", os)
@@ -600,6 +609,7 @@ func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 
 // Instances is specified in the Environ interface.
 func (env *azureEnviron) Instances(ids []instance.Id) ([]instance.Instance, error) {
+	// TODO(axw) optimise the len(1) case.
 	all, err := env.AllInstances()
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -642,7 +652,11 @@ func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
 	// TODO(axw) how to continue with result.NextLink?
 	instances := make([]instance.Instance, len(result.Value))
 	for i, vm := range result.Value {
-		instances[i] = &azureInstance{vm}
+		inst := &azureInstance{vm, nil, nil, env}
+		if err := inst.refreshAddresses(); err != nil {
+			return nil, errors.Trace(err)
+		}
+		instances[i] = inst
 	}
 	return instances, nil
 }

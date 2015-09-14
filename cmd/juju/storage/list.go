@@ -70,7 +70,13 @@ func (c *ListCommand) Run(ctx *cmd.Context) (err error) {
 	var valid []params.StorageDetails
 	for _, one := range found {
 		if one.Error == nil {
-			valid = append(valid, one.Result)
+			logger.Debugf("%+v", one)
+			if one.Result == nil {
+				details := storageDetailsFromLegacy(one.Legacy)
+				valid = append(valid, details)
+			} else {
+				valid = append(valid, *one.Result)
+			}
 			continue
 		}
 		// display individual error
@@ -79,9 +85,18 @@ func (c *ListCommand) Run(ctx *cmd.Context) (err error) {
 	if len(valid) == 0 {
 		return nil
 	}
-	output, err := formatStorageDetails(valid)
+	logger.Debugf("%+v", valid)
+	details, err := formatStorageDetails(valid)
 	if err != nil {
 		return err
+	}
+	logger.Debugf("%+v", details)
+	var output interface{}
+	switch c.out.Name() {
+	case "yaml", "json":
+		output = map[string]map[string]StorageInfo{"storage": details}
+	default:
+		output = details
 	}
 	return c.out.Write(ctx, output)
 }

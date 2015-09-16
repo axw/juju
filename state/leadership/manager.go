@@ -4,6 +4,7 @@
 package leadership
 
 import (
+	"runtime"
 	"sort"
 	"time"
 
@@ -66,6 +67,10 @@ func (manager *manager) Kill() {
 // kill unwraps tomb.ErrDying before killing the tomb, thus allowing the worker
 // to use errors.Trace liberally and still stop cleanly.
 func (manager *manager) kill(err error) {
+	buf := make([]byte, 8192)
+	buf = buf[:runtime.Stack(buf, false)]
+	logger.Debugf("killing leadership manager... %s", buf)
+
 	if errors.Cause(err) == tomb.ErrDying {
 		err = tomb.ErrDying
 	} else if err != nil {

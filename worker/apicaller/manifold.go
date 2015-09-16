@@ -46,6 +46,7 @@ func startFunc(config ManifoldConfig) dependency.StartFunc {
 		if err := getResource(config.AgentName, &a); err != nil {
 			return nil, err
 		}
+		logger.Debugf("connecting to API server...")
 		conn, err := openConnection(a)
 		if err != nil {
 			return nil, errors.Annotate(err, "cannot open api")

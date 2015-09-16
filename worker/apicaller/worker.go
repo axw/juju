@@ -59,6 +59,7 @@ func (w *apiConnWorker) loop() (err error) {
 	// TODO(fwereade): we should make this rational at some point.
 
 	defer func() {
+		logger.Debugf("closing API connection")
 		// Since we can't tell for sure what error killed the connection, any
 		// error out of Close is more important and relevant than any error we
 		// might return in the loop.
@@ -66,6 +67,8 @@ func (w *apiConnWorker) loop() (err error) {
 			err = closeErr
 		}
 	}()
+
+	logger.Debugf("watching API connection")
 
 	// Note that we should never return a nil error from this loop. If we're
 	// shut down deliberately we should return ErrDying, to be overwritten by

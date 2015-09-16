@@ -51,7 +51,11 @@ func (s *uniterResolver) NextOp(
 	opFactory operation.Factory,
 ) (operation.Operation, error) {
 
+	logger.Debugf("local: %+v", localState)
+	logger.Debugf("remote: %+v", remoteState)
+
 	if remoteState.Life == params.Dead || localState.Stopped {
+		logger.Debugf("terminating...")
 		return nil, resolver.ErrTerminate
 	}
 
@@ -72,6 +76,7 @@ func (s *uniterResolver) NextOp(
 
 	if localState.Kind == operation.Continue {
 		if err := s.fixDeployer(); err != nil {
+			logger.Errorf("failed to fix deployer: %v", err)
 			return nil, errors.Trace(err)
 		}
 	}

@@ -188,6 +188,7 @@ func (r *relations) NextHook(
 	for relationId, relationSnapshot := range remoteState.Relations {
 		relationer, ok := r.relationers[relationId]
 		if !ok || relationer.IsImplicit() {
+			logger.Debugf("ok==%v", ok)
 			continue
 		}
 		var remoteBroken bool
@@ -200,6 +201,7 @@ func (r *relations) NextHook(
 		// then the relation should be broken.
 		hook, err := nextRelationHook(relationer.dir.State(), relationSnapshot, remoteBroken)
 		if err == resolver.ErrNoOperation {
+			logger.Debugf("no hooks for %v", relationId)
 			continue
 		}
 		return hook, err
@@ -245,6 +247,7 @@ func nextRelationHook(
 	for _, unitName := range sortedUnitNames {
 		changeVersion, found := local.Members[unitName]
 		if !found {
+			logger.Debugf("did not find %v locally", unitName)
 			continue
 		}
 		if _, found := remote.Members[unitName]; !found {
@@ -269,6 +272,7 @@ func nextRelationHook(
 	for _, unitName := range sortedUnitNames {
 		changeVersion, found := remote.Members[unitName]
 		if !found {
+			logger.Debugf("did not find %v remotely", unitName)
 			continue
 		}
 		if _, found := local.Members[unitName]; !found {
@@ -286,12 +290,15 @@ func nextRelationHook(
 	for _, unitName := range sortedUnitNames {
 		remoteChangeVersion, found := remote.Members[unitName]
 		if !found {
+			logger.Debugf("did not find %v remotely", unitName)
 			continue
 		}
 		localChangeVersion, found := local.Members[unitName]
 		if !found {
+			logger.Debugf("did not find %v locally", unitName)
 			continue
 		}
+		logger.Debugf("%v, %v", remoteChangeVersion, localChangeVersion)
 		if remoteChangeVersion > localChangeVersion {
 			return hook.Info{
 				Kind:          hooks.RelationChanged,

@@ -44,26 +44,26 @@ func Manifold(config ManifoldConfig) dependency.Manifold {
 			// Collect all required resources.
 			var agent agent.Agent
 			if err := getResource(config.AgentName, &agent); err != nil {
-				return nil, err
+				return nil, errors.Annotatef(err, "getting resource %v", config.AgentName)
 			}
 			var apiCaller base.APICaller
 			if err := getResource(config.APICallerName, &apiCaller); err != nil {
 				// TODO(fwereade): absence of an APICaller shouldn't be the end of
 				// the world -- we ought to return a type that can at least run the
 				// leader-deposed hook -- but that's not done yet.
-				return nil, err
+				return nil, errors.Annotatef(err, "getting resource %v", config.APICallerName)
 			}
 			var machineLock *fslock.Lock
 			if err := getResource(config.MachineLockName, &machineLock); err != nil {
-				return nil, err
+				return nil, errors.Annotatef(err, "getting resource %v", config.MachineLockName)
 			}
 			var leadershipTracker leadership.Tracker
 			if err := getResource(config.LeadershipTrackerName, &leadershipTracker); err != nil {
-				return nil, err
+				return nil, errors.Annotatef(err, "getting resource %v", config.LeadershipTrackerName)
 			}
 			var charmDirLocker charmdir.Locker
 			if err := getResource(config.CharmDirName, &charmDirLocker); err != nil {
-				return nil, err
+				return nil, errors.Annotatef(err, "getting resource %v", config.CharmDirName)
 			}
 
 			// Configure and start the uniter.

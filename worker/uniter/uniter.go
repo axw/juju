@@ -6,6 +6,7 @@ package uniter
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -49,12 +50,23 @@ type UniterExecutionObserver interface {
 	HookFailed(hookName string)
 }
 
+type tombWrapper struct {
+	tomb.Tomb
+}
+
+func (t *tombWrapper) Kill(err error) {
+	buf := make([]byte, 8192)
+	buf = buf[:runtime.Stack(buf, false)]
+	logger.Debugf("killing tomb: %s", buf)
+	t.Tomb.Kill(err)
+}
+
 // Uniter implements the capabilities of the unit agent. It is not intended to
 // implement the actual *behaviour* of the unit agent; that responsibility is
 // delegated to Mode values, which are expected to react to events and direct
 // the uniter's responses to them.
 type Uniter struct {
-	tomb      tomb.Tomb
+	tomb      tombWrapper
 	st        *uniter.State
 	paths     Paths
 	unit      *uniter.Unit
@@ -312,7 +324,8 @@ func (u *Uniter) terminate() error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	defer watcher.Stop(w, &u.tomb)
+	defer watcher.Stop(w, &u.tomb.Tomb)
+	defer logger.Debugf("terminating!!!")
 	for {
 		select {
 		case <-u.tomb.Dying():

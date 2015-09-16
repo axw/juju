@@ -194,7 +194,7 @@ var updatedseriesVersions bool
 
 func updateSeriesVersions() {
 	if !updatedseriesVersions {
-		updateLocalSeriesVersions()
+		//updateLocalSeriesVersions()
 		updatedseriesVersions = true
 	}
 }

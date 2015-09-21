@@ -37,7 +37,7 @@ func (t azureRequestTracer) ByInspecting() autorest.RespondDecorator {
 		return autorest.ResponderFunc(func(resp *http.Response) error {
 			dump, err := httputil.DumpResponse(resp, true)
 			if err != nil {
-				t.logger.Tracef("failed to dump respohnse: %v", err)
+				t.logger.Tracef("failed to dump response: %v", err)
 				t.logger.Tracef("%+v", resp)
 			} else {
 				t.logger.Tracef("%s", dump)

@@ -11,5 +11,4 @@ const (
 
 func init() {
 	environs.RegisterProvider(providerType, azureEnvironProvider{})
-	//registry.RegisterEnvironStorageProviders(providerType)
 }

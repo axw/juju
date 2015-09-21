@@ -17,6 +17,8 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
+	"github.com/juju/utils/arch"
+	"github.com/juju/utils/os"
 
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/constraints"
@@ -26,11 +28,10 @@ import (
 	"github.com/juju/juju/environs/simplestreams"
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/instance"
-	"github.com/juju/juju/juju/arch"
+	jujuseries "github.com/juju/juju/juju/series"
 	jujunetwork "github.com/juju/juju/network"
 	"github.com/juju/juju/provider/common"
 	"github.com/juju/juju/state"
-	"github.com/juju/juju/version"
 )
 
 const (
@@ -398,7 +399,6 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	// required to create the instance. We take the lock just once, to
 	// ensure we obtain all information based on the same configuration.
 	env.mu.Lock()
-	origLocation := env.config.origLocation
 	location := env.config.location
 	envName := env.config.Name()
 	vmClient := compute.VirtualMachinesClient{env.compute}
@@ -424,7 +424,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 
 	// Identify the instance type and image to provision.
 	instanceSpec, err := findInstanceSpec(env, instanceTypes, &instances.InstanceConstraint{
-		Region:      origLocation,
+		Region:      regionFromLocation(location),
 		Series:      args.Tools.OneSeries(),
 		Arches:      args.Tools.Arches(),
 		Constraints: args.Constraints,
@@ -495,19 +495,19 @@ func setVirtualMachineOsDisk(
 
 	// TODO(axw) We should be using the image name from instanceSpec.
 	// There is currently no way to specify the image name in VirtualMachine.
-	os, err := version.GetOSFromSeries(series)
+	seriesOS, err := jujuseries.GetOSFromSeries(series)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	switch os {
-	case version.Ubuntu:
+	switch seriesOS {
+	case os.Ubuntu:
 		storageProfile.ImageReference.Publisher = "Canonical"
 		storageProfile.ImageReference.Offer = "UbuntuServer"
 		storageProfile.ImageReference.Sku = "14.04.3-LTS"
 		storageProfile.ImageReference.Version = "latest"
 	default:
 		// TODO(axw) Windows, CentOS
-		return errors.NotSupportedf("%s", os)
+		return errors.NotSupportedf("%s", seriesOS)
 	}
 
 	osDisk.Name = vmName + "-osdisk"
@@ -531,12 +531,12 @@ func setVirtualMachineOsProfile(
 	}
 	osProfile.CustomData = customData
 
-	os, err := version.GetOSFromSeries(instanceConfig.Series)
+	seriesOS, err := jujuseries.GetOSFromSeries(instanceConfig.Series)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	switch os {
-	case version.Ubuntu, version.CentOS, version.Arch:
+	switch seriesOS {
+	case os.Ubuntu, os.CentOS, os.Arch:
 		// SSH keys are handled by custom data, but must also be
 		// specified in order to forego providing a password, and
 		// disable password authentication.
@@ -548,7 +548,7 @@ func setVirtualMachineOsProfile(
 		osProfile.LinuxConfiguration.DisablePasswordAuthentication = true
 	default:
 		// TODO(axw) support Windows
-		return errors.NotSupportedf("%s", os)
+		return errors.NotSupportedf("%s", seriesOS)
 	}
 	return nil
 }
@@ -700,10 +700,10 @@ func (env *azureEnviron) Provider() environs.EnvironProvider {
 // Region is specified in the HasRegion interface.
 func (env *azureEnviron) Region() (simplestreams.CloudSpec, error) {
 	env.mu.Lock()
-	location := env.config.origLocation
+	location := env.config.location
 	env.mu.Unlock()
 	return simplestreams.CloudSpec{
-		Region:   location,
+		Region:   regionFromLocation(location),
 		Endpoint: getEndpoint(location),
 	}, nil
 }

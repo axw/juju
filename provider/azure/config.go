@@ -30,6 +30,7 @@ var configFields = schema.Fields{
 	configAttrClientKey:      schema.String(),
 	configAttrStorageAccount: schema.String(),
 }
+
 var configDefaults = schema.Defaults{
 	configAttrStorageAccount: schema.Omit,
 }
@@ -39,7 +40,6 @@ type azureEnvironConfig struct {
 	token          *azure.ServicePrincipalToken
 	subscriptionId string
 	location       string // canonicalized
-	origLocation   string // unmodified
 	storageAccount string
 }
 
@@ -73,7 +73,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		return nil, err
 	}
 
-	location := validated[configAttrLocation].(string)
+	location := canonicalLocation(validated[configAttrLocation].(string))
 	clientId := validated[configAttrClientId].(string)
 	subscriptionId := validated[configAttrSubscriptionId].(string)
 	tenantId := validated[configAttrTenantId].(string)
@@ -88,6 +88,9 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 				return nil, errors.Errorf("cannot change storage account")
 			}
 		}
+		// TODO(axw) ensure location doesn't change
+		// TODO(axw) figure out how we intend to handle
+		//           changing secrets, such as client key
 	}
 
 	token, err := azure.NewServicePrincipalToken(
@@ -104,7 +107,6 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		newCfg,
 		token,
 		subscriptionId,
-		canonicalLocation(location),
 		location,
 		storageAccount,
 	}

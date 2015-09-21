@@ -9,13 +9,13 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/juju/errors"
+	"github.com/juju/utils/arch"
 
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/imagemetadata"
 	"github.com/juju/juju/environs/instances"
 	"github.com/juju/juju/environs/simplestreams"
-	"github.com/juju/juju/juju/arch"
 )
 
 const defaultMem = 1024 // 1GiB
@@ -29,10 +29,10 @@ const signedImageDataOnly = true
 // requirements.
 //
 // If it finds no matching images, that's an error.
-func findMatchingImages(env environs.Environ, location, series string, arches []string) ([]*imagemetadata.ImageMetadata, error) {
-	endpoint := getEndpoint(location)
+func findMatchingImages(env environs.Environ, region, series string, arches []string) ([]*imagemetadata.ImageMetadata, error) {
+	endpoint := getEndpoint(region)
 	constraint := imagemetadata.NewImageConstraint(simplestreams.LookupParams{
-		CloudSpec: simplestreams.CloudSpec{location, endpoint},
+		CloudSpec: simplestreams.CloudSpec{region, endpoint},
 		Series:    []string{series},
 		Arches:    arches,
 		Stream:    env.Config().ImageStream(),
@@ -43,7 +43,7 @@ func findMatchingImages(env environs.Environ, location, series string, arches []
 	}
 	images, _, err := imagemetadata.Fetch(sources, constraint, signedImageDataOnly)
 	if len(images) == 0 || errors.IsNotFound(err) {
-		return nil, fmt.Errorf("no OS images found for location %q, series %q, architectures %q (and endpoint: %q)", location, series, arches, endpoint)
+		return nil, fmt.Errorf("no OS images found for region %q, series %q, architectures %q (and endpoint: %q)", region, series, arches, endpoint)
 	} else if err != nil {
 		return nil, err
 	}
@@ -51,9 +51,9 @@ func findMatchingImages(env environs.Environ, location, series string, arches []
 }
 
 // getEndpoint returns the simplestreams endpoint to use for the given Azure
-// location (e.g. West Europe or China North).
-func getEndpoint(location string) string {
-	if strings.HasPrefix(location, "China") {
+// region (e.g. West Europe or China North).
+func getEndpoint(region string) string {
+	if strings.HasPrefix(region, "China") {
 		return "https://management.core.chinacloudapi.cn/"
 	}
 	return "https://management.core.windows.net/"
@@ -168,7 +168,7 @@ func findInstanceSpec(
 }
 
 // If you specify no constraints at all, you're going to get the smallest
-// instance type available.  In practice that one's a bit small.  So unless
+// instance type available. In practice that one's a bit small, so unless
 // the constraints are deliberately set lower, this gives you a set of
 // baseline constraints that are just slightly more ambitious than that.
 func defaultToBaselineSpec(constraint constraints.Value) constraints.Value {

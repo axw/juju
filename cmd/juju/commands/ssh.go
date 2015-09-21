@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/juju/cmd"
+	"github.com/juju/errors"
 	"github.com/juju/names"
 	"github.com/juju/utils"
 	"launchpad.net/gnuflag"
@@ -146,6 +147,7 @@ func (c *SSHCommand) Run(ctx *cmd.Context) error {
 	if err != nil {
 		return err
 	}
+	logger.Debugf("options: %v %v", c.pty, options)
 
 	user, host, err := c.userHostFromTarget(c.Target)
 	if err != nil {
@@ -165,7 +167,7 @@ func (c *SSHCommon) proxySSH() (bool, error) {
 	if !c.proxy {
 		return false, nil
 	}
-	if _, err := c.ensureAPIClient(); err != nil {
+	if err := c.ensureAPIClient(); err != nil {
 		return false, err
 	}
 	var cfg *config.Config
@@ -180,23 +182,28 @@ func (c *SSHCommon) proxySSH() (bool, error) {
 	return cfg.ProxySSH(), nil
 }
 
-func (c *SSHCommon) ensureAPIClient() (sshAPIClient, error) {
+func (c *SSHCommon) ensureAPIClient() error {
 	if c.apiClient != nil {
-		return c.apiClient, nil
+		return nil
 	}
-	return c.initAPIClient()
+	client, addr, err := c.initAPIClient()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	c.apiClient = client
+	c.apiAddr = addr
+	return nil
 }
 
-// initAPIClient initialises the API connection.
-// It is the caller's responsibility to close the connection.
-func (c *SSHCommon) initAPIClient() (sshAPIClient, error) {
+// initAPIClient initialises a new API client connection
+// for SSH-related operations. It is the caller's
+// responsibility to close the connection.
+func (c *SSHCommon) initAPIClient() (client sshAPIClient, addr string, err error) {
 	st, err := c.NewAPIRoot()
 	if err != nil {
-		return nil, err
+		return nil, "", errors.Trace(err)
 	}
-	c.apiClient = st.Client()
-	c.apiAddr = st.Addr()
-	return c.apiClient, nil
+	return st.Client(), st.Addr(), nil
 }
 
 type sshAPIClient interface {
@@ -244,7 +251,7 @@ func (c *SSHCommon) userHostFromTarget(target string) (user, host string, err er
 	// A target may not initially have an address (e.g. the
 	// address updater hasn't yet run), so we must do this in
 	// a loop.
-	if _, err := c.ensureAPIClient(); err != nil {
+	if err := c.ensureAPIClient(); err != nil {
 		return "", "", err
 	}
 	for a := sshHostFromTargetAttemptStrategy.Start(); a.Next(); {

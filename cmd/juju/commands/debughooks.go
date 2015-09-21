@@ -95,14 +95,11 @@ func (c *DebugHooksCommand) validateHooks() error {
 // and connects to it via SSH to execute the debug-hooks
 // script.
 func (c *DebugHooksCommand) Run(ctx *cmd.Context) error {
-	var err error
-	c.apiClient, err = c.initAPIClient()
-	if err != nil {
+	if err := c.ensureAPIClient(); err != nil {
 		return err
 	}
 	defer c.apiClient.Close()
-	err = c.validateHooks()
-	if err != nil {
+	if err := c.validateHooks(); err != nil {
 		return err
 	}
 	debugctx := unitdebug.NewHooksContext(c.Target)

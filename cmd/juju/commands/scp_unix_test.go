@@ -5,22 +5,7 @@
 
 package commands
 
-import (
-	"bytes"
-	"fmt"
-	"io/ioutil"
-	"path/filepath"
-	"strings"
-
-	jc "github.com/juju/testing/checkers"
-	gc "gopkg.in/check.v1"
-	"gopkg.in/juju/charm.v5"
-
-	"github.com/juju/juju/cmd/envcmd"
-	"github.com/juju/juju/network"
-	"github.com/juju/juju/testcharms"
-	coretesting "github.com/juju/juju/testing"
-)
+import gc "gopkg.in/check.v1"
 
 var _ = gc.Suite(&SCPSuite{})
 var _ = gc.Suite(&expandArgsSuite{})
@@ -107,6 +92,7 @@ var scpTests = []struct {
 	},
 }
 
+/*
 func (s *SCPSuite) TestSCPCommand(c *gc.C) {
 	m := s.makeMachines(4, c, true)
 	ch := testcharms.Repo.CharmDir("dummy")
@@ -242,3 +228,4 @@ func (s *expandArgsSuite) TestExpandArgsPropagatesErrors(c *gc.C) {
 	c.Assert(err, gc.ErrorMatches, "this is my error")
 	c.Check(expanded, gc.IsNil)
 }
+*/

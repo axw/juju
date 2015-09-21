@@ -93,9 +93,7 @@ func expandArgs(args []string, userHostFromTarget func(string) (string, string, 
 // Run resolves c.Target to a machine, or host of a unit and
 // forks ssh with c.Args, if provided.
 func (c *SCPCommand) Run(ctx *cmd.Context) error {
-	var err error
-	c.apiClient, err = c.initAPIClient()
-	if err != nil {
+	if err := c.ensureAPIClient(); err != nil {
 		return err
 	}
 	defer c.apiClient.Close()

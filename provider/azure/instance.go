@@ -6,10 +6,12 @@ package azure
 import (
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/Azure/azure-sdk-for-go/arm/network"
+	"github.com/davecgh/go-spew/spew"
 
 	"github.com/juju/errors"
 	"github.com/juju/juju/instance"
 	jujunetwork "github.com/juju/juju/network"
+	"github.com/juju/names"
 )
 
 const AzureDomainName = "cloudapp.net"
@@ -80,7 +82,7 @@ func (inst *azureInstance) refreshAddresses() error {
 			continue
 		}
 		for _, ipConfiguration := range nic.Properties.IpConfigurations {
-			if ipConfiguration.Properties.PublicIPAddress == nil {
+			if ipConfiguration.Properties.PublicIPAddress.Id == "" {
 				continue
 			}
 			pipsById[ipConfiguration.Properties.PublicIPAddress.Id] = nil
@@ -143,6 +145,21 @@ func (inst *azureInstance) ClosePorts(machineId string, ports []jujunetwork.Port
 
 // Ports is specified in the Instance interface.
 func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRange, err error) {
+	inst.env.mu.Lock()
+	nsgClient := network.NetworkSecurityGroupsClient{inst.env.network}
+	resourceGroup := inst.env.resourceGroup
+	inst.env.mu.Unlock()
+
+	nsg, err := nsgClient.Get(resourceGroup, machineSecurityGroupName(machineId))
+	if err != nil {
+		return nil, errors.Annotate(err, "getting network security group")
+	}
+	logger.Debugf("%v", spew.Sdump(nsg.Properties))
+
 	// TODO(axw)
 	return nil, nil
+}
+
+func machineSecurityGroupName(machineId string) string {
+	return names.NewMachineTag(machineId).String()
 }

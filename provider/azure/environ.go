@@ -402,7 +402,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	location := env.config.location
 	envName := env.config.Name()
 	vmClient := compute.VirtualMachinesClient{env.compute}
-	nicClient := network.NetworkInterfacesClient{env.network}
+	networkClient := env.network
 	instanceTypes, err := env.getInstanceTypesLocked()
 	if err != nil {
 		env.mu.Unlock()
@@ -452,7 +452,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		return nil, errors.Trace(err)
 	}
 	if err := setVirtualMachineNetworkProfile(
-		nicClient, &vmArgs, vmName,
+		networkClient, &vmArgs, vmName,
 		flatVirtualNetworkSubnet.Id,
 		env.resourceGroup, location,
 		args.InstanceConfig.Tags,
@@ -461,6 +461,9 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	}
 	// TODO availability set
 	// TODO firewall?
+
+	// TODO(axw) at any error point in this method we should delete all
+	// resources with the machine's tag.
 
 	vm, err := vmClient.CreateOrUpdate(env.resourceGroup, vmName, vmArgs)
 	if err != nil {
@@ -554,7 +557,7 @@ func setVirtualMachineOsProfile(
 }
 
 func setVirtualMachineNetworkProfile(
-	client network.NetworkInterfacesClient,
+	client network.NetworkResourceProviderClient,
 	vm *compute.VirtualMachine,
 	vmName string,
 	primarySubnetId string,
@@ -562,7 +565,20 @@ func setVirtualMachineNetworkProfile(
 	location string,
 	tags map[string]string,
 ) error {
+	// Create a public IP for the NIC.
+	pipClient := network.PublicIpAddressesClient{client}
+	publicIPAddressParams := network.PublicIpAddress{
+		Location: location,
+		Tags:     tags,
+	}
+	publicIPAddressParams.Properties.PublicIPAllocationMethod = network.Dynamic
+	publicIPAddress, err := pipClient.CreateOrUpdate(resourceGroup, vmName+"-public-ip", publicIPAddressParams)
+	if err != nil {
+		return errors.Annotatef(err, "creating public IP address for %q", vmName)
+	}
+
 	// Create a primary NIC for the machine.
+	nicClient := network.NetworkInterfacesClient{client}
 	primaryNicName := vmName + "-primary"
 	primaryNicParams := network.NetworkInterface{
 		Location: location,
@@ -573,10 +589,11 @@ func setVirtualMachineNetworkProfile(
 	}
 	primaryNicIpConfiguration.Properties.PrivateIPAllocationMethod = network.Dynamic
 	primaryNicIpConfiguration.Properties.Subnet.Id = primarySubnetId
+	primaryNicIpConfiguration.Properties.PublicIPAddress.Id = publicIPAddress.Id
 	primaryNicParams.Properties.IpConfigurations = []network.NetworkInterfaceIpConfiguration{
 		primaryNicIpConfiguration,
 	}
-	primaryNic, err := client.CreateOrUpdate(resourceGroup, primaryNicName, primaryNicParams)
+	primaryNic, err := nicClient.CreateOrUpdate(resourceGroup, primaryNicName, primaryNicParams)
 	if err != nil {
 		return errors.Annotatef(err, "creating network interface for %q", vmName)
 	}

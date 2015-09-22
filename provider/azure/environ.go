@@ -433,13 +433,19 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		return nil, err
 	}
 
-	// Prepare parameters for creating the instance.
 	machineTag := names.NewMachineTag(args.InstanceConfig.MachineId)
 	vmName := resourceName(machineTag, envName)
+	vmTags := make(map[string]string)
+	for k, v := range args.InstanceConfig.Tags {
+		vmTags[k] = v
+	}
+	vmTags[tags.JujuTagPrefix+"machine-name"] = vmName
+
+	// Prepare parameters for creating the instance.
 	vmArgs := compute.VirtualMachine{
 		Name:     vmName,
 		Location: location,
-		Tags:     args.InstanceConfig.Tags,
+		Tags:     vmTags,
 	}
 	vmArgs.Properties.HardwareProfile.VmSize = compute.VirtualMachineSizeTypes(instanceSpec.InstanceType.Name)
 	if err := setVirtualMachineOsDisk(
@@ -455,7 +461,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		networkClient, &vmArgs, vmName,
 		flatVirtualNetworkSubnet.Id,
 		env.resourceGroup, location,
-		args.InstanceConfig.Tags,
+		vmTags,
 	); err != nil {
 		return nil, errors.Trace(err)
 	}

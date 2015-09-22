@@ -15,9 +15,12 @@ import (
 )
 
 type uniterResolver struct {
-	clearResolved   func() error
-	reportHookError func(hook.Info) error
-	fixDeployer     func() error
+	clearResolved         func() error
+	reportHookError       func(hook.Info) error
+	fixDeployer           func() error
+	startRetryHookTimer   func()
+	stopRetryHookTimer    func()
+	retryHookTimerStarted bool
 
 	leadershipResolver resolver.Resolver
 	actionsResolver    resolver.Resolver
@@ -29,19 +32,23 @@ func newUniterResolver(
 	clearResolved func() error,
 	reportHookError func(hook.Info) error,
 	fixDeployer func() error,
+	startRetryHookTimer func(),
+	stopRetryHookTimer func(),
 	leadershipResolver resolver.Resolver,
 	actionsResolver resolver.Resolver,
 	relationsResolver resolver.Resolver,
 	storageResolver resolver.Resolver,
 ) *uniterResolver {
 	return &uniterResolver{
-		clearResolved:      clearResolved,
-		reportHookError:    reportHookError,
-		fixDeployer:        fixDeployer,
-		leadershipResolver: leadershipResolver,
-		actionsResolver:    actionsResolver,
-		relationsResolver:  relationsResolver,
-		storageResolver:    storageResolver,
+		clearResolved:       clearResolved,
+		reportHookError:     reportHookError,
+		fixDeployer:         fixDeployer,
+		startRetryHookTimer: startRetryHookTimer,
+		stopRetryHookTimer:  stopRetryHookTimer,
+		leadershipResolver:  leadershipResolver,
+		actionsResolver:     actionsResolver,
+		relationsResolver:   relationsResolver,
+		storageResolver:     storageResolver,
 	}
 }
 
@@ -163,13 +170,35 @@ func (s *uniterResolver) nextOpHookError(
 
 	switch remoteState.ResolvedMode {
 	case params.ResolvedNone:
+		if remoteState.RetryHookVersion > localState.RetryHookVersion {
+			// We've been asked to retry: clear the hook timer
+			// started state so we'll restart it if this fails.
+			//
+			// If the hook fails again, we'll re-enter this method
+			// with the retry hook versions equal and restart the
+			// timer. If the hook succeeds, we'll enter nextOp
+			// and stop the timer.
+			s.retryHookTimerStarted = false
+			return opFactory.NewRunHook(*localState.Hook)
+		}
+		if !s.retryHookTimerStarted {
+			// We haven't yet started a retry timer, so start one
+			// now. If we retry and fail, retryHookTimerStarted is
+			// cleared so that we'll still start it again.
+			s.startRetryHookTimer()
+			s.retryHookTimerStarted = true
+		}
 		return nil, resolver.ErrNoOperation
 	case params.ResolvedRetryHooks:
+		s.stopRetryHookTimer()
+		s.retryHookTimerStarted = false
 		if err := s.clearResolved(); err != nil {
 			return nil, errors.Trace(err)
 		}
 		return opFactory.NewRunHook(*localState.Hook)
 	case params.ResolvedNoHooks:
+		s.stopRetryHookTimer()
+		s.retryHookTimerStarted = false
 		if err := s.clearResolved(); err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -186,6 +215,12 @@ func (s *uniterResolver) nextOp(
 	remoteState remotestate.Snapshot,
 	opFactory operation.Factory,
 ) (operation.Operation, error) {
+
+	// Stop the hook-retry timer in case we've just retried a
+	// failed hook. This is necessary to reset the backoff state.
+	s.stopRetryHookTimer()
+	s.retryHookTimerStarted = false
+
 	switch remoteState.Life {
 	case params.Alive:
 	case params.Dying:

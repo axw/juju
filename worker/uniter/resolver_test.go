@@ -44,6 +44,8 @@ func (s *resolverSuite) SetUpTest(c *gc.C) {
 		func() error { return errors.New("unexpected resolved") },
 		func(_ hook.Info) error { return errors.New("unexpected report hook error") },
 		func() error { return nil },
+		func() {},
+		func() {},
 		uniteractions.NewResolver(),
 		leadership.NewResolver(),
 		relation.NewRelationsResolver(&dummyRelations{}),

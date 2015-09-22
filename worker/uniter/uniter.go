@@ -179,6 +179,9 @@ func (u *Uniter) loop(unitTag names.UnitTag) (err error) {
 		watcherMu sync.Mutex
 	)
 
+	// TODO extract constants
+	retryHookTimer := NewBackoffTimer(10*time.Second, 20*time.Minute, true, 2)
+
 	restartWatcher := func() error {
 		watcherMu.Lock()
 		defer watcherMu.Unlock()
@@ -195,6 +198,7 @@ func (u *Uniter) loop(unitTag names.UnitTag) (err error) {
 				LeadershipTracker:   u.leadershipTracker,
 				UnitTag:             unitTag,
 				UpdateStatusChannel: u.updateStatusAt,
+				RetryHookChannel:    retryHookTimer.Channel(),
 			})
 		if err != nil {
 			return errors.Trace(err)
@@ -248,13 +252,15 @@ func (u *Uniter) loop(unitTag names.UnitTag) (err error) {
 		}
 
 		uniterResolver := &uniterResolver{
-			clearResolved:      clearResolved,
-			reportHookError:    u.reportHookError,
-			fixDeployer:        u.deployer.Fix,
-			actionsResolver:    actions.NewResolver(),
-			leadershipResolver: uniterleadership.NewResolver(),
-			relationsResolver:  relation.NewRelationsResolver(u.relations),
-			storageResolver:    storage.NewResolver(u.storage),
+			clearResolved:       clearResolved,
+			reportHookError:     u.reportHookError,
+			fixDeployer:         u.deployer.Fix,
+			startRetryHookTimer: retryHookTimer.Signal,
+			stopRetryHookTimer:  retryHookTimer.Reset,
+			actionsResolver:     actions.NewResolver(),
+			leadershipResolver:  uniterleadership.NewResolver(),
+			relationsResolver:   relation.NewRelationsResolver(u.relations),
+			storageResolver:     storage.NewResolver(u.storage),
 		}
 
 		// We should not do anything until there has been a change

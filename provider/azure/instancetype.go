@@ -155,11 +155,19 @@ func findInstanceSpec(
 	constraint *instances.InstanceConstraint,
 ) (*instances.InstanceSpec, error) {
 	constraint.Constraints = defaultToBaselineSpec(constraint.Constraints)
-	imageData, err := findMatchingImages(env, constraint.Region, constraint.Series, constraint.Arches)
-	if err != nil {
-		return nil, err
-	}
-	images := instances.ImageMetadataToImages(imageData)
+	/*
+		imageData, err := findMatchingImages(env, constraint.Region, constraint.Series, constraint.Arches)
+		if err != nil {
+			return nil, err
+		}
+		images := instances.ImageMetadataToImages(imageData)
+	*/
+	// TODO(axw) hack, don't use simplestreams.
+	images := []instances.Image{{
+		Id:       "juju",
+		Arch:     arch.AMD64,
+		VirtType: "Hyper-V",
+	}}
 	instanceTypes := make([]instances.InstanceType, 0, len(instanceTypesMap))
 	for _, instanceType := range instanceTypesMap {
 		instanceTypes = append(instanceTypes, instanceType)

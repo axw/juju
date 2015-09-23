@@ -514,6 +514,15 @@ func setVirtualMachineOsDisk(
 		storageProfile.ImageReference.Offer = "UbuntuServer"
 		storageProfile.ImageReference.Sku = "14.04.3-LTS"
 		storageProfile.ImageReference.Version = "latest"
+
+	// TODO(axw) figure out how we can customise behaviour of CentOS
+	//           images. Probably using the "custom script" extension.
+	//case os.CentOS:
+	//	storageProfile.ImageReference.Publisher = "OpenLogic"
+	//	storageProfile.ImageReference.Offer = "CentOS"
+	//	storageProfile.ImageReference.Sku = "7.1"
+	//	storageProfile.ImageReference.Version = "latest"
+
 	default:
 		// TODO(axw) Windows, CentOS
 		return errors.NotSupportedf("%s", seriesOS)

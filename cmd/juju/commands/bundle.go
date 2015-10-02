@@ -22,6 +22,7 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/state/multiwatcher"
 	"github.com/juju/juju/state/watcher"
+	"github.com/juju/juju/storage"
 )
 
 // deploymentLogger is used to notify clients about the bundle deployment
@@ -179,7 +180,25 @@ func (h *bundleHandler) addService(id string, p bundlechanges.AddServiceParams) 
 	ch := h.results["resolved-"+p.Charm]
 	// TODO frankban: handle service constraints in the bundle changes.
 	numUnits, configYAML, cons, toMachineSpec := 0, "", constraints.Value{}, ""
-	if err := h.client.ServiceDeploy(ch, p.Service, numUnits, configYAML, cons, toMachineSpec); err == nil {
+	storageConstraints := make(map[string]storage.Constraints)
+	for k, v := range p.Storage {
+		cons, err := storage.ParseConstraints(v)
+		if err != nil {
+			return errors.Annotate(err, "cannot parse storage constraints")
+		}
+		storageConstraints[k] = cons
+	}
+	if err := serviceClient.ServiceDeploy(
+		ch,
+		p.Service,
+		numUnits,
+		string(configYAML),
+		cons,
+		toMachineSpec,
+		nil,        // placement
+		[]string{}, // networks -- deprecated
+		storage,
+	); err == nil {
 		h.log.Infof("service %s deployed (charm: %s)", p.Service, ch)
 	} else if isErrServiceExists(err) {
 		// The service is already deployed in the environment: check that its

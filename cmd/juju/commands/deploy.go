@@ -191,6 +191,13 @@ func (c *DeployCommand) Run(ctx *cmd.Context) error {
 	defer csClient.jar.Save()
 	repoPath := ctx.AbsPath(c.RepoPath)
 
+	serviceClient, err := c.newServiceAPIClient()
+	if err != nil {
+		notSupported := errors.New("cannot deploy charms with storage or placement: not supported by the API server")
+		return notSupported
+	}
+	defer serviceClient.Close()
+
 	// Handle local bundle paths.
 	f, err := os.Open(c.CharmOrBundle)
 	if err == nil {
@@ -206,7 +213,7 @@ func (c *DeployCommand) Run(ctx *cmd.Context) error {
 		if err != nil {
 			return block.ProcessBlockedError(err, block.BlockChange)
 		}
-		if err := deployBundle(bundleData, client, csClient, repoPath, conf, ctx); err != nil {
+		if err := deployBundle(bundleData, client, serviceClient, csClient, repoPath, conf, ctx); err != nil {
 			return block.ProcessBlockedError(err, block.BlockChange)
 		}
 		ctx.Infof("deployment of bundle %q completed", f.Name())
@@ -227,7 +234,7 @@ func (c *DeployCommand) Run(ctx *cmd.Context) error {
 		if err != nil {
 			return block.ProcessBlockedError(err, block.BlockChange)
 		}
-		if err := deployBundle(bundle.Data(), client, csClient, repoPath, conf, ctx); err != nil {
+		if err := deployBundle(bundle.Data(), client, serviceClient, csClient, repoPath, conf, ctx); err != nil {
 			return block.ProcessBlockedError(err, block.BlockChange)
 		}
 		ctx.Infof("deployment of bundle %q completed", curl)

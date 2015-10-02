@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/juju/bundlechanges"
 	"github.com/juju/errors"
 	"github.com/juju/names"
@@ -16,6 +17,7 @@ import (
 	"gopkg.in/yaml.v1"
 
 	"github.com/juju/juju/api"
+	"github.com/juju/juju/api/service"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs/config"
@@ -35,13 +37,18 @@ type deploymentLogger interface {
 // deployBundle deploys the given bundle data using the given API client and
 // charm store client. The deployment is not transactional, and its progress is
 // notified using the given deployment logger.
-func deployBundle(data *charm.BundleData, client *api.Client, csclient *csClient, repoPath string, conf *config.Config, log deploymentLogger) error {
+func deployBundle(data *charm.BundleData, client *api.Client, serviceClient *service.Client, csclient *csClient, repoPath string, conf *config.Config, log deploymentLogger) error {
 	if err := data.Verify(func(s string) error {
 		_, err := constraints.Parse(s)
+		return err
+	}, func(s string) error {
+		_, err := storage.ParseConstraints(s)
 		return err
 	}); err != nil {
 		return errors.Annotate(err, "cannot deploy bundle")
 	}
+
+	spew.Dump(data)
 
 	// Retrieve bundle changes.
 	changes := bundlechanges.FromData(data)
@@ -71,6 +78,7 @@ func deployBundle(data *charm.BundleData, client *api.Client, csclient *csClient
 		changes:         changes,
 		results:         make(map[string]string, numChanges),
 		client:          client,
+		serviceClient:   serviceClient,
 		csclient:        csclient,
 		repoPath:        repoPath,
 		conf:            conf,
@@ -124,7 +132,8 @@ type bundleHandler struct {
 	//   implicitly created by adding a unit without a machine spec.
 	results map[string]string
 	// client is used to interact with the environment.
-	client *api.Client
+	client        *api.Client
+	serviceClient *service.Client
 	// csclient is used to retrieve charms from the charm store.
 	csclient *csClient
 	// repoPath is used to retrieve charms from a local repository.
@@ -175,6 +184,7 @@ func (h *bundleHandler) addCharm(id string, p bundlechanges.AddCharmParams) erro
 // addService deploys or update a service with no units. Service options are
 // also set or updated.
 func (h *bundleHandler) addService(id string, p bundlechanges.AddServiceParams) error {
+	logger.Infof("service params: %+v", p)
 	// TODO frankban: the charm should really be resolved using
 	// resolve(p.Charm, h.results) at this point: see TODO in addCharm.
 	ch := h.results["resolved-"+p.Charm]
@@ -188,7 +198,7 @@ func (h *bundleHandler) addService(id string, p bundlechanges.AddServiceParams) 
 		}
 		storageConstraints[k] = cons
 	}
-	if err := serviceClient.ServiceDeploy(
+	if err := h.serviceClient.ServiceDeploy(
 		ch,
 		p.Service,
 		numUnits,
@@ -197,7 +207,7 @@ func (h *bundleHandler) addService(id string, p bundlechanges.AddServiceParams) 
 		toMachineSpec,
 		nil,        // placement
 		[]string{}, // networks -- deprecated
-		storage,
+		storageConstraints,
 	); err == nil {
 		h.log.Infof("service %s deployed (charm: %s)", p.Service, ch)
 	} else if isErrServiceExists(err) {

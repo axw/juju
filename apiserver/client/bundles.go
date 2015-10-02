@@ -12,6 +12,7 @@ import (
 
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/constraints"
+	"github.com/juju/juju/storage"
 )
 
 // GetBundleChanges returns the list of changes required to deploy the given
@@ -25,6 +26,9 @@ func (c *Client) GetBundleChanges(args params.GetBundleChangesParams) (params.Ge
 	}
 	if err := data.Verify(func(s string) error {
 		_, err := constraints.Parse(s)
+		return err
+	}, func(s string) error {
+		_, err := storage.ParseConstraints(s)
 		return err
 	}); err != nil {
 		if err, ok := err.(*charm.VerificationError); ok {

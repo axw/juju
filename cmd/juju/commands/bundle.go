@@ -188,8 +188,11 @@ func (h *bundleHandler) addService(id string, p bundlechanges.AddServiceParams) 
 	// TODO frankban: the charm should really be resolved using
 	// resolve(p.Charm, h.results) at this point: see TODO in addCharm.
 	ch := h.results["resolved-"+p.Charm]
-	// TODO frankban: handle service constraints in the bundle changes.
-	numUnits, configYAML, cons, toMachineSpec := 0, "", constraints.Value{}, ""
+	numUnits, configYAML, toMachineSpec := 0, "", ""
+	cons, err := constraints.Parse(p.Constraints)
+	if err != nil {
+		return errors.Annotate(err, "cannot parse service constraints")
+	}
 	storageConstraints := make(map[string]storage.Constraints)
 	for k, v := range p.Storage {
 		cons, err := storage.ParseConstraints(v)

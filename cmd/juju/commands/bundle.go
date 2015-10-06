@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/juju/bundlechanges"
 	"github.com/juju/errors"
 	"github.com/juju/names"
@@ -47,8 +46,6 @@ func deployBundle(data *charm.BundleData, client *api.Client, serviceClient *ser
 	}); err != nil {
 		return errors.Annotate(err, "cannot deploy bundle")
 	}
-
-	spew.Dump(data)
 
 	// Retrieve bundle changes.
 	changes := bundlechanges.FromData(data)

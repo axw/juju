@@ -11,25 +11,46 @@ import (
 const (
 	// interval at which the unit's status should be polled
 	statusPollInterval = 5 * time.Minute
+
+	// backoffTimerDefaultJitter is the default range for jitter
+	// to add or subtract to the timeout.
+	backoffTimerDefaultJitter = 0.03
+
+	// backoffTimerDefaultMultiplier is the amount to multiply
+	// the duration by each iteration.
+	backoffTimerDefaultMultiplier = 2
+
+	backoffTimerDefaultMinDuration = 10 * time.Second
+	backoffTimerDefaultMaxDuration = 20 * time.Minute
 )
 
 // BackoffTimer implements a timer that will signal after a
-// internally stored duration. The steps as well as min and max
-// durations are declared upon initialization
+// internally stored duration.
 type BackoffTimer interface {
-	// Channel returns the channel that can be listened for events
+	// Channel returns the channel that will be signalled when the
+	// timer completes.
 	Channel() <-chan struct{}
 
-	// Reset will reset the timer to it's minimum value
+	// Reset resets the timer to its initial state.
 	Reset()
 
-	// Signal will return after a internally stored duration
-	// and increase the duration for the next call
-	Signal()
+	// Start starts the timer, stopping it first if it is already
+	// running, and then increases the duration.
+	Start()
 }
 
-// NewBackoffTimer creates and initializer a new BackoffTimer
-func NewBackoffTimer(min, max time.Duration, jitter bool, factor int64) BackoffTimer {
+// NewBackoffTimer creates and initializes a new BackoffTimer
+//
+// min
+//     min is the initial duration to wait before signalling.
+// max
+//     max is the maximum duration to wait before signalling.
+// jitter
+//     jitter is the range of jitter to add or subtract to the duration.
+// multiplier
+//     multiplier is the factor by which the duration will be multiplied
+//     each iteration.
+func NewBackoffTimer(min, max time.Duration, jitter float64, multiplier int64) BackoffTimer {
 	return &backoffTimer{
 		min:             min,
 		max:             max,

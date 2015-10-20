@@ -6,6 +6,7 @@ package azure
 import (
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/Azure/azure-sdk-for-go/arm/network"
+	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/juju/errors"
@@ -18,8 +19,8 @@ const AzureDomainName = "cloudapp.net"
 
 type azureInstance struct {
 	compute.VirtualMachine
-	networkInterfaces []network.NetworkInterface
-	publicIpAddresses []network.PublicIpAddress
+	networkInterfaces []network.Interface
+	publicIPAddresses []network.PublicIPAddress
 	env               *azureEnviron
 }
 
@@ -31,34 +32,19 @@ func (inst *azureInstance) Id() instance.Id {
 	// Note: we use Name and not Id, since all VM operations are in
 	// terms of the VM name (qualified by resource group). The ID is
 	// an internal detail.
-	return instance.Id(inst.VirtualMachine.Name)
+	return instance.Id(to.String(inst.VirtualMachine.Name))
 }
 
 // Status is specified in the Instance interface.
 func (inst *azureInstance) Status() string {
 	// TODO(axw) is this the right thing to use?
-	return inst.Properties.ProvisioningState
-}
-
-// Refresh is specified in the Instance interface.
-func (inst *azureInstance) Refresh() error {
-	// TODO(axw) remove the Instance.Refresh method. Callers can just
-	// use environs.Instances([]instance.Id{inst.Id()}) instead.
-	instances, err := inst.env.Instances([]instance.Id{inst.Id()})
-	if err != nil {
-		return errors.Annotatef(err, "refreshing instance %q", inst.Id())
-	}
-	*inst = *instances[0].(*azureInstance)
-	// TODO(axw) when querying instances, don't query VM directly,
-	//           query resources with tags, use "type" field to
-	//           decode into the right type.
-	return errors.Trace(inst.refreshAddresses())
+	return to.String(inst.Properties.ProvisioningState)
 }
 
 func (inst *azureInstance) refreshAddresses() error {
 	inst.env.mu.Lock()
-	nicClient := network.NetworkInterfacesClient{inst.env.network}
-	pipClient := network.PublicIpAddressesClient{inst.env.network}
+	nicClient := network.InterfacesClient{inst.env.network}
+	pipClient := network.PublicIPAddressesClient{inst.env.network}
 	resourceGroup := inst.env.resourceGroup
 	inst.env.mu.Unlock()
 
@@ -69,65 +55,71 @@ func (inst *azureInstance) refreshAddresses() error {
 	if err != nil {
 		return errors.Annotate(err, "listing network interfaces")
 	}
-	nicsById := make(map[string]network.NetworkInterface)
-	pipsById := make(map[string]*network.PublicIpAddress)
-	for _, nic := range nicsResult.Value {
-		nicsById[nic.Id] = nic
+	nicsById := make(map[string]network.Interface)
+	pipsById := make(map[string]*network.PublicIPAddress)
+	for _, nic := range *nicsResult.Value {
+		nicsById[to.String(nic.ID)] = nic
 	}
-	networkInterfaces := make([]network.NetworkInterface, 0, len(inst.Properties.NetworkProfile.NetworkInterfaces))
-	for _, nicRef := range inst.Properties.NetworkProfile.NetworkInterfaces {
-		nic, ok := nicsById[nicRef.Id]
-		if !ok {
-			logger.Warningf("could not find NIC with ID %q", nicRef.Id)
-			continue
-		}
-		for _, ipConfiguration := range nic.Properties.IpConfigurations {
-			if ipConfiguration.Properties.PublicIPAddress.Id == "" {
+	if inst.Properties.NetworkProfile.NetworkInterfaces != nil {
+		networkInterfaces := make([]network.Interface, 0, len(*inst.Properties.NetworkProfile.NetworkInterfaces))
+		for _, nicRef := range *inst.Properties.NetworkProfile.NetworkInterfaces {
+			nic, ok := nicsById[to.String(nicRef.ID)]
+			if !ok {
+				logger.Warningf("could not find NIC with ID %q", to.String(nicRef.ID))
 				continue
 			}
-			pipsById[ipConfiguration.Properties.PublicIPAddress.Id] = nil
+			if nic.Properties.IPConfigurations != nil {
+				for _, ipConfiguration := range *nic.Properties.IPConfigurations {
+					if ipConfiguration.Properties.PublicIPAddress == nil {
+						continue
+					}
+					pipsById[to.String(ipConfiguration.Properties.PublicIPAddress.ID)] = nil
+				}
+			}
+			networkInterfaces = append(networkInterfaces, nic)
 		}
-		networkInterfaces = append(networkInterfaces, nic)
+		inst.networkInterfaces = networkInterfaces
 	}
-	inst.networkInterfaces = networkInterfaces
 
 	pipsResult, err := pipClient.List(resourceGroup)
 	if err != nil {
 		return errors.Annotate(err, "listing public IP addresses")
 	}
-	publicIpAddresses := make([]network.PublicIpAddress, 0, len(pipsById))
-	for _, pip := range pipsResult.Value {
-		if _, ok := pipsById[pip.Id]; !ok {
-			continue
+	publicIPAddresses := make([]network.PublicIPAddress, 0, len(pipsById))
+	if pipsResult.Value != nil {
+		for _, pip := range *pipsResult.Value {
+			if _, ok := pipsById[to.String(pip.ID)]; !ok {
+				continue
+			}
+			publicIPAddresses = append(publicIPAddresses, pip)
 		}
-		publicIpAddresses = append(publicIpAddresses, pip)
 	}
-	inst.publicIpAddresses = publicIpAddresses
+	inst.publicIPAddresses = publicIPAddresses
 
 	return nil
 }
 
 // Addresses is specified in the Instance interface.
 func (inst *azureInstance) Addresses() ([]jujunetwork.Address, error) {
-	addresses := make([]jujunetwork.Address, 0, len(inst.networkInterfaces)+len(inst.publicIpAddresses))
+	addresses := make([]jujunetwork.Address, 0, len(inst.networkInterfaces)+len(inst.publicIPAddresses))
 	for _, nic := range inst.networkInterfaces {
-		for _, ipConfiguration := range nic.Properties.IpConfigurations {
+		if nic.Properties.IPConfigurations == nil {
+			continue
+		}
+		for _, ipConfiguration := range *nic.Properties.IPConfigurations {
 			privateIpAddress := ipConfiguration.Properties.PrivateIPAddress
-			addresses = append(addresses,
-				jujunetwork.NewScopedAddress(
-					privateIpAddress, jujunetwork.ScopeCloudLocal,
-				),
-			)
+			addresses = append(addresses, jujunetwork.NewScopedAddress(
+				to.String(privateIpAddress),
+				jujunetwork.ScopeCloudLocal,
+			))
 		}
 	}
-	for _, pip := range inst.publicIpAddresses {
-		addresses = append(addresses,
-			jujunetwork.NewScopedAddress(
-				pip.Properties.IpAddress, jujunetwork.ScopePublic,
-			),
-		)
+	for _, pip := range inst.publicIPAddresses {
+		addresses = append(addresses, jujunetwork.NewScopedAddress(
+			to.String(pip.Properties.IPAddress),
+			jujunetwork.ScopePublic,
+		))
 	}
-	logger.Debugf("addresses: %+v", addresses)
 	return addresses, nil
 }
 
@@ -146,7 +138,7 @@ func (inst *azureInstance) ClosePorts(machineId string, ports []jujunetwork.Port
 // Ports is specified in the Instance interface.
 func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRange, err error) {
 	inst.env.mu.Lock()
-	nsgClient := network.NetworkSecurityGroupsClient{inst.env.network}
+	nsgClient := network.SecurityGroupsClient{inst.env.network}
 	resourceGroup := inst.env.resourceGroup
 	inst.env.mu.Unlock()
 

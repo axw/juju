@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
+	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/juju/errors"
 	"github.com/juju/utils/arch"
 
@@ -123,24 +124,25 @@ func newInstanceType(size compute.VirtualMachineSize) instances.InstanceType {
 
 	// Anything not in the list is more expensive that is in the list.
 	cost := len(machineSizeCost)
+	sizeName := to.String(size.Name)
 	for i, name := range machineSizeCost {
-		if size.Name == name {
+		if sizeName == name {
 			cost = i
 			break
 		}
 	}
 	if cost == len(machineSizeCost) {
-		logger.Warningf("found unknown VM size %q", size.Name)
+		logger.Warningf("found unknown VM size %q", sizeName)
 	}
 
 	vtype := "Hyper-V"
 	return instances.InstanceType{
-		Id:       size.Name,
-		Name:     size.Name,
+		Id:       sizeName,
+		Name:     sizeName,
 		Arches:   []string{arch.AMD64},
-		CpuCores: uint64(size.NumberOfCores),
-		Mem:      uint64(size.MemoryInMB),
-		RootDisk: uint64(size.OsDiskSizeInMB),
+		CpuCores: uint64(to.Int(size.NumberOfCores)),
+		Mem:      uint64(to.Int(size.MemoryInMB)),
+		RootDisk: uint64(to.Int(size.OsDiskSizeInMB)),
 		Cost:     uint64(cost),
 		VirtType: &vtype,
 		// tags are not currently supported by azure

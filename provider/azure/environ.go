@@ -9,18 +9,22 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/Azure/azure-sdk-for-go/arm/network"
 	"github.com/Azure/azure-sdk-for-go/arm/resources"
 	"github.com/Azure/azure-sdk-for-go/arm/storage"
-	"github.com/Azure/go-autorest/autorest"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
+	"github.com/juju/utils"
 	"github.com/juju/utils/arch"
 	"github.com/juju/utils/os"
+	jujuseries "github.com/juju/utils/series"
 
 	"github.com/juju/juju/cloudconfig/instancecfg"
+	"github.com/juju/juju/cloudconfig/providerinit"
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
@@ -28,7 +32,6 @@ import (
 	"github.com/juju/juju/environs/simplestreams"
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/instance"
-	jujuseries "github.com/juju/juju/juju/series"
 	jujunetwork "github.com/juju/juju/network"
 	"github.com/juju/juju/provider/common"
 	"github.com/juju/juju/state"
@@ -48,12 +51,12 @@ type azureEnviron struct {
 	config         *azureEnvironConfig
 	instanceTypes  map[string]instances.InstanceType
 	subnets        map[string]*network.Subnet
-	storageAccount *storage.StorageAccount
+	storageAccount *storage.Account
 	// azure management clients
-	compute   compute.ComputeManagementClient
-	resources resources.ResourceManagementClient
-	storage   storage.StorageManagementClient
-	network   network.NetworkResourceProviderClient
+	compute   compute.ManagementClient
+	resources resources.ManagementClient
+	storage   storage.ManagementClient
+	network   network.ManagementClient
 }
 
 // azureEnviron implements Environ and HasRegion.
@@ -80,11 +83,11 @@ func (env *azureEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.
 	tags, _ := env.config.ResourceTags()
 
 	var err error
-	resourceGroupsClient := resources.ResourceGroupsClient{env.resources}
+	resourceGroupsClient := resources.GroupsClient{env.resources}
 	logger.Debugf("creating resource group %q", env.resourceGroup)
-	_, err = resourceGroupsClient.CreateOrUpdate(env.resourceGroup, resources.ResourceGroup{
-		Location: location,
-		Tags:     tags,
+	_, err = resourceGroupsClient.CreateOrUpdate(env.resourceGroup, resources.Group{
+		Location: to.StringPtr(location),
+		Tags:     toTagsPtr(tags),
 	})
 	if err != nil {
 		return "", "", nil, errors.Annotate(err, "creating resource group")
@@ -108,7 +111,7 @@ func (env *azureEnviron) bootstrapResourceGroup(
 ) (arch, series string, _ environs.BootstrapFinalizer, _ error) {
 
 	// Create a storage account.
-	storageAccountsClient := storage.StorageAccountsClient{env.storage}
+	storageAccountsClient := storage.AccountsClient{env.storage}
 	storageAccountName, err := createStorageAccount(
 		storageAccountsClient, env.resourceGroup, location, tags,
 	)
@@ -125,7 +128,7 @@ func (env *azureEnviron) bootstrapResourceGroup(
 	if err != nil {
 		return "", "", nil, errors.Annotate(err, "creating virtual network")
 	}
-	env.subnets[vnet.Name+":"+subnet.Name] = subnet
+	env.subnets[to.String(vnet.Name)+":"+to.String(subnet.Name)] = subnet
 
 	// TODO(axw) ensure user doesn't specify storage-account.
 	// Update the environment's config with generated config.
@@ -144,40 +147,43 @@ func (env *azureEnviron) bootstrapResourceGroup(
 }
 
 func createStorageAccount(
-	client storage.StorageAccountsClient,
+	client storage.AccountsClient,
 	resourceGroup string,
 	location string,
 	tags map[string]string,
 ) (string, error) {
 	const maxStorageAccountNameLen = 24
 	const maxAttempts = 10
-	validRunes := append([]rune(lowerAlpha), []rune(digits)...)
+	validRunes := append([]rune(utils.LowerAlpha), []rune(utils.Digits)...)
 	logger.Debugf("creating storage account (finding available name)")
 	for remaining := maxAttempts; remaining > 0; remaining-- {
-		accountName := randomString(maxStorageAccountNameLen, validRunes)
+		accountName := utils.RandomString(maxStorageAccountNameLen, validRunes)
 		logger.Debugf("- checking storage account name %q", accountName)
 		result, err := client.CheckNameAvailability(
-			storage.StorageAccountCheckNameAvailabilityParameters{
-				Name: accountName,
-				Type: "Microsoft.Storage/storageAccounts",
+			storage.AccountCheckNameAvailabilityParameters{
+				Name: to.StringPtr(accountName),
+				// TODO(axw) do we need this?
+				Type: to.StringPtr("Microsoft.Storage/storageAccounts"),
 			},
 		)
 		if err != nil {
 			return "", errors.Annotate(err, "checking account name availability")
 		}
-		if !result.NameAvailable {
+		if !to.Bool(result.NameAvailable) {
 			logger.Debugf(
 				"%q is not available (%v): %v",
 				accountName, result.Reason, result.Message,
 			)
 			continue
 		}
-		createParams := storage.StorageAccountCreateParameters{
-			Location: location,
-			Tags:     tags,
+		createParams := storage.AccountCreateParameters{
+			Location: to.StringPtr(location),
+			Tags:     toTagsPtr(tags),
+			Properties: &storage.AccountPropertiesCreateParameters{
+				// TODO(axw) make storage account type configurable?
+				AccountType: storage.StandardLRS,
+			},
 		}
-		// TODO(axw) make storage account type configurable?
-		createParams.Properties.AccountType = storage.StandardLRS
 		logger.Debugf("creating storage account %q", accountName)
 		if _, err := client.Create(resourceGroup, accountName, createParams); err != nil {
 			return "", errors.Trace(err)
@@ -196,11 +202,13 @@ func createFlatVirtualNetwork(
 ) (*network.VirtualNetwork, *network.Subnet, error) {
 	// Vnet and subnet must be created separately. Vnet first.
 	virtualNetworkParams := network.VirtualNetwork{
-		Location: location,
-		Tags:     tags,
-	}
-	virtualNetworkParams.Properties.AddressSpace.AddressPrefixes = []string{
-		flatVirtualNetworkPrefix,
+		Location: to.StringPtr(location),
+		Tags:     toTagsPtr(tags),
+		Properties: &network.VirtualNetworkPropertiesFormat{
+			AddressSpace: &network.AddressSpace{
+				AddressPrefixes: toStringSlicePtr(flatVirtualNetworkPrefix),
+			},
+		},
 	}
 	logger.Debugf("creating virtual network %q", flatVirtualNetworkName)
 	vnet, err := vnetClient.CreateOrUpdate(
@@ -211,8 +219,11 @@ func createFlatVirtualNetwork(
 	}
 
 	// Now create a subnet with the same address prefix.
-	var subnetParams network.Subnet
-	subnetParams.Properties.AddressPrefix = flatVirtualNetworkSubnetPrefix
+	subnetParams := network.Subnet{
+		Properties: &network.SubnetPropertiesFormat{
+			AddressPrefix: to.StringPtr(flatVirtualNetworkSubnetPrefix),
+		},
+	}
 	// TODO(axw) security group?
 	logger.Debugf("creating subnet %q", flatVirtualNetworkSubnetName)
 	subnet, err := subnetClient.CreateOrUpdate(
@@ -233,7 +244,7 @@ func (env *azureEnviron) StateServerInstances() ([]instance.Id, error) {
 	// just call AllInstances and check the error, but the error from
 	// the Azure SDK isn't well structured enough to support it nicely.
 	env.mu.Lock()
-	resourceGroupsClient := resources.ResourceGroupsClient{env.resources}
+	resourceGroupsClient := resources.GroupsClient{env.resources}
 	env.mu.Unlock()
 	if result, err := resourceGroupsClient.Get(env.resourceGroup); err != nil {
 		if result.StatusCode == http.StatusNotFound {
@@ -251,7 +262,7 @@ func (env *azureEnviron) StateServerInstances() ([]instance.Id, error) {
 	var ids []instance.Id
 	for _, inst := range instances {
 		azureInstance := inst.(*azureInstance)
-		if azureInstance.Tags[tags.JujuStateServer] == "true" {
+		if toTags(azureInstance.Tags)[tags.JujuStateServer] == "true" {
 			ids = append(ids, inst.Id())
 		}
 	}
@@ -299,11 +310,9 @@ func (env *azureEnviron) SetConfig(cfg *config.Config) error {
 	}
 	for id, client := range clients {
 		client.Authorizer = env.config.token
-		tracer := azureRequestTracer{
-			loggo.GetLogger(id),
-		}
-		client.RequestInspector = tracer
-		client.ResponseInspector = tracer
+		logger := loggo.GetLogger(id)
+		client.RequestInspector = tracingPrepareDecorator(logger)
+		client.ResponseInspector = tracingRespondDecorator(logger)
 	}
 
 	// Invalidate instance types when the location changes.
@@ -439,44 +448,27 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	for k, v := range args.InstanceConfig.Tags {
 		vmTags[k] = v
 	}
-	vmTags[tags.JujuTagPrefix+"machine-name"] = vmName
+	// jujuMachineNameTag identifies the VM name, in which is encoded
+	// the Juju machine name. We tag all resources related to the
+	// machine with this.
+	jujuMachineNameTag := tags.JujuTagPrefix + "machine-name"
+	vmTags[jujuMachineNameTag] = vmName
 
-	// Prepare parameters for creating the instance.
-	vmArgs := compute.VirtualMachine{
-		Name:     vmName,
-		Location: location,
-		Tags:     vmTags,
-	}
-	vmArgs.Properties.HardwareProfile.VmSize = compute.VirtualMachineSizeTypes(instanceSpec.InstanceType.Name)
-	if err := setVirtualMachineOsDisk(
-		&vmArgs, vmName, args.InstanceConfig.Series,
-		instanceSpec, storageAccount,
-	); err != nil {
-		return nil, errors.Trace(err)
-	}
-	if err := setVirtualMachineOsProfile(&vmArgs, vmName, args.InstanceConfig); err != nil {
-		return nil, errors.Trace(err)
-	}
-	if err := setVirtualMachineNetworkProfile(
-		networkClient, &vmArgs, vmName,
-		flatVirtualNetworkSubnet.Id,
-		env.resourceGroup, location,
-		vmTags,
-	); err != nil {
-		return nil, errors.Trace(err)
-	}
-	// TODO availability set
-	// TODO firewall?
-
-	// TODO(axw) at any error point in this method we should delete all
-	// resources with the machine's tag.
-
-	vm, err := vmClient.CreateOrUpdate(env.resourceGroup, vmName, vmArgs)
+	vm, err := createVirtualMachine(
+		env.resourceGroup, location, vmName, vmTags,
+		instanceSpec, args.InstanceConfig,
+		flatVirtualNetworkSubnet.ID,
+		storageAccount, networkClient, vmClient,
+	)
 	if err != nil {
-		return nil, errors.Annotate(err, "creating virtual machine")
+		// TODO(axw) delete resources
+		return nil, errors.Annotatef(err, "creating virtual machine %q", vmName)
 	}
-	inst := &azureInstance{vm, nil, nil, env}
 
+	// Note: the instance is initialised without addresses to keep the
+	// API chatter down. We will refresh the instance if we need to know
+	// the addresses.
+	inst := &azureInstance{vm, nil, nil, env}
 	amd64 := arch.AMD64
 	hc := &instance.HardwareCharacteristics{
 		Arch:     &amd64,
@@ -490,139 +482,199 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	}, nil
 }
 
-// setVirtualMachineOsDisk sets the OS disk parameters for the
-// virtual machine, base on the series and chosen instance spec.
-func setVirtualMachineOsDisk(
-	vm *compute.VirtualMachine,
+// createVirtualMachine creates a virtual machine and related resources.
+//
+// All resources created are tagged with the specified "vmTags", so if
+// this function fails then all resources can be deleted by tag.
+func createVirtualMachine(
+	resourceGroup, location, vmName string,
+	vmTags map[string]string,
+	instanceSpec *instances.InstanceSpec,
+	instanceConfig *instancecfg.InstanceConfig,
+	flatVirtualNetworkSubnetID *string,
+	storageAccount *storage.Account,
+	networkClient network.ManagementClient,
+	vmClient compute.VirtualMachinesClient,
+) (compute.VirtualMachine, error) {
+
+	storageProfile, err := newStorageProfile(
+		vmName, instanceConfig.Series,
+		instanceSpec, storageAccount,
+	)
+	if err != nil {
+		return compute.VirtualMachine{}, errors.Annotate(err, "creating storage profile")
+	}
+
+	osProfile, err := newOSProfile(vmName, instanceConfig)
+	if err != nil {
+		return compute.VirtualMachine{}, errors.Annotate(err, "creating OS profile")
+	}
+
+	networkProfile, err := newNetworkProfile(
+		networkClient, vmName,
+		flatVirtualNetworkSubnetID,
+		resourceGroup, location, vmTags,
+	)
+	if err != nil {
+		return compute.VirtualMachine{}, errors.Annotate(err, "creating network profile")
+	}
+
+	vmArgs := compute.VirtualMachine{
+		Name:     to.StringPtr(vmName),
+		Location: to.StringPtr(location),
+		Tags:     toTagsPtr(vmTags),
+		Properties: &compute.VirtualMachineProperties{
+			HardwareProfile: &compute.HardwareProfile{
+				VMSize: compute.VirtualMachineSizeTypes(
+					instanceSpec.InstanceType.Name,
+				),
+			},
+			StorageProfile: storageProfile,
+			OsProfile:      osProfile,
+			NetworkProfile: networkProfile,
+			// TODO availability set
+		},
+	}
+	return vmClient.CreateOrUpdate(resourceGroup, vmName, vmArgs)
+}
+
+// newStorageProfile creates the storage profile for a virtual machine,
+// based on the series and chosen instance spec.
+func newStorageProfile(
 	vmName string,
 	series string,
 	instanceSpec *instances.InstanceSpec,
-	storageAccount *storage.StorageAccount,
-) error {
-	storageProfile := &vm.Properties.StorageProfile
-	osDisk := &storageProfile.OsDisk
+	storageAccount *storage.Account,
+) (*compute.StorageProfile, error) {
 
 	// TODO(axw) We should be using the image name from instanceSpec.
 	// There is currently no way to specify the image name in VirtualMachine.
 	seriesOS, err := jujuseries.GetOSFromSeries(series)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
+
+	var imageReference *compute.ImageReference
 	switch seriesOS {
 	case os.Ubuntu:
-		storageProfile.ImageReference.Publisher = "Canonical"
-		storageProfile.ImageReference.Offer = "UbuntuServer"
-		storageProfile.ImageReference.Sku = "14.04.3-LTS"
-		storageProfile.ImageReference.Version = "latest"
-
-	// TODO(axw) figure out how we can customise behaviour of CentOS
-	//           images. Probably using the "custom script" extension.
-	//case os.CentOS:
-	//	storageProfile.ImageReference.Publisher = "OpenLogic"
-	//	storageProfile.ImageReference.Offer = "CentOS"
-	//	storageProfile.ImageReference.Sku = "7.1"
-	//	storageProfile.ImageReference.Version = "latest"
-
+		imageReference = &compute.ImageReference{
+			Publisher: to.StringPtr("Canonical"),
+			Offer:     to.StringPtr("UbuntuServer"),
+			Sku:       to.StringPtr("14.04.3-LTS"),
+			Version:   to.StringPtr("latest"),
+		}
 	default:
 		// TODO(axw) Windows, CentOS
-		return errors.NotSupportedf("%s", seriesOS)
+		return nil, errors.NotSupportedf("%s", seriesOS)
 	}
 
-	osDisk.Name = vmName + "-osdisk"
-	osDisk.CreateOption = compute.FromImage
-	osDisk.Caching = compute.ReadWrite
-	osDisk.Vhd.Uri = storageAccount.Properties.PrimaryEndpoints.Blob + "vhds/" + osDisk.Name + ".vhd"
-	return nil
+	vhdsRoot := to.String(storageAccount.Properties.PrimaryEndpoints.Blob) + "vhds/"
+	osDiskName := vmName + "-osdisk"
+	osDisk := &compute.OSDisk{
+		Name:         to.StringPtr(osDiskName),
+		CreateOption: compute.FromImage,
+		Caching:      compute.ReadWrite,
+		Vhd: &compute.VirtualHardDisk{
+			URI: to.StringPtr(
+				vhdsRoot + osDiskName + ".vhd",
+			),
+		},
+	}
+	return &compute.StorageProfile{
+		ImageReference: imageReference,
+		OsDisk:         osDisk,
+	}, nil
 }
 
-func setVirtualMachineOsProfile(
-	vm *compute.VirtualMachine,
-	vmName string,
-	instanceConfig *instancecfg.InstanceConfig,
-) error {
-	osProfile := &vm.Properties.OsProfile
-	osProfile.ComputerName = vmName
-
-	customData, err := makeCustomData(instanceConfig)
+func newOSProfile(vmName string, instanceConfig *instancecfg.InstanceConfig) (*compute.OSProfile, error) {
+	customData, err := providerinit.ComposeUserData(instanceConfig, nil, AzureRenderer{})
 	if err != nil {
-		return errors.Annotate(err, "composing custom data")
+		return nil, errors.Annotate(err, "composing user data")
 	}
-	osProfile.CustomData = customData
+
+	osProfile := &compute.OSProfile{
+		ComputerName: to.StringPtr(vmName),
+		CustomData:   to.StringPtr(string(customData)),
+	}
 
 	seriesOS, err := jujuseries.GetOSFromSeries(instanceConfig.Series)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	switch seriesOS {
 	case os.Ubuntu, os.CentOS, os.Arch:
 		// SSH keys are handled by custom data, but must also be
 		// specified in order to forego providing a password, and
 		// disable password authentication.
-		osProfile.AdminUsername = "ubuntu"
-		osProfile.LinuxConfiguration.Ssh.PublicKeys = []compute.SshPublicKey{{
-			Path:    "/home/ubuntu/.ssh/authorized_keys",
-			KeyData: instanceConfig.AuthorizedKeys,
+		publicKeys := []compute.SSHPublicKey{{
+			Path:    to.StringPtr("/home/ubuntu/.ssh/authorized_keys"),
+			KeyData: to.StringPtr(instanceConfig.AuthorizedKeys),
 		}}
-		osProfile.LinuxConfiguration.DisablePasswordAuthentication = true
+		osProfile.AdminUsername = to.StringPtr("ubuntu")
+		osProfile.LinuxConfiguration = &compute.LinuxConfiguration{
+			DisablePasswordAuthentication: to.BoolPtr(true),
+			SSH: &compute.SSHConfiguration{PublicKeys: &publicKeys}}
 	default:
 		// TODO(axw) support Windows
-		return errors.NotSupportedf("%s", seriesOS)
+		return nil, errors.NotSupportedf("%s", seriesOS)
 	}
-	return nil
+	return osProfile, nil
 }
 
-func setVirtualMachineNetworkProfile(
-	client network.NetworkResourceProviderClient,
-	vm *compute.VirtualMachine,
+func newNetworkProfile(
+	client network.ManagementClient,
 	vmName string,
-	primarySubnetId string,
+	primarySubnetId *string,
 	resourceGroup string,
 	location string,
 	tags map[string]string,
-) error {
+) (*compute.NetworkProfile, error) {
 	// Create a public IP for the NIC.
-	pipClient := network.PublicIpAddressesClient{client}
-	publicIPAddressParams := network.PublicIpAddress{
-		Location: location,
-		Tags:     tags,
+	pipClient := network.PublicIPAddressesClient{client}
+	publicIPAddressParams := network.PublicIPAddress{
+		Location: to.StringPtr(location),
+		Tags:     toTagsPtr(tags),
+		Properties: &network.PublicIPAddressPropertiesFormat{
+			PublicIPAllocationMethod: network.Dynamic,
+		},
 	}
-	publicIPAddressParams.Properties.PublicIPAllocationMethod = network.Dynamic
 	publicIPAddress, err := pipClient.CreateOrUpdate(resourceGroup, vmName+"-public-ip", publicIPAddressParams)
 	if err != nil {
-		return errors.Annotatef(err, "creating public IP address for %q", vmName)
+		return nil, errors.Annotatef(err, "creating public IP address for %q", vmName)
 	}
 
 	// Create a primary NIC for the machine.
-	nicClient := network.NetworkInterfacesClient{client}
+	nicClient := network.InterfacesClient{client}
+	ipConfigurations := []network.InterfaceIPConfiguration{{
+		Name: to.StringPtr("primary"),
+		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
+			PrivateIPAllocationMethod: network.Dynamic,
+			Subnet:          &network.SubResource{ID: primarySubnetId},
+			PublicIPAddress: &network.SubResource{publicIPAddress.ID},
+		},
+	}}
 	primaryNicName := vmName + "-primary"
-	primaryNicParams := network.NetworkInterface{
-		Location: location,
-		Tags:     tags,
-	}
-	primaryNicIpConfiguration := network.NetworkInterfaceIpConfiguration{
-		Name: "primary",
-	}
-	primaryNicIpConfiguration.Properties.PrivateIPAllocationMethod = network.Dynamic
-	primaryNicIpConfiguration.Properties.Subnet.Id = primarySubnetId
-	primaryNicIpConfiguration.Properties.PublicIPAddress.Id = publicIPAddress.Id
-	primaryNicParams.Properties.IpConfigurations = []network.NetworkInterfaceIpConfiguration{
-		primaryNicIpConfiguration,
+	primaryNicParams := network.Interface{
+		Location: to.StringPtr(location),
+		Tags:     toTagsPtr(tags),
+		Properties: &network.InterfacePropertiesFormat{
+			IPConfigurations: &ipConfigurations,
+		},
 	}
 	primaryNic, err := nicClient.CreateOrUpdate(resourceGroup, primaryNicName, primaryNicParams)
 	if err != nil {
-		return errors.Annotatef(err, "creating network interface for %q", vmName)
+		return nil, errors.Annotatef(err, "creating network interface for %q", vmName)
 	}
 
 	// For now we only attach a single, flat network to each machine.
-	primaryNicReference := compute.NetworkInterfaceReference{
-		Id: primaryNic.Id,
-	}
-	primaryNicReference.Properties.Primary = true
-	networkProfile := &vm.Properties.NetworkProfile
-	networkProfile.NetworkInterfaces = []compute.NetworkInterfaceReference{
-		primaryNicReference,
-	}
-	return nil
+	networkInterfaces := []compute.NetworkInterfaceReference{{
+		ID: primaryNic.ID,
+		Properties: &compute.NetworkInterfaceReferenceProperties{
+			Primary: to.BoolPtr(true),
+		},
+	}}
+	// TODO firewall?
+	return &compute.NetworkProfile{&networkInterfaces}, nil
 }
 
 // StopInstances is specified in the InstanceBroker interface.
@@ -678,12 +730,12 @@ func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
 	if err != nil {
 		return nil, errors.Annotate(err, "listing virtual machines")
 	}
-	if len(result.Value) == 0 {
+	if result.Value == nil || len(*result.Value) == 0 {
 		return nil, environs.ErrNoInstances
 	}
 	// TODO(axw) how to continue with result.NextLink?
-	instances := make([]instance.Instance, len(result.Value))
-	for i, vm := range result.Value {
+	instances := make([]instance.Instance, len(*result.Value))
+	for i, vm := range *result.Value {
 		inst := &azureInstance{vm, nil, nil, env}
 		if err := inst.refreshAddresses(); err != nil {
 			return nil, errors.Trace(err)
@@ -696,7 +748,7 @@ func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
 // Destroy is specified in the Environ interface.
 func (env *azureEnviron) Destroy() error {
 	logger.Debugf("destroying environment %q", env.Config().Name())
-	client := resources.ResourceGroupsClient{env.resources}
+	client := resources.GroupsClient{env.resources}
 	if _, err := client.Delete(env.resourceGroup); err != nil {
 		return errors.Annotatef(err, "deleting resource group %q", env.resourceGroup)
 	}
@@ -785,25 +837,26 @@ func (env *azureEnviron) getInstanceTypesLocked() (map[string]instances.Instance
 		return nil, errors.Trace(err)
 	}
 	instanceTypes := make(map[string]instances.InstanceType)
-	for _, size := range result.Value {
-		instanceType := newInstanceType(size)
-		instanceTypes[instanceType.Name] = instanceType
-		// Create aliases for standard role sizes.
-		if strings.HasPrefix(instanceType.Name, "Standard_") {
-			instanceTypes[instanceType.Name[len("Standard_"):]] = instanceType
+	if result.Value != nil {
+		for _, size := range *result.Value {
+			instanceType := newInstanceType(size)
+			instanceTypes[instanceType.Name] = instanceType
+			// Create aliases for standard role sizes.
+			if strings.HasPrefix(instanceType.Name, "Standard_") {
+				instanceTypes[instanceType.Name[len("Standard_"):]] = instanceType
+			}
 		}
 	}
-
 	env.instanceTypes = instanceTypes
 	return instanceTypes, nil
 }
 
-func (env *azureEnviron) getStorageAccountLocked() (*storage.StorageAccount, error) {
+func (env *azureEnviron) getStorageAccountLocked() (*storage.Account, error) {
 	if env.storageAccount != nil {
 		return env.storageAccount, nil
 	}
 
-	client := storage.StorageAccountsClient{env.storage}
+	client := storage.AccountsClient{env.storage}
 	resourceGroup := env.resourceGroup
 	accountName := env.config.storageAccount
 

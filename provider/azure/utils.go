@@ -3,32 +3,20 @@
 
 package azure
 
-import (
-	"math/rand"
-	"sync"
-	"time"
-)
+import "github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
 
-const lowerAlpha = "abcdefghijklmnopqrstuvwxyz"
-const digits = "0123456789"
-
-var (
-	randomStringMu   sync.Mutex
-	randomStringRand *rand.Rand
-)
-
-func init() {
-	randomStringRand = rand.New(
-		rand.NewSource(time.Now().UnixNano()),
-	)
+func toTagsPtr(tags map[string]string) *map[string]*string {
+	stringPtrMap := to.StringMapPtr(tags)
+	return &stringPtrMap
 }
 
-func randomString(n int, validRunes []rune) string {
-	randomStringMu.Lock()
-	defer randomStringMu.Unlock()
-	runes := make([]rune, n)
-	for i := range runes {
-		runes[i] = validRunes[randomStringRand.Intn(len(validRunes))]
+func toTags(tags *map[string]*string) map[string]string {
+	if tags == nil {
+		return nil
 	}
-	return string(runes)
+	return to.StringMap(*tags)
+}
+
+func toStringSlicePtr(s ...string) *[]string {
+	return &s
 }

@@ -45,7 +45,7 @@ type SubnetInfo struct {
 }
 
 type Subnet struct {
-	st  *State
+	st  *state
 	doc subnetDoc
 }
 

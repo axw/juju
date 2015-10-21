@@ -21,7 +21,7 @@ type machineContainers struct {
 	Children []string `bson:",omitempty"`
 }
 
-func (st *State) addChildToContainerRefOp(parentId string, childId string) txn.Op {
+func (st *state) addChildToContainerRefOp(parentId string, childId string) txn.Op {
 	return txn.Op{
 		C:      containerRefsC,
 		Id:     st.docID(parentId),
@@ -30,7 +30,7 @@ func (st *State) addChildToContainerRefOp(parentId string, childId string) txn.O
 	}
 }
 
-func (st *State) insertNewContainerRefOp(machineId string, children ...string) txn.Op {
+func (st *state) insertNewContainerRefOp(machineId string, children ...string) txn.Op {
 	return txn.Op{
 		C:      containerRefsC,
 		Id:     st.docID(machineId),
@@ -44,7 +44,7 @@ func (st *State) insertNewContainerRefOp(machineId string, children ...string) t
 
 // removeContainerRefOps returns the txn.Op's necessary to remove a machine container record.
 // These include removing the record itself and updating the host machine's children property.
-func removeContainerRefOps(st *State, machineId string) []txn.Op {
+func removeContainerRefOps(st *state, machineId string) []txn.Op {
 	removeRefOp := txn.Op{
 		C:      containerRefsC,
 		Id:     st.docID(machineId),

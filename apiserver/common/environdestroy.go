@@ -13,7 +13,7 @@ import (
 	"github.com/juju/juju/state"
 )
 
-var sendMetrics = func(st *state.State) error {
+var sendMetrics = func(st state.State) error {
 	err := metricsender.SendMetrics(st, metricsender.DefaultMetricSender(), metricsender.DefaultMaxBatchesPerSend())
 	return errors.Trace(err)
 }
@@ -21,7 +21,7 @@ var sendMetrics = func(st *state.State) error {
 // DestroyEnvironment destroys all services and non-manager machine
 // instances in the specified environment. This function assumes that all
 // necessary authentication checks have been done.
-func DestroyEnvironment(st *state.State, environTag names.EnvironTag) error {
+func DestroyEnvironment(st state.State, environTag names.EnvironTag) error {
 	var err error
 	if environTag != st.EnvironTag() {
 		if st, err = st.ForEnviron(environTag); err != nil {
@@ -78,7 +78,7 @@ func DestroyEnvironment(st *state.State, environTag names.EnvironTag) error {
 
 // destroyNonManagerMachines directly destroys all non-manager, non-manual
 // machine instances.
-func destroyNonManagerMachines(st *state.State, machines []*state.Machine) error {
+func destroyNonManagerMachines(st state.State, machines []*state.Machine) error {
 	var ids []instance.Id
 	for _, m := range machines {
 		if m.IsManager() {

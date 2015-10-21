@@ -112,7 +112,7 @@ type MachineFilesystemParams struct {
 // AddMachineInsideNewMachine creates a new machine within a container
 // of the given type inside another new machine. The two given templates
 // specify the form of the child and parent respectively.
-func (st *State) AddMachineInsideNewMachine(template, parentTemplate MachineTemplate, containerType instance.ContainerType) (*Machine, error) {
+func (st *state) AddMachineInsideNewMachine(template, parentTemplate MachineTemplate, containerType instance.ContainerType) (*Machine, error) {
 	mdoc, ops, err := st.addMachineInsideNewMachineOps(template, parentTemplate, containerType)
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot add a new machine")
@@ -122,7 +122,7 @@ func (st *State) AddMachineInsideNewMachine(template, parentTemplate MachineTemp
 
 // AddMachineInsideMachine adds a machine inside a container of the
 // given type on the existing machine with id=parentId.
-func (st *State) AddMachineInsideMachine(template MachineTemplate, parentId string, containerType instance.ContainerType) (*Machine, error) {
+func (st *state) AddMachineInsideMachine(template MachineTemplate, parentId string, containerType instance.ContainerType) (*Machine, error) {
 	mdoc, ops, err := st.addMachineInsideMachineOps(template, parentId, containerType)
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot add a new machine")
@@ -132,7 +132,7 @@ func (st *State) AddMachineInsideMachine(template MachineTemplate, parentId stri
 
 // AddMachine adds a machine with the given series and jobs.
 // It is deprecated and around for testing purposes only.
-func (st *State) AddMachine(series string, jobs ...MachineJob) (*Machine, error) {
+func (st *state) AddMachine(series string, jobs ...MachineJob) (*Machine, error) {
 	ms, err := st.AddMachines(MachineTemplate{
 		Series: series,
 		Jobs:   jobs,
@@ -145,7 +145,7 @@ func (st *State) AddMachine(series string, jobs ...MachineJob) (*Machine, error)
 
 // AddOneMachine machine adds a new machine configured according to the
 // given template.
-func (st *State) AddOneMachine(template MachineTemplate) (*Machine, error) {
+func (st *state) AddOneMachine(template MachineTemplate) (*Machine, error) {
 	ms, err := st.AddMachines(template)
 	if err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func (st *State) AddOneMachine(template MachineTemplate) (*Machine, error) {
 
 // AddMachines adds new machines configured according to the
 // given templates.
-func (st *State) AddMachines(templates ...MachineTemplate) (_ []*Machine, err error) {
+func (st *state) AddMachines(templates ...MachineTemplate) (_ []*Machine, err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot add a new machine")
 	var ms []*Machine
 	env, err := st.Environment()
@@ -194,7 +194,7 @@ func (st *State) AddMachines(templates ...MachineTemplate) (_ []*Machine, err er
 	return ms, nil
 }
 
-func (st *State) addMachine(mdoc *machineDoc, ops []txn.Op) (*Machine, error) {
+func (st *state) addMachine(mdoc *machineDoc, ops []txn.Op) (*Machine, error) {
 	env, err := st.Environment()
 	if err != nil {
 		return nil, err
@@ -214,7 +214,7 @@ func (st *State) addMachine(mdoc *machineDoc, ops []txn.Op) (*Machine, error) {
 	return newMachine(st, mdoc), nil
 }
 
-func (st *State) resolveMachineConstraints(cons constraints.Value) (constraints.Value, error) {
+func (st *state) resolveMachineConstraints(cons constraints.Value) (constraints.Value, error) {
 	mcons, err := st.resolveConstraints(cons)
 	if err != nil {
 		return constraints.Value{}, err
@@ -232,7 +232,7 @@ func (st *State) resolveMachineConstraints(cons constraints.Value) (constraints.
 // valid and combines it with values from the state
 // to produce a resulting template that more accurately
 // represents the data that will be inserted into the state.
-func (st *State) effectiveMachineTemplate(p MachineTemplate, allowStateServer bool) (tmpl MachineTemplate, err error) {
+func (st *state) effectiveMachineTemplate(p MachineTemplate, allowStateServer bool) (tmpl MachineTemplate, err error) {
 	// First check for obvious errors.
 	if p.Series == "" {
 		return tmpl, errors.New("no series specified")
@@ -271,7 +271,7 @@ func (st *State) effectiveMachineTemplate(p MachineTemplate, allowStateServer bo
 // addMachineOps returns operations to add a new top level machine
 // based on the given template. It also returns the machine document
 // that will be inserted.
-func (st *State) addMachineOps(template MachineTemplate) (*machineDoc, []txn.Op, error) {
+func (st *state) addMachineOps(template MachineTemplate) (*machineDoc, []txn.Op, error) {
 	template, err := st.effectiveMachineTemplate(template, st.IsStateServer())
 	if err != nil {
 		return nil, nil, err
@@ -337,7 +337,7 @@ func (m *Machine) supportsContainerType(ctype instance.ContainerType) bool {
 
 // addMachineInsideMachineOps returns operations to add a machine inside
 // a container of the given type on an existing machine.
-func (st *State) addMachineInsideMachineOps(template MachineTemplate, parentId string, containerType instance.ContainerType) (*machineDoc, []txn.Op, error) {
+func (st *state) addMachineInsideMachineOps(template MachineTemplate, parentId string, containerType instance.ContainerType) (*machineDoc, []txn.Op, error) {
 	if template.InstanceId != "" {
 		return nil, nil, errors.New("cannot specify instance id for a new container")
 	}
@@ -383,7 +383,7 @@ func (st *State) addMachineInsideMachineOps(template MachineTemplate, parentId s
 
 // newContainerId returns a new id for a machine within the machine
 // with id parentId and the given container type.
-func (st *State) newContainerId(parentId string, containerType instance.ContainerType) (string, error) {
+func (st *state) newContainerId(parentId string, containerType instance.ContainerType) (string, error) {
 	seq, err := st.sequence(fmt.Sprintf("machine%s%sContainer", parentId, containerType))
 	if err != nil {
 		return "", err
@@ -395,7 +395,7 @@ func (st *State) newContainerId(parentId string, containerType instance.Containe
 // machine within a container of the given type inside another
 // new machine. The two given templates specify the form
 // of the child and parent respectively.
-func (st *State) addMachineInsideNewMachineOps(template, parentTemplate MachineTemplate, containerType instance.ContainerType) (*machineDoc, []txn.Op, error) {
+func (st *state) addMachineInsideNewMachineOps(template, parentTemplate MachineTemplate, containerType instance.ContainerType) (*machineDoc, []txn.Op, error) {
 	if template.InstanceId != "" || parentTemplate.InstanceId != "" {
 		return nil, nil, errors.New("cannot specify instance id for a new container")
 	}
@@ -449,7 +449,7 @@ func (st *State) addMachineInsideNewMachineOps(template, parentTemplate MachineT
 	return mdoc, append(prereqOps, parentOp, machineOp), nil
 }
 
-func (st *State) machineDocForTemplate(template MachineTemplate, id string) *machineDoc {
+func (st *state) machineDocForTemplate(template MachineTemplate, id string) *machineDoc {
 	// We ignore the error from Select*Address as an error indicates
 	// no address is available, in which case the empty address is returned
 	// and setting the preferred address to an empty one is the correct
@@ -477,7 +477,7 @@ func (st *State) machineDocForTemplate(template MachineTemplate, id string) *mac
 // insertNewMachineOps returns operations to insert the given machine
 // document into the database, based on the given template. Only the
 // constraints and networks are used from the template.
-func (st *State) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate) (prereqOps []txn.Op, machineOp txn.Op, err error) {
+func (st *state) insertNewMachineOps(mdoc *machineDoc, template MachineTemplate) (prereqOps []txn.Op, machineOp txn.Op, err error) {
 	machineOp = txn.Op{
 		C:      machinesC,
 		Id:     mdoc.DocID,
@@ -539,7 +539,7 @@ type machineStorageParams struct {
 // machineStorageOps creates txn.Ops for creating volumes, filesystems,
 // and attachments to the specified machine. The results are the txn.Ops,
 // and the tags of volumes and filesystems newly attached to the machine.
-func (st *State) machineStorageOps(
+func (st *state) machineStorageOps(
 	mdoc *machineDoc, args *machineStorageParams,
 ) ([]txn.Op, []volumeAttachmentTemplate, []filesystemAttachmentTemplate, error) {
 	var filesystemOps, volumeOps []txn.Op
@@ -669,7 +669,7 @@ var errStateServerNotAllowed = errors.New("state server jobs specified but not a
 // are added to the machines collection. If currentInfo is nil,
 // there can be only one machine document and it must have
 // id 0 (this is a special case to allow adding the bootstrap machine)
-func (st *State) maintainStateServersOps(mdocs []*machineDoc, currentInfo *StateServerInfo) ([]txn.Op, error) {
+func (st *state) maintainStateServersOps(mdocs []*machineDoc, currentInfo *StateServerInfo) ([]txn.Op, error) {
 	var newIds, newVotingIds []string
 	for _, doc := range mdocs {
 		if !hasJob(doc.Jobs, JobManageEnviron) {
@@ -720,7 +720,7 @@ func (st *State) maintainStateServersOps(mdocs []*machineDoc, currentInfo *State
 // If placement is not empty, any new machines which may be required are started
 // according to the specified placement directives until the placement list is
 // exhausted; thereafter any new machines are started according to the constraints and series.
-func (st *State) EnsureAvailability(
+func (st *state) EnsureAvailability(
 	numStateServers int, cons constraints.Value, series string, placement []string,
 ) (StateServersChanges, error) {
 
@@ -797,7 +797,7 @@ type StateServersChanges struct {
 }
 
 // ensureAvailabilityIntentionOps returns operations to fulfil the desired intent.
-func (st *State) ensureAvailabilityIntentionOps(
+func (st *state) ensureAvailabilityIntentionOps(
 	intent *ensureAvailabilityIntent,
 	currentInfo *StateServerInfo,
 	cons constraints.Value,
@@ -896,7 +896,7 @@ type ensureAvailabilityIntent struct {
 //   demoting unavailable, voting machines;
 //   removing unavailable, non-voting, non-vote-holding machines;
 //   gathering available, non-voting machines that may be promoted;
-func (st *State) ensureAvailabilityIntentions(info *StateServerInfo, placement []string) (*ensureAvailabilityIntent, error) {
+func (st *state) ensureAvailabilityIntentions(info *StateServerInfo, placement []string) (*ensureAvailabilityIntent, error) {
 	var intent ensureAvailabilityIntent
 	for _, s := range placement {
 		// TODO(natefinch): unscoped placements shouldn't ever get here (though

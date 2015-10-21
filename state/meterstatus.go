@@ -126,7 +126,7 @@ func (u *Unit) SetMeterStatus(codeStr, info string) error {
 
 // createMeterStatusOp returns the operation needed to create the meter status
 // document associated with the given globalKey.
-func createMeterStatusOp(st *State, globalKey string, doc *meterStatusDoc) txn.Op {
+func createMeterStatusOp(st *state, globalKey string, doc *meterStatusDoc) txn.Op {
 	doc.EnvUUID = st.EnvironUUID()
 	return txn.Op{
 		C:      meterStatusC,
@@ -138,7 +138,7 @@ func createMeterStatusOp(st *State, globalKey string, doc *meterStatusDoc) txn.O
 
 // removeMeterStatusOp returns the operation needed to remove the meter status
 // document associated with the given globalKey.
-func removeMeterStatusOp(st *State, globalKey string) txn.Op {
+func removeMeterStatusOp(st *state, globalKey string) txn.Op {
 	return txn.Op{
 		C:      meterStatusC,
 		Id:     st.docID(globalKey),

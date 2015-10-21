@@ -19,7 +19,7 @@ import (
 // its provider storage interface if it supports one. If the environment
 // does not support provider storage, then it will return an error
 // satisfying errors.IsNotSupported.
-func LegacyStorage(st *state.State) (storage.Storage, error) {
+func LegacyStorage(st state.EnvironmentState) (storage.Storage, error) {
 	envConfig, err := st.EnvironConfig()
 	if err != nil {
 		return nil, fmt.Errorf("cannot get environment config: %v", err)

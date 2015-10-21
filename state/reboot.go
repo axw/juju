@@ -65,7 +65,7 @@ func (m *Machine) setFlag() error {
 	return nil
 }
 
-func removeRebootDocOp(st *State, machineId string) txn.Op {
+func removeRebootDocOp(st *state, machineId string) txn.Op {
 	op := txn.Op{
 		C:      rebootC,
 		Id:     st.docID(machineId),

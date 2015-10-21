@@ -852,22 +852,22 @@ func (s *allWatcherStateSuite) TestStateWatcherTwoEnvironments(c *gc.C) {
 	}{
 		{
 			about: "machines",
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				m0, err := st.AddMachine("trusty", JobHostUnits)
 				c.Assert(err, jc.ErrorIsNil)
 				c.Assert(m0.Id(), gc.Equals, "0")
 			},
 		}, {
 			about: "services",
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				AddTestingService(c, st, "wordpress", AddTestingCharm(c, st, "wordpress"), s.owner)
 			},
 		}, {
 			about: "units",
-			setUpState: func(st *State) {
+			setUpState: func(st *state) {
 				AddTestingService(c, st, "wordpress", AddTestingCharm(c, st, "wordpress"), s.owner)
 			},
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				svc, err := st.Service("wordpress")
 				c.Assert(err, jc.ErrorIsNil)
 
@@ -876,11 +876,11 @@ func (s *allWatcherStateSuite) TestStateWatcherTwoEnvironments(c *gc.C) {
 			},
 		}, {
 			about: "relations",
-			setUpState: func(st *State) {
+			setUpState: func(st *state) {
 				AddTestingService(c, st, "wordpress", AddTestingCharm(c, st, "wordpress"), s.owner)
 				AddTestingService(c, st, "mysql", AddTestingCharm(c, st, "mysql"), s.owner)
 			},
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				eps, err := st.InferEndpoints("mysql", "wordpress")
 				c.Assert(err, jc.ErrorIsNil)
 				_, err = st.AddRelation(eps...)
@@ -888,12 +888,12 @@ func (s *allWatcherStateSuite) TestStateWatcherTwoEnvironments(c *gc.C) {
 			},
 		}, {
 			about: "annotations",
-			setUpState: func(st *State) {
+			setUpState: func(st *state) {
 				m, err := st.AddMachine("trusty", JobHostUnits)
 				c.Assert(err, jc.ErrorIsNil)
 				c.Assert(m.Id(), gc.Equals, "0")
 			},
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				m, err := st.Machine("0")
 				c.Assert(err, jc.ErrorIsNil)
 
@@ -902,14 +902,14 @@ func (s *allWatcherStateSuite) TestStateWatcherTwoEnvironments(c *gc.C) {
 			},
 		}, {
 			about: "statuses",
-			setUpState: func(st *State) {
+			setUpState: func(st *state) {
 				m, err := st.AddMachine("trusty", JobHostUnits)
 				c.Assert(err, jc.ErrorIsNil)
 				c.Assert(m.Id(), gc.Equals, "0")
 				err = m.SetProvisioned("inst-id", "fake_nonce", nil)
 				c.Assert(err, jc.ErrorIsNil)
 			},
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				m, err := st.Machine("0")
 				c.Assert(err, jc.ErrorIsNil)
 
@@ -918,10 +918,10 @@ func (s *allWatcherStateSuite) TestStateWatcherTwoEnvironments(c *gc.C) {
 			},
 		}, {
 			about: "constraints",
-			setUpState: func(st *State) {
+			setUpState: func(st *state) {
 				AddTestingService(c, st, "wordpress", AddTestingCharm(c, st, "wordpress"), s.owner)
 			},
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				svc, err := st.Service("wordpress")
 				c.Assert(err, jc.ErrorIsNil)
 
@@ -931,10 +931,10 @@ func (s *allWatcherStateSuite) TestStateWatcherTwoEnvironments(c *gc.C) {
 			},
 		}, {
 			about: "settings",
-			setUpState: func(st *State) {
+			setUpState: func(st *state) {
 				AddTestingService(c, st, "wordpress", AddTestingCharm(c, st, "wordpress"), s.owner)
 			},
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				svc, err := st.Service("wordpress")
 				c.Assert(err, jc.ErrorIsNil)
 
@@ -943,7 +943,7 @@ func (s *allWatcherStateSuite) TestStateWatcherTwoEnvironments(c *gc.C) {
 			},
 		}, {
 			about: "blocks",
-			triggerEvent: func(st *State) {
+			triggerEvent: func(st *state) {
 				m, found, err := st.GetBlockForType(DestroyBlock)
 				c.Assert(err, jc.ErrorIsNil)
 				c.Assert(found, jc.IsFalse)
@@ -956,7 +956,7 @@ func (s *allWatcherStateSuite) TestStateWatcherTwoEnvironments(c *gc.C) {
 	} {
 		c.Logf("Test %d: %s", i, test.about)
 		func() {
-			checkIsolationForEnv := func(st *State, w, otherW *testWatcher) {
+			checkIsolationForEnv := func(st *state, w, otherW *testWatcher) {
 				c.Logf("Making changes to environment %s", st.EnvironUUID())
 
 				if test.setUpState != nil {
@@ -2859,11 +2859,11 @@ func testChangeUnitsNonNilPorts(c *gc.C, owner names.UserTag, runChangeTests fun
 	runChangeTests(c, changeTestFuncs)
 }
 
-func newTestAllWatcher(st *State, c *gc.C) *testWatcher {
+func newTestAllWatcher(st *state, c *gc.C) *testWatcher {
 	return newTestWatcher(newAllWatcherStateBacking(st), st, c)
 }
 
-func newTestAllEnvWatcher(st *State, c *gc.C) *testWatcher {
+func newTestAllEnvWatcher(st *state, c *gc.C) *testWatcher {
 	return newTestWatcher(newAllEnvWatcherStateBacking(st), st, c)
 }
 

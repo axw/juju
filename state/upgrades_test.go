@@ -1761,7 +1761,7 @@ func (s *upgradesSuite) TestMigrateUnitPortsToOpenedPortsIdempotent(c *gc.C) {
 func (s *upgradesSuite) patchPortOptFuncs() {
 	s.PatchValue(
 		&GetPorts,
-		func(st *State, machineId, networkName string) (*Ports, error) {
+		func(st *state, machineId, networkName string) (*Ports, error) {
 			openedPorts, closer := st.getRawCollection(openedPortsC)
 			defer closer()
 
@@ -1783,7 +1783,7 @@ func (s *upgradesSuite) patchPortOptFuncs() {
 
 	s.PatchValue(
 		&GetOrCreatePorts,
-		func(st *State, machineId, networkName string) (*Ports, error) {
+		func(st *state, machineId, networkName string) (*Ports, error) {
 			ports, err := GetPorts(st, machineId, networkName)
 			if errors.IsNotFound(err) {
 				doc := portsDoc{
@@ -1803,7 +1803,7 @@ func (s *upgradesSuite) patchPortOptFuncs() {
 
 	s.PatchValue(
 		&addPortsDocOps,
-		func(st *State, pDoc *portsDoc, portsAssert interface{}, ports ...PortRange) []txn.Op {
+		func(st *state, pDoc *portsDoc, portsAssert interface{}, ports ...PortRange) []txn.Op {
 			pDoc.Ports = ports
 			return []txn.Op{{
 				C:      machinesC,
@@ -1819,7 +1819,7 @@ func (s *upgradesSuite) patchPortOptFuncs() {
 
 	s.PatchValue(
 		&updatePortsDocOps,
-		func(st *State, pDoc portsDoc, portsAssert interface{}, portRange PortRange) []txn.Op {
+		func(st *state, pDoc portsDoc, portsAssert interface{}, portRange PortRange) []txn.Op {
 			return []txn.Op{{
 				C:      machinesC,
 				Id:     st.docID(pDoc.MachineID),
@@ -1839,7 +1839,7 @@ func (s *upgradesSuite) patchPortOptFuncs() {
 
 	s.PatchValue(
 		&setPortsDocOps,
-		func(st *State, pDoc portsDoc, portsAssert interface{}, ports ...PortRange) []txn.Op {
+		func(st *state, pDoc portsDoc, portsAssert interface{}, ports ...PortRange) []txn.Op {
 			return []txn.Op{{
 				C:      machinesC,
 				Id:     st.docID(pDoc.MachineID),
@@ -3619,7 +3619,7 @@ func (s *upgradesSuite) TestAddMissingServiceStatuses(c *gc.C) {
 	checkHistoryInserted(uuid1, "s#ping")
 }
 
-func unsetField(st *State, id, collection, field string) error {
+func unsetField(st *state, id, collection, field string) error {
 	return st.runTransaction(
 		[]txn.Op{{
 			C:      collection,

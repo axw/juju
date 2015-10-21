@@ -151,7 +151,7 @@ type portsDoc struct {
 
 // Ports represents the state of ports on a machine.
 type Ports struct {
-	st  *State
+	st  *state
 	doc portsDoc
 	// areNew is true for documents not in state yet.
 	areNew bool
@@ -396,7 +396,7 @@ func (m *Machine) AllPorts() ([]*Ports, error) {
 // statement for on the openedPorts collection op.
 var addPortsDocOps = addPortsDocOpsFunc
 
-func addPortsDocOpsFunc(st *State, pDoc *portsDoc, portsAssert interface{}, ports ...PortRange) []txn.Op {
+func addPortsDocOpsFunc(st *state, pDoc *portsDoc, portsAssert interface{}, ports ...PortRange) []txn.Op {
 	pDoc.Ports = ports
 	return []txn.Op{{
 		C:      machinesC,
@@ -415,7 +415,7 @@ func addPortsDocOpsFunc(st *State, pDoc *portsDoc, portsAssert interface{}, port
 // statement on the openedPorts collection op.
 var updatePortsDocOps = updatePortsDocOpsFunc
 
-func updatePortsDocOpsFunc(st *State, pDoc portsDoc, portsAssert interface{}, portRange PortRange) []txn.Op {
+func updatePortsDocOpsFunc(st *state, pDoc portsDoc, portsAssert interface{}, portRange PortRange) []txn.Op {
 	return []txn.Op{{
 		C:      machinesC,
 		Id:     st.docID(pDoc.MachineID),
@@ -437,7 +437,7 @@ func updatePortsDocOpsFunc(st *State, pDoc portsDoc, portsAssert interface{}, po
 // statement on the openedPorts collection op.
 var setPortsDocOps = setPortsDocOpsFunc
 
-func setPortsDocOpsFunc(st *State, pDoc portsDoc, portsAssert interface{}, ports ...PortRange) []txn.Op {
+func setPortsDocOpsFunc(st *state, pDoc portsDoc, portsAssert interface{}, ports ...PortRange) []txn.Op {
 	return []txn.Op{{
 		C:      machinesC,
 		Id:     st.docID(pDoc.MachineID),
@@ -462,7 +462,7 @@ func (p *Ports) removeOps() []txn.Op {
 
 // removePortsForUnitOps returns the ops needed to remove all opened
 // ports for the given unit on its assigned machine.
-func removePortsForUnitOps(st *State, unit *Unit) ([]txn.Op, error) {
+func removePortsForUnitOps(st *state, unit *Unit) ([]txn.Op, error) {
 	machineId, err := unit.AssignedMachineId()
 	if err != nil {
 		// No assigned machine, so there won't be any ports.
@@ -507,7 +507,7 @@ func removePortsForUnitOps(st *State, unit *Unit) ([]txn.Op, error) {
 
 // getPorts returns the ports document for the specified machine and
 // network.
-func getPorts(st *State, machineId, networkName string) (*Ports, error) {
+func getPorts(st *state, machineId, networkName string) (*Ports, error) {
 	openedPorts, closer := st.getCollection(openedPortsC)
 	defer closer()
 
@@ -529,7 +529,7 @@ func getPorts(st *State, machineId, networkName string) (*Ports, error) {
 
 // getOrCreatePorts attempts to retrieve a ports document and returns
 // a newly created one if it does not exist.
-func getOrCreatePorts(st *State, machineId, networkName string) (*Ports, error) {
+func getOrCreatePorts(st *state, machineId, networkName string) (*Ports, error) {
 	ports, err := getPorts(st, machineId, networkName)
 	if errors.IsNotFound(err) {
 		key := portsGlobalKey(machineId, networkName)

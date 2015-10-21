@@ -23,7 +23,7 @@ const environGlobalKey = "e"
 
 // Environment represents the state of an environment.
 type Environment struct {
-	st  *State
+	st  *state
 	doc environmentDoc
 }
 
@@ -45,7 +45,7 @@ type environmentDoc struct {
 // The owner of this environment is also considered "special", in that
 // they are the only user that is able to create other users (until we
 // have more fine grained permissions), and they cannot be disabled.
-func (st *State) StateServerEnvironment() (*Environment, error) {
+func (st *state) StateServerEnvironment() (*Environment, error) {
 	ssinfo, err := st.StateServerInfo()
 	if err != nil {
 		return nil, errors.Annotate(err, "could not get state server info")
@@ -63,7 +63,7 @@ func (st *State) StateServerEnvironment() (*Environment, error) {
 }
 
 // Environment returns the environment entity.
-func (st *State) Environment() (*Environment, error) {
+func (st *state) Environment() (*Environment, error) {
 	environments, closer := st.getCollection(environmentsC)
 	defer closer()
 
@@ -76,7 +76,7 @@ func (st *State) Environment() (*Environment, error) {
 }
 
 // GetEnvironment looks for the environment identified by the uuid passed in.
-func (st *State) GetEnvironment(tag names.EnvironTag) (*Environment, error) {
+func (st *state) GetEnvironment(tag names.EnvironTag) (*Environment, error) {
 	environments, closer := st.getCollection(environmentsC)
 	defer closer()
 
@@ -88,7 +88,7 @@ func (st *State) GetEnvironment(tag names.EnvironTag) (*Environment, error) {
 }
 
 // AllEnvironments returns all the environments in the system.
-func (st *State) AllEnvironments() ([]*Environment, error) {
+func (st *state) AllEnvironments() ([]*Environment, error) {
 	environments, closer := st.getCollection(environmentsC)
 	defer closer()
 
@@ -115,7 +115,7 @@ func (st *State) AllEnvironments() ([]*Environment, error) {
 // environment document means that we have a way to represent external
 // environments, perhaps for future use around cross environment
 // relations.
-func (st *State) NewEnvironment(cfg *config.Config, owner names.UserTag) (_ *Environment, _ *State, err error) {
+func (st *state) NewEnvironment(cfg *config.Config, owner names.UserTag) (_ *Environment, _ *state, err error) {
 	if owner.IsLocal() {
 		if _, err := st.User(owner); err != nil {
 			return nil, nil, errors.Annotate(err, "cannot create environment")
@@ -131,7 +131,7 @@ func (st *State) NewEnvironment(cfg *config.Config, owner names.UserTag) (_ *Env
 	if !ok {
 		return nil, nil, errors.Errorf("environment uuid was not supplied")
 	}
-	newState, err := st.ForEnviron(names.NewEnvironTag(uuid))
+	newState, err := st.forEnviron(names.NewEnvironTag(uuid))
 	if err != nil {
 		return nil, nil, errors.Annotate(err, "could not create state for new environment")
 	}
@@ -233,7 +233,7 @@ func (e *Environment) Config() (*config.Config, error) {
 		// The active environment isn't the same as the environment
 		// we are querying.
 		var err error
-		envState, err = e.st.ForEnviron(e.EnvironTag())
+		envState, err = e.st.forEnviron(e.EnvironTag())
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -449,7 +449,7 @@ func (e *Environment) ensureDestroyable() error {
 
 // createEnvironmentOp returns the operation needed to create
 // an environment document with the given name and UUID.
-func createEnvironmentOp(st *State, owner names.UserTag, name, uuid, server string) txn.Op {
+func createEnvironmentOp(st *state, owner names.UserTag, name, uuid, server string) txn.Op {
 	doc := &environmentDoc{
 		UUID:       uuid,
 		Name:       name,
@@ -500,7 +500,7 @@ func hostedEnvironCountOp(amount int) txn.Op {
 	}
 }
 
-func hostedEnvironCount(st *State) (int, error) {
+func hostedEnvironCount(st *state) (int, error) {
 	var doc hostedEnvCountDoc
 	stateServers, closer := st.getCollection(stateServersC)
 	defer closer()
@@ -549,7 +549,7 @@ var isEnvAliveDoc = bson.D{
 	{"life", bson.D{{"$in", []interface{}{Alive, nil}}}},
 }
 
-func checkEnvLife(st *State) error {
+func checkEnvLife(st *state) error {
 	env, err := st.Environment()
 	if (err == nil && env.Life() != Alive) || errors.IsNotFound(err) {
 		return errors.New("environment is no longer alive")

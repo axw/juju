@@ -18,7 +18,7 @@ import (
 // If the collection stores documents for multiple environments, the
 // returned collection will automatically perform environment
 // filtering where possible. See envStateCollection below.
-func (st *State) getCollection(name string) (mongo.Collection, func()) {
+func (st *state) getCollection(name string) (mongo.Collection, func()) {
 	return st.database.GetCollection(name)
 }
 
@@ -26,7 +26,7 @@ func (st *State) getCollection(name string) (mongo.Collection, func()) {
 // environment filtering is performed by the returned collection it
 // should be rarely used. getCollection() should be used in almost all
 // cases.
-func (st *State) getRawCollection(name string) (*mgo.Collection, func()) {
+func (st *state) getRawCollection(name string) (*mgo.Collection, func()) {
 	collection, closer := st.database.GetCollection(name)
 	return collection.Writeable().Underlying(), closer
 }

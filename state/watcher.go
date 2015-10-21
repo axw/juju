@@ -67,7 +67,7 @@ type RelationUnitsWatcher interface {
 
 // commonWatcher is part of all client watchers.
 type commonWatcher struct {
-	st   *State
+	st   *state
 	tomb tomb.Tomb
 }
 
@@ -158,7 +158,7 @@ type lifecycleWatcher struct {
 	life map[string]Life
 }
 
-func collFactory(st *State, collName string) func() (mongo.Collection, func()) {
+func collFactory(st *state, collName string) func() (mongo.Collection, func()) {
 	return func() (mongo.Collection, func()) {
 		return st.getCollection(collName)
 	}
@@ -166,29 +166,29 @@ func collFactory(st *State, collName string) func() (mongo.Collection, func()) {
 
 // WatchEnvironments returns a StringsWatcher that notifies of changes
 // to the lifecycles of all environments.
-func (st *State) WatchEnvironments() StringsWatcher {
+func (st *state) WatchEnvironments() StringsWatcher {
 	return newLifecycleWatcher(st, environmentsC, nil, nil, nil)
 }
 
 // WatchIPAddresses returns a StringsWatcher that notifies of changes to the
 // lifecycles of IP addresses.
-func (st *State) WatchIPAddresses() StringsWatcher {
+func (st *state) WatchIPAddresses() StringsWatcher {
 	return newLifecycleWatcher(st, ipaddressesC, nil, nil, nil)
 }
 
 // WatchEnvironVolumes returns a StringsWatcher that notifies of changes to
 // the lifecycles of all environment-scoped volumes.
-func (st *State) WatchEnvironVolumes() StringsWatcher {
+func (st *state) WatchEnvironVolumes() StringsWatcher {
 	return st.watchEnvironMachineStorage(volumesC)
 }
 
 // WatchEnvironFilesystems returns a StringsWatcher that notifies of changes
 // to the lifecycles of all environment-scoped filesystems.
-func (st *State) WatchEnvironFilesystems() StringsWatcher {
+func (st *state) WatchEnvironFilesystems() StringsWatcher {
 	return st.watchEnvironMachineStorage(filesystemsC)
 }
 
-func (st *State) watchEnvironMachineStorage(collection string) StringsWatcher {
+func (st *state) watchEnvironMachineStorage(collection string) StringsWatcher {
 	pattern := fmt.Sprintf("^%s$", st.docID(names.NumberSnippet))
 	members := bson.D{{"_id", bson.D{{"$regex", pattern}}}}
 	filter := func(id interface{}) bool {
@@ -203,17 +203,17 @@ func (st *State) watchEnvironMachineStorage(collection string) StringsWatcher {
 
 // WatchMachineVolumes returns a StringsWatcher that notifies of changes to
 // the lifecycles of all volumes scoped to the specified machine.
-func (st *State) WatchMachineVolumes(m names.MachineTag) StringsWatcher {
+func (st *state) WatchMachineVolumes(m names.MachineTag) StringsWatcher {
 	return st.watchMachineStorage(m, volumesC)
 }
 
 // WatchMachineFilesystems returns a StringsWatcher that notifies of changes
 // to the lifecycles of all filesystems scoped to the specified machine.
-func (st *State) WatchMachineFilesystems(m names.MachineTag) StringsWatcher {
+func (st *state) WatchMachineFilesystems(m names.MachineTag) StringsWatcher {
 	return st.watchMachineStorage(m, filesystemsC)
 }
 
-func (st *State) watchMachineStorage(m names.MachineTag, collection string) StringsWatcher {
+func (st *state) watchMachineStorage(m names.MachineTag, collection string) StringsWatcher {
 	pattern := fmt.Sprintf("^%s/%s$", st.docID(m.Id()), names.NumberSnippet)
 	members := bson.D{{"_id", bson.D{{"$regex", pattern}}}}
 	prefix := m.Id() + "/"
@@ -230,18 +230,18 @@ func (st *State) watchMachineStorage(m names.MachineTag, collection string) Stri
 // WatchEnvironVolumeAttachments returns a StringsWatcher that notifies of
 // changes to the lifecycles of all volume attachments related to environ-
 // scoped volumes.
-func (st *State) WatchEnvironVolumeAttachments() StringsWatcher {
+func (st *state) WatchEnvironVolumeAttachments() StringsWatcher {
 	return st.watchEnvironMachineStorageAttachments(volumeAttachmentsC)
 }
 
 // WatchEnvironFilesystemAttachments returns a StringsWatcher that notifies
 // of changes to the lifecycles of all filesystem attachments related to
 // environ-scoped filesystems.
-func (st *State) WatchEnvironFilesystemAttachments() StringsWatcher {
+func (st *state) WatchEnvironFilesystemAttachments() StringsWatcher {
 	return st.watchEnvironMachineStorageAttachments(filesystemAttachmentsC)
 }
 
-func (st *State) watchEnvironMachineStorageAttachments(collection string) StringsWatcher {
+func (st *state) watchEnvironMachineStorageAttachments(collection string) StringsWatcher {
 	pattern := fmt.Sprintf("^%s.*:%s$", st.docID(""), names.NumberSnippet)
 	members := bson.D{{"_id", bson.D{{"$regex", pattern}}}}
 	filter := func(id interface{}) bool {
@@ -261,18 +261,18 @@ func (st *State) watchEnvironMachineStorageAttachments(collection string) String
 // WatchMachineVolumeAttachments returns a StringsWatcher that notifies of
 // changes to the lifecycles of all volume attachments related to the specified
 // machine, for volumes scoped to the machine.
-func (st *State) WatchMachineVolumeAttachments(m names.MachineTag) StringsWatcher {
+func (st *state) WatchMachineVolumeAttachments(m names.MachineTag) StringsWatcher {
 	return st.watchMachineStorageAttachments(m, volumeAttachmentsC)
 }
 
 // WatchMachineFilesystemAttachments returns a StringsWatcher that notifies of
 // changes to the lifecycles of all filesystem attachments related to the specified
 // machine, for filesystems scoped to the machine.
-func (st *State) WatchMachineFilesystemAttachments(m names.MachineTag) StringsWatcher {
+func (st *state) WatchMachineFilesystemAttachments(m names.MachineTag) StringsWatcher {
 	return st.watchMachineStorageAttachments(m, filesystemAttachmentsC)
 }
 
-func (st *State) watchMachineStorageAttachments(m names.MachineTag, collection string) StringsWatcher {
+func (st *state) watchMachineStorageAttachments(m names.MachineTag, collection string) StringsWatcher {
 	pattern := fmt.Sprintf("^%s:%s/.*", st.docID(m.Id()), m.Id())
 	members := bson.D{{"_id", bson.D{{"$regex", pattern}}}}
 	prefix := m.Id() + fmt.Sprintf(":%s/", m.Id())
@@ -288,14 +288,14 @@ func (st *State) watchMachineStorageAttachments(m names.MachineTag, collection s
 
 // WatchServices returns a StringsWatcher that notifies of changes to
 // the lifecycles of the services in the environment.
-func (st *State) WatchServices() StringsWatcher {
+func (st *state) WatchServices() StringsWatcher {
 	return newLifecycleWatcher(st, servicesC, nil, st.isForStateEnv, nil)
 }
 
 // WatchStorageAttachments returns a StringsWatcher that notifies of
 // changes to the lifecycles of all storage instances attached to the
 // specified unit.
-func (st *State) WatchStorageAttachments(unit names.UnitTag) StringsWatcher {
+func (st *state) WatchStorageAttachments(unit names.UnitTag) StringsWatcher {
 	members := bson.D{{"unitid", unit.Id()}}
 	prefix := unitGlobalKey(unit.Id()) + "#"
 	filter := func(id interface{}) bool {
@@ -347,7 +347,7 @@ func (s *Service) WatchRelations() StringsWatcher {
 
 // WatchEnvironMachines returns a StringsWatcher that notifies of changes to
 // the lifecycles of the machines (but not containers) in the environment.
-func (st *State) WatchEnvironMachines() StringsWatcher {
+func (st *state) WatchEnvironMachines() StringsWatcher {
 	members := bson.D{{"$or", []bson.D{
 		{{"containertype", ""}},
 		{{"containertype", bson.D{{"$exists", false}}}},
@@ -391,7 +391,7 @@ func (m *Machine) containersWatcher(isChildRegexp string) StringsWatcher {
 }
 
 func newLifecycleWatcher(
-	st *State,
+	st *state,
 	collName string,
 	members bson.D,
 	filter func(key interface{}) bool,
@@ -564,7 +564,7 @@ type minUnitsWatcher struct {
 
 var _ Watcher = (*minUnitsWatcher)(nil)
 
-func newMinUnitsWatcher(st *State) StringsWatcher {
+func newMinUnitsWatcher(st *state) StringsWatcher {
 	w := &minUnitsWatcher{
 		commonWatcher: commonWatcher{st: st},
 		known:         make(map[string]int),
@@ -579,7 +579,7 @@ func newMinUnitsWatcher(st *State) StringsWatcher {
 }
 
 // WatchMinUnits returns a StringsWatcher for the minUnits collection
-func (st *State) WatchMinUnits() StringsWatcher {
+func (st *state) WatchMinUnits() StringsWatcher {
 	return newMinUnitsWatcher(st)
 }
 
@@ -651,7 +651,7 @@ func (w *minUnitsWatcher) Changes() <-chan []string {
 	return w.out
 }
 
-func (st *State) isForStateEnv(id interface{}) bool {
+func (st *state) isForStateEnv(id interface{}) bool {
 	_, err := st.strictLocalID(id.(string))
 	return err == nil
 }
@@ -724,7 +724,7 @@ type RelationScopeWatcher struct {
 	out    chan *RelationScopeChange
 }
 
-func newRelationScopeWatcher(st *State, scope, ignore string) *RelationScopeWatcher {
+func newRelationScopeWatcher(st *state, scope, ignore string) *RelationScopeWatcher {
 	w := &RelationScopeWatcher{
 		commonWatcher: commonWatcher{st: st},
 		prefix:        scope + "#",
@@ -1057,7 +1057,7 @@ func (m *Machine) WatchPrincipalUnits() StringsWatcher {
 	return newUnitsWatcher(m.st, m.Tag(), getUnits, coll, m.doc.DocID)
 }
 
-func newUnitsWatcher(st *State, tag names.Tag, getUnits func() ([]string, error), coll, id string) StringsWatcher {
+func newUnitsWatcher(st *state, tag names.Tag, getUnits func() ([]string, error), coll, id string) StringsWatcher {
 	w := &unitsWatcher{
 		commonWatcher: commonWatcher{st: st},
 		tag:           tag.String(),
@@ -1245,11 +1245,11 @@ var _ Watcher = (*EnvironConfigWatcher)(nil)
 
 // WatchEnvironConfig returns a watcher for observing changes
 // to the environment configuration.
-func (st *State) WatchEnvironConfig() *EnvironConfigWatcher {
+func (st *state) WatchEnvironConfig() *EnvironConfigWatcher {
 	return newEnvironConfigWatcher(st)
 }
 
-func newEnvironConfigWatcher(s *State) *EnvironConfigWatcher {
+func newEnvironConfigWatcher(s *state) *EnvironConfigWatcher {
 	w := &EnvironConfigWatcher{
 		commonWatcher: commonWatcher{st: s},
 		out:           make(chan *config.Config),
@@ -1305,11 +1305,11 @@ type settingsWatcher struct {
 var _ Watcher = (*settingsWatcher)(nil)
 
 // watchSettings creates a watcher for observing changes to settings.
-func (st *State) watchSettings(key string) *settingsWatcher {
+func (st *state) watchSettings(key string) *settingsWatcher {
 	return newSettingsWatcher(st, key)
 }
 
-func newSettingsWatcher(s *State, key string) *settingsWatcher {
+func newSettingsWatcher(s *state, key string) *settingsWatcher {
 	w := &settingsWatcher{
 		commonWatcher: commonWatcher{st: s},
 		out:           make(chan *Settings),
@@ -1381,7 +1381,7 @@ func (m *Machine) WatchHardwareCharacteristics() NotifyWatcher {
 }
 
 // WatchStateServerInfo returns a NotifyWatcher for the stateServers collection
-func (st *State) WatchStateServerInfo() NotifyWatcher {
+func (st *state) WatchStateServerInfo() NotifyWatcher {
 	return newEntityWatcher(st, stateServersC, environGlobalKey)
 }
 
@@ -1414,46 +1414,46 @@ func (e *Environment) Watch() NotifyWatcher {
 
 // WatchUpgradeInfo returns a watcher for observing changes to upgrade
 // synchronisation state.
-func (st *State) WatchUpgradeInfo() NotifyWatcher {
+func (st *state) WatchUpgradeInfo() NotifyWatcher {
 	return newEntityWatcher(st, upgradeInfoC, currentUpgradeId)
 }
 
 // WatchRestoreInfoChanges returns a NotifyWatcher that will inform
 // when the restore status changes.
-func (st *State) WatchRestoreInfoChanges() NotifyWatcher {
+func (st *state) WatchRestoreInfoChanges() NotifyWatcher {
 	return newEntityWatcher(st, restoreInfoC, currentRestoreId)
 }
 
 // WatchForEnvironConfigChanges returns a NotifyWatcher waiting for the Environ
 // Config to change. This differs from WatchEnvironConfig in that the watcher
 // is a NotifyWatcher that does not give content during Changes()
-func (st *State) WatchForEnvironConfigChanges() NotifyWatcher {
+func (st *state) WatchForEnvironConfigChanges() NotifyWatcher {
 	return newEntityWatcher(st, settingsC, st.docID(environGlobalKey))
 }
 
 // WatchAPIHostPorts returns a NotifyWatcher that notifies
 // when the set of API addresses changes.
-func (st *State) WatchAPIHostPorts() NotifyWatcher {
+func (st *state) WatchAPIHostPorts() NotifyWatcher {
 	return newEntityWatcher(st, stateServersC, apiHostPortsKey)
 }
 
 // WatchStorageAttachment returns a watcher for observing changes
 // to a storage attachment.
-func (st *State) WatchStorageAttachment(s names.StorageTag, u names.UnitTag) NotifyWatcher {
+func (st *state) WatchStorageAttachment(s names.StorageTag, u names.UnitTag) NotifyWatcher {
 	id := storageAttachmentId(u.Id(), s.Id())
 	return newEntityWatcher(st, storageAttachmentsC, st.docID(id))
 }
 
 // WatchVolumeAttachment returns a watcher for observing changes
 // to a volume attachment.
-func (st *State) WatchVolumeAttachment(m names.MachineTag, v names.VolumeTag) NotifyWatcher {
+func (st *state) WatchVolumeAttachment(m names.MachineTag, v names.VolumeTag) NotifyWatcher {
 	id := volumeAttachmentId(m.Id(), v.Id())
 	return newEntityWatcher(st, volumeAttachmentsC, st.docID(id))
 }
 
 // WatchFilesystemAttachment returns a watcher for observing changes
 // to a filesystem attachment.
-func (st *State) WatchFilesystemAttachment(m names.MachineTag, f names.FilesystemTag) NotifyWatcher {
+func (st *state) WatchFilesystemAttachment(m names.MachineTag, f names.FilesystemTag) NotifyWatcher {
 	id := filesystemAttachmentId(m.Id(), f.Id())
 	return newEntityWatcher(st, filesystemAttachmentsC, st.docID(id))
 }
@@ -1486,7 +1486,7 @@ func (u *Unit) WatchMeterStatus() NotifyWatcher {
 	})
 }
 
-func newEntityWatcher(st *State, collName string, key interface{}) NotifyWatcher {
+func newEntityWatcher(st *state, collName string, key interface{}) NotifyWatcher {
 	return newDocWatcher(st, []docKey{{collName, key}})
 }
 
@@ -1509,7 +1509,7 @@ type docKey struct {
 
 // newDocWatcher returns a new docWatcher.
 // docKeys identifies the documents that should be watched (their id and which collection they are in)
-func newDocWatcher(st *State, docKeys []docKey) NotifyWatcher {
+func newDocWatcher(st *state, docKeys []docKey) NotifyWatcher {
 	w := &docWatcher{
 		commonWatcher: commonWatcher{st: st},
 		out:           make(chan struct{}),
@@ -1812,11 +1812,11 @@ type cleanupWatcher struct {
 var _ Watcher = (*cleanupWatcher)(nil)
 
 // WatchCleanups starts and returns a CleanupWatcher.
-func (st *State) WatchCleanups() NotifyWatcher {
+func (st *state) WatchCleanups() NotifyWatcher {
 	return newCleanupWatcher(st)
 }
 
-func newCleanupWatcher(st *State) NotifyWatcher {
+func newCleanupWatcher(st *state) NotifyWatcher {
 	w := &cleanupWatcher{
 		commonWatcher: commonWatcher{st: st},
 		out:           make(chan struct{}),
@@ -1873,7 +1873,7 @@ var _ StringsWatcher = (*actionStatusWatcher)(nil)
 // newActionStatusWatcher returns the StringsWatcher that will notify
 // on changes to Actions with the given ActionReceiver and ActionStatus
 // filters.
-func newActionStatusWatcher(st *State, receivers []ActionReceiver, statusSet ...ActionStatus) StringsWatcher {
+func newActionStatusWatcher(st *state, receivers []ActionReceiver, statusSet ...ActionStatus) StringsWatcher {
 	watchLogger.Debugf("newActionStatusWatcher receivers:'%+v', statuses'%+v'", receivers, statusSet)
 	w := &actionStatusWatcher{
 		commonWatcher:  commonWatcher{st: st},
@@ -1976,7 +1976,7 @@ func (w *actionStatusWatcher) matchingIds(ids ...string) ([]string, error) {
 // If the upstream changes do not match the ActionReceivers and
 // ActionStatus set filters defined on the watcher, they are silently
 // dropped.
-func (w *actionStatusWatcher) filterAndMergeIds(st *State, changes *[]string, updates map[interface{}]bool) error {
+func (w *actionStatusWatcher) filterAndMergeIds(st *state, changes *[]string, updates map[interface{}]bool) error {
 	watchLogger.Tracef("actionStatusWatcher filterAndMergeIds(changes:'%+v', updates:'%+v')", changes, updates)
 	var adds []string
 	for id, exists := range updates {
@@ -2024,7 +2024,7 @@ func inCollectionOp(key string, ids ...string) bson.D {
 
 // localIdInCollectionOp is a special form of inCollectionOp that just
 // converts id's to their env-uuid prefixed form.
-func localIdInCollectionOp(st *State, localIds ...string) bson.D {
+func localIdInCollectionOp(st *state, localIds ...string) bson.D {
 	ids := make([]string, len(localIds))
 	for i, id := range localIds {
 		ids[i] = st.docID(id)
@@ -2069,7 +2069,7 @@ var _ StringsWatcher = (*idPrefixWatcher)(nil)
 
 // newIdPrefixWatcher starts and returns a new StringsWatcher configured
 // with the given collection and filter function
-func newIdPrefixWatcher(st *State, collectionName string, filter func(interface{}) bool) StringsWatcher {
+func newIdPrefixWatcher(st *state, collectionName string, filter func(interface{}) bool) StringsWatcher {
 	w := &idPrefixWatcher{
 		commonWatcher: commonWatcher{st: st},
 		source:        make(chan watcher.Change),
@@ -2137,7 +2137,7 @@ func (w *idPrefixWatcher) loop() error {
 // makeIdFilter constructs a predicate to filter keys that have the
 // prefix matching one of the passed in ActionReceivers, or returns nil
 // if tags is empty
-func makeIdFilter(st *State, marker string, receivers ...ActionReceiver) func(interface{}) bool {
+func makeIdFilter(st *state, marker string, receivers ...ActionReceiver) func(interface{}) bool {
 	if len(receivers) == 0 {
 		return nil
 	}
@@ -2189,7 +2189,7 @@ func (w *idPrefixWatcher) initial() ([]string, error) {
 // watcher.
 // Additionally, mergeIds strips the environment UUID prefix from the id
 // before emitting it through the watcher.
-func mergeIds(st *State, changes *[]string, updates map[interface{}]bool) error {
+func mergeIds(st *state, changes *[]string, updates map[interface{}]bool) error {
 	for id, idExists := range updates {
 		switch id := id.(type) {
 		case string:
@@ -2243,27 +2243,27 @@ func ensureSuffixFn(marker string) func(string) string {
 
 // watchEnqueuedActions starts and returns a StringsWatcher that
 // notifies on new Actions being enqueued.
-func (st *State) watchEnqueuedActions() StringsWatcher {
+func (st *state) watchEnqueuedActions() StringsWatcher {
 	return newIdPrefixWatcher(st, actionNotificationsC, makeIdFilter(st, actionMarker))
 }
 
 // watchEnqueuedActionsFilteredBy starts and returns a StringsWatcher
 // that notifies on new Actions being enqueued on the ActionRecevers
 // being watched.
-func (st *State) watchEnqueuedActionsFilteredBy(receivers ...ActionReceiver) StringsWatcher {
+func (st *state) watchEnqueuedActionsFilteredBy(receivers ...ActionReceiver) StringsWatcher {
 	return newIdPrefixWatcher(st, actionNotificationsC, makeIdFilter(st, actionMarker, receivers...))
 }
 
 // WatchActionResults starts and returns a StringsWatcher that
 // notifies on new ActionResults being added.
-func (st *State) WatchActionResults() StringsWatcher {
+func (st *state) WatchActionResults() StringsWatcher {
 	return st.WatchActionResultsFilteredBy()
 }
 
 // WatchActionResultsFilteredBy starts and returns a StringsWatcher
 // that notifies on new ActionResults being added for the ActionRecevers
 // being watched.
-func (st *State) WatchActionResultsFilteredBy(receivers ...ActionReceiver) StringsWatcher {
+func (st *state) WatchActionResultsFilteredBy(receivers ...ActionReceiver) StringsWatcher {
 	return newActionStatusWatcher(st, receivers, []ActionStatus{ActionCompleted, ActionCancelled, ActionFailed}...)
 }
 
@@ -2413,11 +2413,11 @@ var _ Watcher = (*openedPortsWatcher)(nil)
 // changes to the openedPorts collection. Reported changes have the
 // following format: "<machine-id>:<network-name>", i.e.
 // "0:juju-public".
-func (st *State) WatchOpenedPorts() StringsWatcher {
+func (st *state) WatchOpenedPorts() StringsWatcher {
 	return newOpenedPortsWatcher(st)
 }
 
-func newOpenedPortsWatcher(st *State) StringsWatcher {
+func newOpenedPortsWatcher(st *state) StringsWatcher {
 	w := &openedPortsWatcher{
 		commonWatcher: commonWatcher{st: st},
 		known:         make(map[string]int64),
@@ -2555,7 +2555,7 @@ type rebootWatcher struct {
 	out      chan struct{}
 }
 
-func newRebootWatcher(st *State, machines set.Strings) NotifyWatcher {
+func newRebootWatcher(st *state, machines set.Strings) NotifyWatcher {
 	w := &rebootWatcher{
 		commonWatcher: commonWatcher{st: st},
 		machines:      machines,
@@ -2618,7 +2618,7 @@ type blockDevicesWatcher struct {
 
 var _ NotifyWatcher = (*blockDevicesWatcher)(nil)
 
-func newBlockDevicesWatcher(st *State, machineId string) NotifyWatcher {
+func newBlockDevicesWatcher(st *state, machineId string) NotifyWatcher {
 	w := &blockDevicesWatcher{
 		commonWatcher: commonWatcher{st: st},
 		machineId:     machineId,

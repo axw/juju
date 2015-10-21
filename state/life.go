@@ -52,7 +52,7 @@ type AgentLiving interface {
 	Remove() error
 }
 
-func isAlive(st *State, collName string, id interface{}) (bool, error) {
+func isAlive(st *state, collName string, id interface{}) (bool, error) {
 	coll, closer := st.getCollection(collName)
 	defer closer()
 	return isAliveWithSession(coll, id)
@@ -63,7 +63,7 @@ func isAliveWithSession(coll mongo.Collection, id interface{}) (bool, error) {
 	return n == 1, err
 }
 
-func isNotDead(st *State, collName string, id interface{}) (bool, error) {
+func isNotDead(st *state, collName string, id interface{}) (bool, error) {
 	coll, closer := st.getCollection(collName)
 	defer closer()
 	return isNotDeadWithSession(coll, id)

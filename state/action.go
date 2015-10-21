@@ -104,7 +104,7 @@ type actionDoc struct {
 // Action represents an instruction to do some "action" and is expected
 // to match an action definition in a charm.
 type Action struct {
-	st  *State
+	st  *state
 	doc actionDoc
 }
 
@@ -247,7 +247,7 @@ func newActionTagFromNotification(doc actionNotificationDoc) names.ActionTag {
 }
 
 // newAction builds an Action for the given State and actionDoc.
-func newAction(st *State, adoc actionDoc) *Action {
+func newAction(st *state, adoc actionDoc) *Action {
 	return &Action{
 		st:  st,
 		doc: adoc,
@@ -255,7 +255,7 @@ func newAction(st *State, adoc actionDoc) *Action {
 }
 
 // newActionDoc builds the actionDoc with the given name and parameters.
-func newActionDoc(st *State, receiverTag names.Tag, actionName string, parameters map[string]interface{}) (actionDoc, actionNotificationDoc, error) {
+func newActionDoc(st *state, receiverTag names.Tag, actionName string, parameters map[string]interface{}) (actionDoc, actionNotificationDoc, error) {
 	prefix := ensureActionMarker(receiverTag.Id())
 	actionId, err := NewUUID()
 	if err != nil {
@@ -282,7 +282,7 @@ func newActionDoc(st *State, receiverTag names.Tag, actionName string, parameter
 var ensureActionMarker = ensureSuffixFn(actionMarker)
 
 // Action returns an Action by Id, which is a UUID.
-func (st *State) Action(id string) (*Action, error) {
+func (st *state) Action(id string) (*Action, error) {
 	actionLogger.Tracef("Action() %q", id)
 	actions, closer := st.getCollection(actionsC)
 	defer closer()
@@ -300,13 +300,13 @@ func (st *State) Action(id string) (*Action, error) {
 }
 
 // ActionByTag returns an Action given an ActionTag.
-func (st *State) ActionByTag(tag names.ActionTag) (*Action, error) {
+func (st *state) ActionByTag(tag names.ActionTag) (*Action, error) {
 	return st.Action(tag.Id())
 }
 
 // FindActionTagsByPrefix finds Actions with ids that share the supplied prefix, and
 // returns a list of corresponding ActionTags.
-func (st *State) FindActionTagsByPrefix(prefix string) []names.ActionTag {
+func (st *state) FindActionTagsByPrefix(prefix string) []names.ActionTag {
 	actionLogger.Tracef("FindActionTagsByPrefix() %q", prefix)
 	var results []names.ActionTag
 	var doc struct {
@@ -330,7 +330,7 @@ func (st *State) FindActionTagsByPrefix(prefix string) []names.ActionTag {
 }
 
 // EnqueueAction
-func (st *State) EnqueueAction(receiver names.Tag, actionName string, payload map[string]interface{}) (*Action, error) {
+func (st *state) EnqueueAction(receiver names.Tag, actionName string, payload map[string]interface{}) (*Action, error) {
 	if len(actionName) == 0 {
 		return nil, errors.New("action name required")
 	}
@@ -378,12 +378,12 @@ func (st *State) EnqueueAction(receiver names.Tag, actionName string, payload ma
 }
 
 // matchingActions finds actions that match ActionReceiver.
-func (st *State) matchingActions(ar ActionReceiver) ([]*Action, error) {
+func (st *state) matchingActions(ar ActionReceiver) ([]*Action, error) {
 	return st.matchingActionsByReceiverId(ar.Tag().Id())
 }
 
 // matchingActionsByReceiverId finds actions that match ActionReceiver name.
-func (st *State) matchingActionsByReceiverId(id string) ([]*Action, error) {
+func (st *state) matchingActionsByReceiverId(id string) ([]*Action, error) {
 	var doc actionDoc
 	var actions []*Action
 
@@ -398,12 +398,12 @@ func (st *State) matchingActionsByReceiverId(id string) ([]*Action, error) {
 }
 
 // matchingActionNotifications finds actionNotifications that match ActionReceiver.
-func (st *State) matchingActionNotifications(ar ActionReceiver) ([]names.ActionTag, error) {
+func (st *state) matchingActionNotifications(ar ActionReceiver) ([]names.ActionTag, error) {
 	return st.matchingActionNotificationsByReceiverId(ar.Tag().Id())
 }
 
 // matchingActionNotificationsByReceiverId finds actionNotifications that match ActionReceiver.
-func (st *State) matchingActionNotificationsByReceiverId(id string) ([]names.ActionTag, error) {
+func (st *state) matchingActionNotificationsByReceiverId(id string) ([]names.ActionTag, error) {
 	var doc actionNotificationDoc
 	var tags []names.ActionTag
 
@@ -419,21 +419,21 @@ func (st *State) matchingActionNotificationsByReceiverId(id string) ([]names.Act
 
 // matchingActionsPending finds actions that match ActionReceiver and
 // that are pending.
-func (st *State) matchingActionsPending(ar ActionReceiver) ([]*Action, error) {
+func (st *state) matchingActionsPending(ar ActionReceiver) ([]*Action, error) {
 	completed := bson.D{{"status", ActionPending}}
 	return st.matchingActionsByReceiverAndStatus(ar.Tag(), completed)
 }
 
 // matchingActionsRunning finds actions that match ActionReceiver and
 // that are running.
-func (st *State) matchingActionsRunning(ar ActionReceiver) ([]*Action, error) {
+func (st *state) matchingActionsRunning(ar ActionReceiver) ([]*Action, error) {
 	completed := bson.D{{"status", ActionRunning}}
 	return st.matchingActionsByReceiverAndStatus(ar.Tag(), completed)
 }
 
 // matchingActionsCompleted finds actions that match ActionReceiver and
 // that are complete.
-func (st *State) matchingActionsCompleted(ar ActionReceiver) ([]*Action, error) {
+func (st *state) matchingActionsCompleted(ar ActionReceiver) ([]*Action, error) {
 	completed := bson.D{{"$or", []bson.D{
 		{{"status", ActionCompleted}},
 		{{"status", ActionCancelled}},
@@ -444,7 +444,7 @@ func (st *State) matchingActionsCompleted(ar ActionReceiver) ([]*Action, error) 
 
 // matchingActionsByReceiverAndStatus finds actionNotifications that
 // match ActionReceiver.
-func (st *State) matchingActionsByReceiverAndStatus(tag names.Tag, statusCondition bson.D) ([]*Action, error) {
+func (st *state) matchingActionsByReceiverAndStatus(tag names.Tag, statusCondition bson.D) ([]*Action, error) {
 	var doc actionDoc
 	var actions []*Action
 

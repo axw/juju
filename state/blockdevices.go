@@ -47,16 +47,16 @@ type BlockDeviceInfo struct {
 
 // WatchBlockDevices returns a new NotifyWatcher watching for
 // changes to block devices associated with the specified machine.
-func (st *State) WatchBlockDevices(machine names.MachineTag) NotifyWatcher {
+func (st *state) WatchBlockDevices(machine names.MachineTag) NotifyWatcher {
 	return newBlockDevicesWatcher(st, machine.Id())
 }
 
 // BlockDevices returns the BlockDeviceInfo for the specified machine.
-func (st *State) BlockDevices(machine names.MachineTag) ([]BlockDeviceInfo, error) {
+func (st *state) BlockDevices(machine names.MachineTag) ([]BlockDeviceInfo, error) {
 	return st.blockDevices(machine.Id())
 }
 
-func (st *State) blockDevices(machineId string) ([]BlockDeviceInfo, error) {
+func (st *state) blockDevices(machineId string) ([]BlockDeviceInfo, error) {
 	coll, cleanup := st.getCollection(blockDevicesC)
 	defer cleanup()
 
@@ -73,7 +73,7 @@ func (st *State) blockDevices(machineId string) ([]BlockDeviceInfo, error) {
 // setMachineBlockDevices updates the blockdevices collection with the
 // currently attached block devices. Previously recorded block devices
 // not in the list will be removed.
-func setMachineBlockDevices(st *State, machineId string, newInfo []BlockDeviceInfo) error {
+func setMachineBlockDevices(st *state, machineId string, newInfo []BlockDeviceInfo) error {
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		oldInfo, err := st.blockDevices(machineId)
 		if err != nil {

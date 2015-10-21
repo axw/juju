@@ -79,7 +79,7 @@ type EnvironCapability interface {
 
 // precheckInstance calls the state's assigned policy, if non-nil, to obtain
 // a Prechecker, and calls PrecheckInstance if a non-nil Prechecker is returned.
-func (st *State) precheckInstance(series string, cons constraints.Value, placement string) error {
+func (st *state) precheckInstance(series string, cons constraints.Value, placement string) error {
 	if st.policy == nil {
 		return nil
 	}
@@ -99,7 +99,7 @@ func (st *State) precheckInstance(series string, cons constraints.Value, placeme
 	return prechecker.PrecheckInstance(series, cons, placement)
 }
 
-func (st *State) constraintsValidator() (constraints.Validator, error) {
+func (st *state) constraintsValidator() (constraints.Validator, error) {
 	// Default behaviour is to simply use a standard validator with
 	// no environment specific behaviour built in.
 	defaultValidator := constraints.NewValidator()
@@ -124,7 +124,7 @@ func (st *State) constraintsValidator() (constraints.Validator, error) {
 
 // resolveConstraints combines the given constraints with the environ constraints to get
 // a constraints which will be used to create a new instance.
-func (st *State) resolveConstraints(cons constraints.Value) (constraints.Value, error) {
+func (st *state) resolveConstraints(cons constraints.Value) (constraints.Value, error) {
 	validator, err := st.constraintsValidator()
 	if err != nil {
 		return constraints.Value{}, err
@@ -138,7 +138,7 @@ func (st *State) resolveConstraints(cons constraints.Value) (constraints.Value, 
 
 // validateConstraints returns an error if the given constraints are not valid for the
 // current environment, and also any unsupported attributes.
-func (st *State) validateConstraints(cons constraints.Value) ([]string, error) {
+func (st *state) validateConstraints(cons constraints.Value) ([]string, error) {
 	validator, err := st.constraintsValidator()
 	if err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (st *State) validateConstraints(cons constraints.Value) ([]string, error) {
 // validate calls the state's assigned policy, if non-nil, to obtain
 // a ConfigValidator, and calls Validate if a non-nil ConfigValidator is
 // returned.
-func (st *State) validate(cfg, old *config.Config) (valid *config.Config, err error) {
+func (st *state) validate(cfg, old *config.Config) (valid *config.Config, err error) {
 	if st.policy == nil {
 		return cfg, nil
 	}
@@ -168,7 +168,7 @@ func (st *State) validate(cfg, old *config.Config) (valid *config.Config, err er
 // supportsUnitPlacement calls the state's assigned policy, if non-nil,
 // to obtain an EnvironCapability, and calls SupportsUnitPlacement if a
 // non-nil EnvironCapability is returned.
-func (st *State) supportsUnitPlacement() error {
+func (st *state) supportsUnitPlacement() error {
 	if st.policy == nil {
 		return nil
 	}

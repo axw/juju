@@ -28,7 +28,7 @@ const (
 // by the charm author and sent from the unit via a call to
 // add-metric
 type MetricBatch struct {
-	st  *State
+	st  *state
 	doc metricBatchDoc
 }
 
@@ -83,7 +83,7 @@ type BatchParam struct {
 }
 
 // AddMetrics adds a new batch of metrics to the database.
-func (st *State) AddMetrics(batch BatchParam) (*MetricBatch, error) {
+func (st *state) AddMetrics(batch BatchParam) (*MetricBatch, error) {
 	if len(batch.Metrics) == 0 {
 		return nil, errors.New("cannot add a batch of 0 metrics")
 	}
@@ -155,7 +155,7 @@ func (st *State) AddMetrics(batch BatchParam) (*MetricBatch, error) {
 // TODO (tasdomas): this method is currently only used in the uniter worker test -
 //                  it needs to be modified to restrict the scope of the values it
 //                  returns if it is to be used outside of tests.
-func (st *State) MetricBatches() ([]MetricBatch, error) {
+func (st *state) MetricBatches() ([]MetricBatch, error) {
 	c, closer := st.getCollection(metricsC)
 	defer closer()
 	docs := []metricBatchDoc{}
@@ -171,7 +171,7 @@ func (st *State) MetricBatches() ([]MetricBatch, error) {
 }
 
 // MetricBatch returns the metric batch with the given id.
-func (st *State) MetricBatch(id string) (*MetricBatch, error) {
+func (st *state) MetricBatch(id string) (*MetricBatch, error) {
 	c, closer := st.getCollection(metricsC)
 	defer closer()
 	doc := metricBatchDoc{}
@@ -187,7 +187,7 @@ func (st *State) MetricBatch(id string) (*MetricBatch, error) {
 
 // CleanupOldMetrics looks for metrics that are 24 hours old (or older)
 // and have been sent. Any metrics it finds are deleted.
-func (st *State) CleanupOldMetrics() error {
+func (st *state) CleanupOldMetrics() error {
 	age := time.Now().Add(-(CleanupAge))
 	metricsLogger.Tracef("cleaning up metrics created before %v", age)
 	metrics, closer := st.getCollection(metricsC)
@@ -206,7 +206,7 @@ func (st *State) CleanupOldMetrics() error {
 
 // MetricsToSend returns batchSize metrics that need to be sent
 // to the collector
-func (st *State) MetricsToSend(batchSize int) ([]*MetricBatch, error) {
+func (st *state) MetricsToSend(batchSize int) ([]*MetricBatch, error) {
 	var docs []metricBatchDoc
 	c, closer := st.getCollection(metricsC)
 	defer closer()
@@ -228,7 +228,7 @@ func (st *State) MetricsToSend(batchSize int) ([]*MetricBatch, error) {
 
 // CountOfUnsentMetrics returns the number of metrics that
 // haven't been sent to the collection service.
-func (st *State) CountOfUnsentMetrics() (int, error) {
+func (st *state) CountOfUnsentMetrics() (int, error) {
 	c, closer := st.getCollection(metricsC)
 	defer closer()
 	return c.Find(bson.M{
@@ -239,7 +239,7 @@ func (st *State) CountOfUnsentMetrics() (int, error) {
 // CountOfSentMetrics returns the number of metrics that
 // have been sent to the collection service and have not
 // been removed by the cleanup worker.
-func (st *State) CountOfSentMetrics() (int, error) {
+func (st *state) CountOfSentMetrics() (int, error) {
 	c, closer := st.getCollection(metricsC)
 	defer closer()
 	return c.Find(bson.M{
@@ -321,7 +321,7 @@ func setSentOps(batchUUIDs []string) []txn.Op {
 }
 
 // SetMetricBatchesSent sets sent on each MetricBatch corresponding to the uuids provided.
-func (st *State) SetMetricBatchesSent(batchUUIDs []string) error {
+func (st *state) SetMetricBatchesSent(batchUUIDs []string) error {
 	ops := setSentOps(batchUUIDs)
 	if err := st.runTransaction(ops); err != nil {
 		return errors.Annotatef(err, "cannot set metric sent in bulk call")

@@ -27,7 +27,7 @@ import (
 // may be provided.
 //
 // Open returns unauthorizedError if access is unauthorized.
-func Open(tag names.EnvironTag, info *mongo.MongoInfo, opts mongo.DialOpts, policy Policy) (*State, error) {
+func Open(tag names.EnvironTag, info *mongo.MongoInfo, opts mongo.DialOpts, policy Policy) (State, error) {
 	st, err := open(tag, info, opts, policy)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -47,7 +47,7 @@ func Open(tag names.EnvironTag, info *mongo.MongoInfo, opts mongo.DialOpts, poli
 	return st, nil
 }
 
-func open(tag names.EnvironTag, info *mongo.MongoInfo, opts mongo.DialOpts, policy Policy) (*State, error) {
+func open(tag names.EnvironTag, info *mongo.MongoInfo, opts mongo.DialOpts, policy Policy) (*state, error) {
 	logger.Infof("opening state, mongo addresses: %q; entity %v", info.Addrs, info.Tag)
 	logger.Debugf("dialing mongo")
 	session, err := mongo.DialWithInfo(info.Info, opts)
@@ -103,7 +103,7 @@ func mongodbLogin(session *mgo.Session, mongoInfo *mongo.MongoInfo) error {
 // Initialize sets up an initial empty state and returns it.
 // This needs to be performed only once for the initial state server environment.
 // It returns unauthorizedError if access is unauthorized.
-func Initialize(owner names.UserTag, info *mongo.MongoInfo, cfg *config.Config, opts mongo.DialOpts, policy Policy) (_ *State, err error) {
+func Initialize(owner names.UserTag, info *mongo.MongoInfo, cfg *config.Config, opts mongo.DialOpts, policy Policy) (_ State, err error) {
 	uuid, ok := cfg.UUID()
 	if !ok {
 		return nil, errors.Errorf("environment uuid was not supplied")
@@ -176,7 +176,7 @@ func Initialize(owner names.UserTag, info *mongo.MongoInfo, cfg *config.Config, 
 	return st, nil
 }
 
-func (st *State) envSetupOps(cfg *config.Config, envUUID, serverUUID string, owner names.UserTag) ([]txn.Op, error) {
+func (st *state) envSetupOps(cfg *config.Config, envUUID, serverUUID string, owner names.UserTag) ([]txn.Op, error) {
 	if err := checkEnvironConfig(cfg); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -228,10 +228,10 @@ func isUnauthorized(err error) bool {
 	return false
 }
 
-// newState creates an incomplete *State, with a configured watcher but no
+// newState creates an incomplete *state, with a configured watcher but no
 // pwatcher, leadershipManager, or serverTag. You must start() the returned
-// *State before it will function correctly.
-func newState(environTag names.EnvironTag, session *mgo.Session, mongoInfo *mongo.MongoInfo, policy Policy) (_ *State, resultErr error) {
+// *state before it will function correctly.
+func newState(environTag names.EnvironTag, session *mgo.Session, mongoInfo *mongo.MongoInfo, policy Policy) (_ *state, resultErr error) {
 	// Set up database.
 	rawDB := session.DB(jujuDB)
 	database, err := allCollections().Load(rawDB, environTag.Id())
@@ -243,7 +243,7 @@ func newState(environTag names.EnvironTag, session *mgo.Session, mongoInfo *mong
 	}
 
 	// Create State.
-	return &State{
+	return &state{
 		environTag: environTag,
 		mongoInfo:  mongoInfo,
 		session:    session,
@@ -254,16 +254,16 @@ func newState(environTag names.EnvironTag, session *mgo.Session, mongoInfo *mong
 }
 
 // MongoConnectionInfo returns information for connecting to mongo
-func (st *State) MongoConnectionInfo() *mongo.MongoInfo {
+func (st *state) MongoConnectionInfo() *mongo.MongoInfo {
 	return st.mongoInfo
 }
 
 // CACert returns the certificate used to validate the state connection.
-func (st *State) CACert() string {
+func (st *state) CACert() string {
 	return st.mongoInfo.CACert
 }
 
-func (st *State) Close() (err error) {
+func (st *state) Close() (err error) {
 	defer errors.DeferredAnnotatef(&err, "closing state failed")
 
 	// TODO(fwereade): we have no defence against these components failing

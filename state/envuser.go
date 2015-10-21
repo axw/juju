@@ -20,7 +20,7 @@ import (
 // environment user always represents a single user for a single environment.
 // There should be no more than one EnvironmentUser per environment.
 type EnvironmentUser struct {
-	st  *State
+	st  *state
 	doc envUserDoc
 }
 
@@ -138,7 +138,7 @@ func (e *EnvironmentUser) UpdateLastConnection() error {
 }
 
 // EnvironmentUser returns the environment user.
-func (st *State) EnvironmentUser(user names.UserTag) (*EnvironmentUser, error) {
+func (st *state) EnvironmentUser(user names.UserTag) (*EnvironmentUser, error) {
 	envUser := &EnvironmentUser{st: st}
 	envUsers, closer := st.getCollection(envUsersC)
 	defer closer()
@@ -155,7 +155,7 @@ func (st *State) EnvironmentUser(user names.UserTag) (*EnvironmentUser, error) {
 }
 
 // AddEnvironmentUser adds a new user to the database.
-func (st *State) AddEnvironmentUser(user, createdBy names.UserTag, displayName string) (*EnvironmentUser, error) {
+func (st *state) AddEnvironmentUser(user, createdBy names.UserTag, displayName string) (*EnvironmentUser, error) {
 	// Ensure local user exists in state before adding them as an environment user.
 	if user.IsLocal() {
 		localUser, err := st.User(user)
@@ -212,7 +212,7 @@ func createEnvUserOp(envuuid string, user, createdBy names.UserTag, displayName 
 }
 
 // RemoveEnvironmentUser removes a user from the database.
-func (st *State) RemoveEnvironmentUser(user names.UserTag) error {
+func (st *state) RemoveEnvironmentUser(user names.UserTag) error {
 	ops := []txn.Op{{
 		C:      envUsersC,
 		Id:     envUserID(user),
@@ -254,7 +254,7 @@ func (e *UserEnvironment) LastConnection() (time.Time, error) {
 
 // EnvironmentsForUser returns a list of enviroments that the user
 // is able to access.
-func (st *State) EnvironmentsForUser(user names.UserTag) ([]*UserEnvironment, error) {
+func (st *state) EnvironmentsForUser(user names.UserTag) ([]*UserEnvironment, error) {
 	// Since there are no groups at this stage, the simplest way to get all
 	// the environments that a particular user can see is to look through the
 	// environment user collection. A raw collection is required to support
@@ -285,7 +285,7 @@ func (st *State) EnvironmentsForUser(user names.UserTag) ([]*UserEnvironment, er
 
 // IsSystemAdministrator returns true if the user specified has access to the
 // state server environment (the system environment).
-func (st *State) IsSystemAdministrator(user names.UserTag) (bool, error) {
+func (st *state) IsSystemAdministrator(user names.UserTag) (bool, error) {
 	ssinfo, err := st.StateServerInfo()
 	if err != nil {
 		return false, errors.Annotate(err, "could not get state server info")

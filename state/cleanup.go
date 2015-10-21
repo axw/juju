@@ -41,7 +41,7 @@ type cleanupDoc struct {
 
 // newCleanupOp returns a txn.Op that creates a cleanup document with a unique
 // id and the supplied kind and prefix.
-func (st *State) newCleanupOp(kind cleanupKind, prefix string) txn.Op {
+func (st *state) newCleanupOp(kind cleanupKind, prefix string) txn.Op {
 	doc := &cleanupDoc{
 		DocID:   st.docID(fmt.Sprint(bson.NewObjectId())),
 		EnvUUID: st.EnvironUUID(),
@@ -56,7 +56,7 @@ func (st *State) newCleanupOp(kind cleanupKind, prefix string) txn.Op {
 }
 
 // NeedsCleanup returns true if documents previously marked for removal exist.
-func (st *State) NeedsCleanup() (bool, error) {
+func (st *state) NeedsCleanup() (bool, error) {
 	cleanups, closer := st.getCollection(cleanupsC)
 	defer closer()
 	count, err := cleanups.Count()
@@ -69,7 +69,7 @@ func (st *State) NeedsCleanup() (bool, error) {
 // Cleanup removes all documents that were previously marked for removal, if
 // any such exist. It should be called periodically by at least one element
 // of the system.
-func (st *State) Cleanup() (err error) {
+func (st *state) Cleanup() (err error) {
 	var doc cleanupDoc
 	cleanups, closer := st.getCollection(cleanupsC)
 	defer closer()
@@ -118,7 +118,7 @@ func (st *State) Cleanup() (err error) {
 	return nil
 }
 
-func (st *State) cleanupRelationSettings(prefix string) error {
+func (st *state) cleanupRelationSettings(prefix string) error {
 	settings, closer := st.getCollection(settingsC)
 	defer closer()
 	// Documents marked for cleanup are not otherwise referenced in the
@@ -140,7 +140,7 @@ func (st *State) cleanupRelationSettings(prefix string) error {
 // cleanupServicesForDyingEnvironment sets all services to Dying, if they are
 // not already Dying or Dead. It's expected to be used when an environment is
 // destroyed.
-func (st *State) cleanupServicesForDyingEnvironment() (err error) {
+func (st *state) cleanupServicesForDyingEnvironment() (err error) {
 	// This won't miss services, because a Dying environment cannot have
 	// services added to it. But we do have to remove the services themselves
 	// via individual transactions, because they could be in any state at all.
@@ -161,7 +161,7 @@ func (st *State) cleanupServicesForDyingEnvironment() (err error) {
 // cleanupUnitsForDyingService sets all units with the given prefix to Dying,
 // if they are not already Dying or Dead. It's expected to be used when a
 // service is destroyed.
-func (st *State) cleanupUnitsForDyingService(serviceName string) (err error) {
+func (st *state) cleanupUnitsForDyingService(serviceName string) (err error) {
 	// This won't miss units, because a Dying service cannot have units added
 	// to it. But we do have to remove the units themselves via individual
 	// transactions, because they could be in any state at all.
@@ -188,7 +188,7 @@ func (st *State) cleanupUnitsForDyingService(serviceName string) (err error) {
 
 // cleanupDyingUnit marks resources owned by the unit as dying, to ensure
 // they are cleaned up as well.
-func (st *State) cleanupDyingUnit(name string) error {
+func (st *state) cleanupDyingUnit(name string) error {
 	unit, err := st.Unit(name)
 	if errors.IsNotFound(err) {
 		return nil
@@ -234,7 +234,7 @@ func (st *State) cleanupDyingUnit(name string) error {
 
 // cleanupRemovedUnit takes care of all the final cleanup required when
 // a unit is removed.
-func (st *State) cleanupRemovedUnit(unitId string) error {
+func (st *state) cleanupRemovedUnit(unitId string) error {
 	actions, err := st.matchingActionsByReceiverId(unitId)
 	if err != nil {
 		return err
@@ -251,7 +251,7 @@ func (st *State) cleanupRemovedUnit(unitId string) error {
 
 // cleanupDyingMachine marks resources owned by the machine as dying, to ensure
 // they are cleaned up as well.
-func (st *State) cleanupDyingMachine(machineId string) error {
+func (st *state) cleanupDyingMachine(machineId string) error {
 	machine, err := st.Machine(machineId)
 	if errors.IsNotFound(err) {
 		return nil
@@ -264,7 +264,7 @@ func (st *State) cleanupDyingMachine(machineId string) error {
 // cleanupForceDestroyedMachine systematically destroys and removes all entities
 // that depend upon the supplied machine, and removes the machine from state. It's
 // expected to be used in response to destroy-machine --force.
-func (st *State) cleanupForceDestroyedMachine(machineId string) error {
+func (st *state) cleanupForceDestroyedMachine(machineId string) error {
 	machine, err := st.Machine(machineId)
 	if errors.IsNotFound(err) {
 		return nil
@@ -317,7 +317,7 @@ func (st *State) cleanupForceDestroyedMachine(machineId string) error {
 
 // cleanupContainers recursively calls cleanupForceDestroyedMachine on the supplied
 // machine's containers, and removes them from state entirely.
-func (st *State) cleanupContainers(machine *Machine) error {
+func (st *state) cleanupContainers(machine *Machine) error {
 	containerIds, err := machine.Containers()
 	if errors.IsNotFound(err) {
 		return nil
@@ -373,7 +373,7 @@ func cleanupDyingMachineResources(m *Machine) error {
 // sane to obliterate any unit in isolation; its only reasonable use is in
 // the context of machine obliteration, in which we can be sure that unclean
 // shutdown of units is not going to leave a machine in a difficult state.
-func (st *State) obliterateUnit(unitName string) error {
+func (st *state) obliterateUnit(unitName string) error {
 	unit, err := st.Unit(unitName)
 	if errors.IsNotFound(err) {
 		return nil
@@ -405,7 +405,7 @@ func (st *State) obliterateUnit(unitName string) error {
 // cleanupAttachmentsForDyingStorage sets all storage attachments related
 // to the specified storage instance to Dying, if they are not already Dying
 // or Dead. It's expected to be used when a storage instance is destroyed.
-func (st *State) cleanupAttachmentsForDyingStorage(storageId string) (err error) {
+func (st *state) cleanupAttachmentsForDyingStorage(storageId string) (err error) {
 	storageTag := names.NewStorageTag(storageId)
 
 	// This won't miss attachments, because a Dying storage instance cannot
@@ -431,7 +431,7 @@ func (st *State) cleanupAttachmentsForDyingStorage(storageId string) (err error)
 // cleanupAttachmentsForDyingVolume sets all volume attachments related
 // to the specified volume to Dying, if they are not already Dying or
 // Dead. It's expected to be used when a volume is destroyed.
-func (st *State) cleanupAttachmentsForDyingVolume(volumeId string) (err error) {
+func (st *state) cleanupAttachmentsForDyingVolume(volumeId string) (err error) {
 	volumeTag := names.NewVolumeTag(volumeId)
 
 	// This won't miss attachments, because a Dying volume cannot have
@@ -457,7 +457,7 @@ func (st *State) cleanupAttachmentsForDyingVolume(volumeId string) (err error) {
 // cleanupAttachmentsForDyingFilesystem sets all filesystem attachments related
 // to the specified filesystem to Dying, if they are not already Dying or
 // Dead. It's expected to be used when a filesystem is destroyed.
-func (st *State) cleanupAttachmentsForDyingFilesystem(filesystemId string) (err error) {
+func (st *state) cleanupAttachmentsForDyingFilesystem(filesystemId string) (err error) {
 	filesystemTag := names.NewFilesystemTag(filesystemId)
 
 	// This won't miss attachments, because a Dying filesystem cannot have

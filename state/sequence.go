@@ -17,7 +17,7 @@ type sequenceDoc struct {
 	Counter int
 }
 
-func (s *State) sequence(name string) (int, error) {
+func (s *state) sequence(name string) (int, error) {
 	sequences, closer := s.getCollection(sequenceC)
 	defer closer()
 	query := sequences.FindId(name)

@@ -30,7 +30,7 @@ import (
 
 // Machine represents the state of a machine.
 type Machine struct {
-	st  *State
+	st  *state
 	doc machineDoc
 	presence.Presencer
 }
@@ -144,7 +144,7 @@ type machineDoc struct {
 	Placement string `bson:",omitempty"`
 }
 
-func newMachine(st *State, doc *machineDoc) *Machine {
+func newMachine(st *state, doc *machineDoc) *Machine {
 	machine := &Machine{
 		st:  st,
 		doc: *doc,
@@ -218,7 +218,7 @@ func (m *Machine) HardwareCharacteristics() (*instance.HardwareCharacteristics, 
 	return hardwareCharacteristics(instData), nil
 }
 
-func getInstanceData(st *State, id string) (instanceData, error) {
+func getInstanceData(st *state, id string) (instanceData, error) {
 	instanceDataCollection, closer := st.getCollection(instanceDataC)
 	defer closer()
 

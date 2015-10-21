@@ -72,7 +72,7 @@ func unescapeKeys(input map[string]interface{}) map[string]interface{} {
 // getStatus retrieves the status document associated with the given
 // globalKey and converts it to a StatusInfo. If the status document
 // is not found, a NotFoundError referencing badge will be returned.
-func getStatus(st *State, globalKey, badge string) (_ StatusInfo, err error) {
+func getStatus(st *state, globalKey, badge string) (_ StatusInfo, err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot get status")
 	statuses, closer := st.getCollection(statusesC)
 	defer closer()
@@ -119,7 +119,7 @@ type setStatusParams struct {
 }
 
 // setStatus inteprets the supplied params as documented on the type.
-func setStatus(st *State, params setStatusParams) (err error) {
+func setStatus(st *state, params setStatusParams) (err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot set status")
 
 	// TODO(fwereade): this can/should probably be recording the time the
@@ -150,7 +150,7 @@ func setStatus(st *State, params setStatusParams) (err error) {
 // updateStatusSource returns a transaction source that builds the operations
 // necessary to set the supplied status (and to fail safely if leaked and
 // executed late, so as not to overwrite more recent documents).
-func updateStatusSource(st *State, globalKey string, doc statusDoc) jujutxn.TransactionSource {
+func updateStatusSource(st *state, globalKey string, doc statusDoc) jujutxn.TransactionSource {
 	update := bson.D{{"$set", &doc}}
 	return func(_ int) ([]txn.Op, error) {
 		txnRevno, err := st.readTxnRevno(statusesC, globalKey)
@@ -169,7 +169,7 @@ func updateStatusSource(st *State, globalKey string, doc statusDoc) jujutxn.Tran
 
 // createStatusOp returns the operation needed to create the given status
 // document associated with the given globalKey.
-func createStatusOp(st *State, globalKey string, doc statusDoc) txn.Op {
+func createStatusOp(st *state, globalKey string, doc statusDoc) txn.Op {
 	return txn.Op{
 		C:      statusesC,
 		Id:     st.docID(globalKey),
@@ -180,7 +180,7 @@ func createStatusOp(st *State, globalKey string, doc statusDoc) txn.Op {
 
 // removeStatusOp returns the operation needed to remove the status
 // document associated with the given globalKey.
-func removeStatusOp(st *State, globalKey string) txn.Op {
+func removeStatusOp(st *state, globalKey string) txn.Op {
 	return txn.Op{
 		C:      statusesC,
 		Id:     st.docID(globalKey),
@@ -201,7 +201,7 @@ type historicalStatusDoc struct {
 	Updated int64 `bson:"updated"`
 }
 
-func probablyUpdateStatusHistory(st *State, globalKey string, doc statusDoc) {
+func probablyUpdateStatusHistory(st *state, globalKey string, doc statusDoc) {
 	historyDoc := &historicalStatusDoc{
 		Status:     doc.Status,
 		StatusInfo: doc.StatusInfo,
@@ -217,7 +217,7 @@ func probablyUpdateStatusHistory(st *State, globalKey string, doc statusDoc) {
 	}
 }
 
-func statusHistory(st *State, globalKey string, size int) ([]StatusInfo, error) {
+func statusHistory(st *state, globalKey string, size int) ([]StatusInfo, error) {
 	statusHistory, closer := st.getCollection(statusesHistoryC)
 	defer closer()
 
@@ -244,7 +244,7 @@ func statusHistory(st *State, globalKey string, size int) ([]StatusInfo, error) 
 
 // PruneStatusHistory removes status history entries until
 // only the maxLogsPerEntity newest records per unit remain.
-func PruneStatusHistory(st *State, maxLogsPerEntity int) error {
+func PruneStatusHistory(st *state, maxLogsPerEntity int) error {
 	history, closer := st.getCollection(statusesHistoryC)
 	defer closer()
 

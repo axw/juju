@@ -79,7 +79,7 @@ func SetRetryHooks(c *gc.C, st *State, block, check func()) txntesting.Transacti
 	return txntesting.SetRetryHooks(c, newRunnerForHooks(st), block, check)
 }
 
-func newRunnerForHooks(st *State) jujutxn.Runner {
+func newRunnerForHooks(st *state) jujutxn.Runner {
 	db := st.database.(*database)
 	runner := jujutxn.NewRunner(jujutxn.RunnerParams{Database: db.raw})
 	db.runner = runner
@@ -88,7 +88,7 @@ func newRunnerForHooks(st *State) jujutxn.Runner {
 
 // SetPolicy updates the State's policy field to the
 // given Policy, and returns the old value.
-func SetPolicy(st *State, p Policy) Policy {
+func SetPolicy(st *state, p Policy) Policy {
 	old := st.policy
 	st.policy = p
 	return old
@@ -99,7 +99,7 @@ func (doc *MachineDoc) String() string {
 	return m.String()
 }
 
-func ServiceSettingsRefCount(st *State, serviceName string, curl *charm.URL) (int, error) {
+func ServiceSettingsRefCount(st *state, serviceName string, curl *charm.URL) (int, error) {
 	settingsRefsCollection, closer := st.getCollection(settingsrefsC)
 	defer closer()
 
@@ -205,7 +205,7 @@ func init() {
 
 // TxnRevno returns the txn-revno field of the document
 // associated with the given Id in the given collection.
-func TxnRevno(st *State, collName string, id interface{}) (int64, error) {
+func TxnRevno(st *state, collName string, id interface{}) (int64, error) {
 	var doc struct {
 		TxnRevno int64 `bson:"txn-revno"`
 	}
@@ -220,7 +220,7 @@ func TxnRevno(st *State, collName string, id interface{}) (int64, error) {
 
 // MinUnitsRevno returns the Revno of the minUnits document
 // associated with the given service name.
-func MinUnitsRevno(st *State, serviceName string) (int, error) {
+func MinUnitsRevno(st *state, serviceName string) (int, error) {
 	minUnitsCollection, closer := st.getCollection(minUnitsC)
 	defer closer()
 	var doc minUnitsDoc
@@ -230,11 +230,11 @@ func MinUnitsRevno(st *State, serviceName string) (int, error) {
 	return doc.Revno, nil
 }
 
-func ConvertTagToCollectionNameAndId(st *State, tag names.Tag) (string, interface{}, error) {
+func ConvertTagToCollectionNameAndId(st *state, tag names.Tag) (string, interface{}, error) {
 	return st.tagToCollectionAndId(tag)
 }
 
-func RunTransaction(st *State, ops []txn.Op) error {
+func RunTransaction(st *state, ops []txn.Op) error {
 	return st.runTransaction(ops)
 }
 
@@ -243,11 +243,11 @@ func GetUserPasswordSaltAndHash(u *User) (string, string) {
 	return u.doc.PasswordSalt, u.doc.PasswordHash
 }
 
-func CheckUserExists(st *State, name string) (bool, error) {
+func CheckUserExists(st *state, name string) (bool, error) {
 	return st.checkUserExists(name)
 }
 
-func WatcherMergeIds(st *State, changeset *[]string, updates map[interface{}]bool) error {
+func WatcherMergeIds(st *state, changeset *[]string, updates map[interface{}]bool) error {
 	return mergeIds(st, changeset, updates)
 }
 
@@ -255,15 +255,15 @@ func WatcherEnsureSuffixFn(marker string) func(string) string {
 	return ensureSuffixFn(marker)
 }
 
-func WatcherMakeIdFilter(st *State, marker string, receivers ...ActionReceiver) func(interface{}) bool {
+func WatcherMakeIdFilter(st *state, marker string, receivers ...ActionReceiver) func(interface{}) bool {
 	return makeIdFilter(st, marker, receivers...)
 }
 
-func NewActionStatusWatcher(st *State, receivers []ActionReceiver, statuses ...ActionStatus) StringsWatcher {
+func NewActionStatusWatcher(st *state, receivers []ActionReceiver, statuses ...ActionStatus) StringsWatcher {
 	return newActionStatusWatcher(st, receivers, statuses...)
 }
 
-func GetAllUpgradeInfos(st *State) ([]*UpgradeInfo, error) {
+func GetAllUpgradeInfos(st *state) ([]*UpgradeInfo, error) {
 	upgradeInfos, closer := st.getCollection(upgradeInfoC)
 	defer closer()
 
@@ -284,15 +284,15 @@ func UserEnvNameIndex(username, envName string) string {
 	return userEnvNameIndex(username, envName)
 }
 
-func DocID(st *State, id string) string {
+func DocID(st *state, id string) string {
 	return st.docID(id)
 }
 
-func LocalID(st *State, id string) string {
+func LocalID(st *state, id string) string {
 	return st.localID(id)
 }
 
-func StrictLocalID(st *State, id string) (string, error) {
+func StrictLocalID(st *state, id string) (string, error) {
 	return st.strictLocalID(id)
 }
 
@@ -300,11 +300,11 @@ func GetUnitEnvUUID(unit *Unit) string {
 	return unit.doc.EnvUUID
 }
 
-func GetCollection(st *State, name string) (mongo.Collection, func()) {
+func GetCollection(st *state, name string) (mongo.Collection, func()) {
 	return st.getCollection(name)
 }
 
-func GetRawCollection(st *State, name string) (*mgo.Collection, func()) {
+func GetRawCollection(st *state, name string) (*mgo.Collection, func()) {
 	return st.getRawCollection(name)
 }
 
@@ -322,14 +322,14 @@ func MultiEnvCollections() []string {
 	return result
 }
 
-func Sequence(st *State, name string) (int, error) {
+func Sequence(st *state, name string) (int, error) {
 	return st.sequence(name)
 }
 
 // This is a naive environment destruction function, used to test environment
 // watching after the client calls DestroyEnvironment and the environ doc is removed.
 // It is also used to test annotations.
-func RemoveEnvironment(st *State, uuid string) error {
+func RemoveEnvironment(st *state, uuid string) error {
 	ops := []txn.Op{{
 		C:      environmentsC,
 		Id:     uuid,
@@ -339,7 +339,7 @@ func RemoveEnvironment(st *State, uuid string) error {
 	return st.runTransaction(ops)
 }
 
-func SetEnvLifeDying(st *State, envUUID string) error {
+func SetEnvLifeDying(st *state, envUUID string) error {
 	ops := []txn.Op{{
 		C:      environmentsC,
 		Id:     envUUID,

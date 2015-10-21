@@ -25,7 +25,7 @@ import (
 
 // Service represents the state of a service.
 type Service struct {
-	st  *State
+	st  *state
 	doc serviceDoc
 }
 
@@ -49,7 +49,7 @@ type serviceDoc struct {
 	MetricCredentials []byte     `bson:"metric-credentials"`
 }
 
-func newService(st *State, doc *serviceDoc) *Service {
+func newService(st *state, doc *serviceDoc) *Service {
 	svc := &Service{
 		st:  st,
 		doc: *doc,
@@ -895,7 +895,7 @@ func (s *Service) AllUnits() (units []*Unit, err error) {
 	return allUnits(s.st, s.doc.Name)
 }
 
-func allUnits(st *State, service string) (units []*Unit, err error) {
+func allUnits(st *state, service string) (units []*Unit, err error) {
 	unitsCollection, closer := st.getCollection(unitsC)
 	defer closer()
 
@@ -915,7 +915,7 @@ func (s *Service) Relations() (relations []*Relation, err error) {
 	return serviceRelations(s.st, s.doc.Name)
 }
 
-func serviceRelations(st *State, name string) (relations []*Relation, err error) {
+func serviceRelations(st *state, name string) (relations []*Relation, err error) {
 	defer errors.DeferredAnnotatef(&err, "can't get relations for service %q", name)
 	relationsCollection, closer := st.getCollection(relationsC)
 	defer closer()
@@ -1148,7 +1148,7 @@ func (s *Service) StorageConstraints() (map[string]StorageConstraints, error) {
 // of the service settings identified by serviceName and curl. If
 // canCreate is false, a missing document will be treated as an error;
 // otherwise, it will be created with a ref count of 1.
-func settingsIncRefOp(st *State, serviceName string, curl *charm.URL, canCreate bool) (txn.Op, error) {
+func settingsIncRefOp(st *state, serviceName string, curl *charm.URL, canCreate bool) (txn.Op, error) {
 	settingsrefs, closer := st.getCollection(settingsrefsC)
 	defer closer()
 
@@ -1180,7 +1180,7 @@ func settingsIncRefOp(st *State, serviceName string, curl *charm.URL, canCreate 
 // ref count of the service settings identified by serviceName and
 // curl. If the ref count is set to zero, the appropriate setting and
 // ref count documents will both be deleted.
-func settingsDecRefOps(st *State, serviceName string, curl *charm.URL) ([]txn.Op, error) {
+func settingsDecRefOps(st *state, serviceName string, curl *charm.URL) ([]txn.Op, error) {
 	settingsrefs, closer := st.getCollection(settingsrefsC)
 	defer closer()
 

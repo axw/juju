@@ -10,13 +10,13 @@ import (
 
 // UnitAgent represents the state of a service's unit agent.
 type UnitAgent struct {
-	st   *State
+	st   *state
 	tag  names.Tag
 	name string
 	StatusHistoryGetter
 }
 
-func newUnitAgent(st *State, tag names.Tag, name string) *UnitAgent {
+func newUnitAgent(st *state, tag names.Tag, name string) *UnitAgent {
 	unitAgent := &UnitAgent{
 		st:   st,
 		tag:  tag,

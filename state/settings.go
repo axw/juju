@@ -93,7 +93,7 @@ func (ics itemChangeSlice) Swap(i, j int)      { ics[i], ics[j] = ics[j], ics[i]
 // A Settings manages changes to settings as a delta in memory and merges
 // them back in the database when explicitly requested.
 type Settings struct {
-	st  *State
+	st  *state
 	key string
 
 	// disk holds the values in the config node before
@@ -213,7 +213,7 @@ func (c *Settings) Write() ([]ItemChange, error) {
 	return changes, nil
 }
 
-func newSettings(st *State, key string) *Settings {
+func newSettings(st *state, key string) *Settings {
 	return &Settings{
 		st:   st,
 		key:  key,
@@ -221,7 +221,7 @@ func newSettings(st *State, key string) *Settings {
 	}
 }
 
-func newSettingsWithDoc(st *State, key string, doc *settingsDoc) *Settings {
+func newSettingsWithDoc(st *state, key string, doc *settingsDoc) *Settings {
 	return &Settings{
 		st:      st,
 		key:     key,
@@ -274,7 +274,7 @@ func (c *Settings) Read() error {
 }
 
 // readSettingsDoc reads the settings doc with the given key.
-func readSettingsDoc(st *State, key string) (*settingsDoc, error) {
+func readSettingsDoc(st *state, key string) (*settingsDoc, error) {
 	var doc settingsDoc
 	if err := readSettingsDocInto(st, key, &doc); err != nil {
 		return nil, errors.Trace(err)
@@ -284,7 +284,7 @@ func readSettingsDoc(st *State, key string) (*settingsDoc, error) {
 
 // readSettingsDocInto reads the settings doc with the given key
 // into the provided output structure.
-func readSettingsDocInto(st *State, key string, out interface{}) error {
+func readSettingsDocInto(st *state, key string, out interface{}) error {
 	settings, closer := st.getRawCollection(settingsC)
 	defer closer()
 
@@ -303,12 +303,12 @@ func readSettingsDocInto(st *State, key string, out interface{}) error {
 }
 
 // ReadSettings returns the settings for the given key.
-func (st *State) ReadSettings(key string) (*Settings, error) {
+func (st *state) ReadSettings(key string) (*Settings, error) {
 	return readSettings(st, key)
 }
 
 // readSettings returns the Settings for key.
-func readSettings(st *State, key string) (*Settings, error) {
+func readSettings(st *state, key string) (*Settings, error) {
 	s := newSettings(st, key)
 	if err := s.Read(); err != nil {
 		return nil, err
@@ -331,7 +331,7 @@ func createSettingsOp(key string, values map[string]interface{}) txn.Op {
 }
 
 // createSettings writes an initial config node.
-func createSettings(st *State, key string, values map[string]interface{}) (*Settings, error) {
+func createSettings(st *state, key string, values map[string]interface{}) (*Settings, error) {
 	s := newSettings(st, key)
 	s.core = copyMap(values, nil)
 	ops := []txn.Op{createSettingsOp(key, values)}
@@ -346,7 +346,7 @@ func createSettings(st *State, key string, values map[string]interface{}) (*Sett
 }
 
 // removeSettings removes the Settings for key.
-func removeSettings(st *State, key string) error {
+func removeSettings(st *state, key string) error {
 	err := st.runTransaction([]txn.Op{removeSettingsOp(key)})
 	if err == txn.ErrAborted {
 		return errors.NotFoundf("settings")
@@ -366,7 +366,7 @@ func removeSettingsOp(key string) txn.Op {
 }
 
 // listSettings returns all the settings with the specified key prefix.
-func listSettings(st *State, keyPrefix string) (map[string]map[string]interface{}, error) {
+func listSettings(st *state, keyPrefix string) (map[string]map[string]interface{}, error) {
 	settings, closer := st.getRawCollection(settingsC)
 	defer closer()
 
@@ -386,7 +386,7 @@ func listSettings(st *State, keyPrefix string) (map[string]map[string]interface{
 // replaces it with the supplied values, and a function that should be called on
 // txn failure to determine whether this operation failed (due to a concurrent
 // settings change).
-func replaceSettingsOp(st *State, key string, values map[string]interface{}) (txn.Op, func() (bool, error), error) {
+func replaceSettingsOp(st *state, key string, values map[string]interface{}) (txn.Op, func() (bool, error), error) {
 	s, err := readSettings(st, key)
 	if err != nil {
 		return txn.Op{}, nil, err
@@ -447,11 +447,11 @@ func setUnsetUpdateSettings(set, unset bson.M) bson.D {
 
 // StateSettings is used to expose various settings APIs outside of the state package.
 type StateSettings struct {
-	st *State
+	st *state
 }
 
 // NewStateSettings creates a StateSettings from state.
-func NewStateSettings(st *State) *StateSettings {
+func NewStateSettings(st *state) *StateSettings {
 	return &StateSettings{st}
 }
 

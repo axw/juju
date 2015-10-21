@@ -23,7 +23,7 @@ const (
 
 // MetricsManager stores data about the state of the metrics manager
 type MetricsManager struct {
-	st  *State
+	st  *state
 	doc metricsManagerDoc
 }
 
@@ -61,7 +61,7 @@ func (m *MetricsManager) GracePeriod() time.Duration {
 }
 
 // MetricsManager returns an existing metricsmanager, or a new one if non exists.
-func (st *State) MetricsManager() (*MetricsManager, error) {
+func (st *state) MetricsManager() (*MetricsManager, error) {
 	mm, err := st.getMetricsManager()
 	if errors.IsNotFound(err) {
 		return st.newMetricsManager()
@@ -71,7 +71,7 @@ func (st *State) MetricsManager() (*MetricsManager, error) {
 	return mm, nil
 }
 
-func (st *State) newMetricsManager() (*MetricsManager, error) {
+func (st *state) newMetricsManager() (*MetricsManager, error) {
 	mm := &MetricsManager{
 		st: st,
 		doc: metricsManagerDoc{
@@ -99,7 +99,7 @@ func (st *State) newMetricsManager() (*MetricsManager, error) {
 	return mm, nil
 }
 
-func (st *State) getMetricsManager() (*MetricsManager, error) {
+func (st *state) getMetricsManager() (*MetricsManager, error) {
 	coll, closer := st.getCollection(metricsManagerC)
 	defer closer()
 	var doc metricsManagerDoc

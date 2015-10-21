@@ -13,6 +13,6 @@ var (
 
 // ImageStorage returns a new imagestorage.Storage
 // that stores image metadata.
-func (st *State) ImageStorage() imagestorage.Storage {
+func (st *state) ImageStorage() imagestorage.Storage {
 	return imageStorageNewStorage(st.session, st.EnvironUUID())
 }

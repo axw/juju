@@ -14,7 +14,7 @@ import (
 
 // Network represents the state of a network.
 type Network struct {
-	st  *State
+	st  *state
 	doc networkDoc
 }
 
@@ -48,11 +48,11 @@ type networkDoc struct {
 	VLANTag    int    `bson:"vlantag"`
 }
 
-func newNetwork(st *State, doc *networkDoc) *Network {
+func newNetwork(st *state, doc *networkDoc) *Network {
 	return &Network{st, *doc}
 }
 
-func (st *State) newNetworkDoc(args NetworkInfo) *networkDoc {
+func (st *state) newNetworkDoc(args NetworkInfo) *networkDoc {
 	return &networkDoc{
 		DocID:      st.docID(args.Name),
 		EnvUUID:    st.EnvironUUID(),

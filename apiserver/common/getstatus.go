@@ -89,12 +89,12 @@ func (s *StatusGetter) Status(args params.Entities) (params.StatusResults, error
 // all this does is break the user model, break the api model, and lie about
 // unit statuses).
 type ServiceStatusGetter struct {
-	st           *state.State
+	st           state.State
 	getCanAccess GetAuthFunc
 }
 
 // NewServiceStatusGetter returns a ServiceStatusGetter.
-func NewServiceStatusGetter(st *state.State, getCanAccess GetAuthFunc) *ServiceStatusGetter {
+func NewServiceStatusGetter(st state.State, getCanAccess GetAuthFunc) *ServiceStatusGetter {
 	return &ServiceStatusGetter{
 		st:           st,
 		getCanAccess: getCanAccess,

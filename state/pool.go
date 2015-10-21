@@ -12,24 +12,24 @@ import (
 
 // NewStatePool returns a new StatePool instance. It takes a State
 // connected to the system (state server environment).
-func NewStatePool(systemState *State) *StatePool {
+func NewStatePool(systemState *state) *StatePool {
 	return &StatePool{
 		systemState: systemState,
-		pool:        make(map[string]*State),
+		pool:        make(map[string]*state),
 	}
 }
 
 // StatePool is a simple cache of State instances for multiple environments.
 type StatePool struct {
-	systemState *State
+	systemState *state
 	// mu protects pool
 	mu   sync.Mutex
-	pool map[string]*State
+	pool map[string]*state
 }
 
 // Get returns a State for a given environment from the pool, creating
 // one if required.
-func (p *StatePool) Get(envUUID string) (*State, error) {
+func (p *StatePool) Get(envUUID string) (*state, error) {
 	if envUUID == p.systemState.EnvironUUID() {
 		return p.systemState, nil
 	}
@@ -42,7 +42,7 @@ func (p *StatePool) Get(envUUID string) (*State, error) {
 		return st, nil
 	}
 
-	st, err := p.systemState.ForEnviron(names.NewEnvironTag(envUUID))
+	st, err := p.systemState.forEnviron(names.NewEnvironTag(envUUID))
 	if err != nil {
 		return nil, errors.Annotatef(err, "failed to create state for environment %v", envUUID)
 	}
@@ -51,7 +51,7 @@ func (p *StatePool) Get(envUUID string) (*State, error) {
 }
 
 // SystemState returns the State passed in to NewStatePool.
-func (p *StatePool) SystemState() *State {
+func (p *StatePool) SystemState() *state {
 	return p.systemState
 }
 
@@ -67,6 +67,6 @@ func (p *StatePool) Close() error {
 			lastErr = err
 		}
 	}
-	p.pool = make(map[string]*State)
+	p.pool = make(map[string]*state)
 	return errors.Annotate(lastErr, "at least one error closing a state")
 }

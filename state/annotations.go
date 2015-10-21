@@ -27,7 +27,7 @@ type annotatorDoc struct {
 }
 
 // SetAnnotations adds key/value pairs to annotations in MongoDB.
-func (st *State) SetAnnotations(entity GlobalEntity, annotations map[string]string) (err error) {
+func (st *state) SetAnnotations(entity GlobalEntity, annotations map[string]string) (err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot update annotations on %s", entity.Tag())
 	if len(annotations) == 0 {
 		return nil
@@ -71,7 +71,7 @@ func (st *State) SetAnnotations(entity GlobalEntity, annotations map[string]stri
 }
 
 // Annotations returns all the annotations corresponding to an entity.
-func (st *State) Annotations(entity GlobalEntity) (map[string]string, error) {
+func (st *state) Annotations(entity GlobalEntity) (map[string]string, error) {
 	doc := new(annotatorDoc)
 	annotations, closer := st.getCollection(annotationsC)
 	defer closer()
@@ -88,7 +88,7 @@ func (st *State) Annotations(entity GlobalEntity) (map[string]string, error) {
 
 // Annotation returns the annotation value corresponding to the given key.
 // If the requested annotation is not found, an empty string is returned.
-func (st *State) Annotation(entity GlobalEntity, key string) (string, error) {
+func (st *state) Annotation(entity GlobalEntity, key string) (string, error) {
 	ann, err := st.Annotations(entity)
 	if err != nil {
 		return "", errors.Trace(err)
@@ -97,7 +97,7 @@ func (st *State) Annotation(entity GlobalEntity, key string) (string, error) {
 }
 
 // insertAnnotationsOps returns the operations required to insert annotations in MongoDB.
-func insertAnnotationsOps(st *State, entity GlobalEntity, toInsert map[string]string) ([]txn.Op, error) {
+func insertAnnotationsOps(st *state, entity GlobalEntity, toInsert map[string]string) ([]txn.Op, error) {
 	tag := entity.Tag()
 	ops := []txn.Op{{
 		C:      annotationsC,
@@ -138,7 +138,7 @@ func insertAnnotationsOps(st *State, entity GlobalEntity, toInsert map[string]st
 }
 
 // updateAnnotations returns the operations required to update or remove annotations in MongoDB.
-func updateAnnotations(st *State, entity GlobalEntity, toUpdate, toRemove bson.M) []txn.Op {
+func updateAnnotations(st *state, entity GlobalEntity, toUpdate, toRemove bson.M) []txn.Op {
 	return []txn.Op{{
 		C:      annotationsC,
 		Id:     st.docID(entity.globalKey()),
@@ -149,7 +149,7 @@ func updateAnnotations(st *State, entity GlobalEntity, toUpdate, toRemove bson.M
 
 // annotationRemoveOp returns an operation to remove a given annotation
 // document from MongoDB.
-func annotationRemoveOp(st *State, id string) txn.Op {
+func annotationRemoveOp(st *state, id string) txn.Op {
 	return txn.Op{
 		C:      annotationsC,
 		Id:     st.docID(id),

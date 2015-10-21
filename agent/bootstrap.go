@@ -64,7 +64,7 @@ const BootstrapMachineId = "0"
 //
 // InitializeState returns the newly initialized state and bootstrap
 // machine. If it fails, the state may well be irredeemably compromised.
-func InitializeState(adminUser names.UserTag, c ConfigSetter, envCfg *config.Config, machineCfg BootstrapMachineConfig, dialOpts mongo.DialOpts, policy state.Policy) (_ *state.State, _ *state.Machine, resultErr error) {
+func InitializeState(adminUser names.UserTag, c ConfigSetter, envCfg *config.Config, machineCfg BootstrapMachineConfig, dialOpts mongo.DialOpts, policy state.Policy) (_ state.State, _ *state.Machine, resultErr error) {
 	if c.Tag() != names.NewMachineTag(BootstrapMachineId) {
 		return nil, nil, errors.Errorf("InitializeState not called with bootstrap machine's configuration")
 	}
@@ -88,7 +88,7 @@ func InitializeState(adminUser names.UserTag, c ConfigSetter, envCfg *config.Con
 	logger.Debugf("initializing address %v", info.Addrs)
 	st, err := state.Initialize(adminUser, info, envCfg, dialOpts, policy)
 	if err != nil {
-		return nil, nil, errors.Errorf("failed to initialize state: %v", err)
+		return nil, nil, errors.Annotate(err, "initializing state")
 	}
 	logger.Debugf("connected to initial state")
 	defer func() {
@@ -112,7 +112,7 @@ func InitializeState(adminUser names.UserTag, c ConfigSetter, envCfg *config.Con
 	}
 	ssi := paramsStateServingInfoToStateStateServingInfo(servingInfo)
 	if err := st.SetStateServingInfo(ssi); err != nil {
-		return nil, nil, errors.Errorf("cannot set state serving info: %v", err)
+		return nil, nil, errors.Annotate(err, "setting state serving info")
 	}
 	m, err := initConstraintsAndBootstrapMachine(c, st, machineCfg)
 	if err != nil {
@@ -139,13 +139,13 @@ func paramsStateServingInfoToStateStateServingInfo(i params.StateServingInfo) st
 	}
 }
 
-func initConstraintsAndBootstrapMachine(c ConfigSetter, st *state.State, cfg BootstrapMachineConfig) (*state.Machine, error) {
+func initConstraintsAndBootstrapMachine(c ConfigSetter, st state.State, cfg BootstrapMachineConfig) (*state.Machine, error) {
 	if err := st.SetEnvironConstraints(cfg.Constraints); err != nil {
-		return nil, errors.Errorf("cannot set initial environ constraints: %v", err)
+		return nil, errors.Annotate(err, "setting initial environ constraints")
 	}
 	m, err := initBootstrapMachine(c, st, cfg)
 	if err != nil {
-		return nil, errors.Errorf("cannot initialize bootstrap machine: %v", err)
+		return nil, errors.Annotate(err, "initializing bootstrap machine")
 	}
 	return m, nil
 }
@@ -162,14 +162,14 @@ func initMongoAdminUser(info mongo.Info, dialOpts mongo.DialOpts, password strin
 }
 
 // initBootstrapMachine initializes the initial bootstrap machine in state.
-func initBootstrapMachine(c ConfigSetter, st *state.State, cfg BootstrapMachineConfig) (*state.Machine, error) {
+func initBootstrapMachine(c ConfigSetter, st state.State, cfg BootstrapMachineConfig) (*state.Machine, error) {
 	logger.Infof("initialising bootstrap machine with config: %+v", cfg)
 
 	jobs := make([]state.MachineJob, len(cfg.Jobs))
 	for i, job := range cfg.Jobs {
 		machineJob, err := machineJobFromParams(job)
 		if err != nil {
-			return nil, errors.Errorf("invalid bootstrap machine job %q: %v", job, err)
+			return nil, errors.Annotatef(err, "invalid bootstrap machine job %q", job)
 		}
 		jobs[i] = machineJob
 	}
@@ -183,7 +183,7 @@ func initBootstrapMachine(c ConfigSetter, st *state.State, cfg BootstrapMachineC
 		Jobs: jobs,
 	})
 	if err != nil {
-		return nil, errors.Errorf("cannot create bootstrap machine in state: %v", err)
+		return nil, errors.Annotate(err, "creating bootstrap machine in state")
 	}
 	if m.Id() != BootstrapMachineId {
 		return nil, errors.Errorf("bootstrap machine expected id 0, got %q", m.Id())
@@ -207,8 +207,12 @@ func initBootstrapMachine(c ConfigSetter, st *state.State, cfg BootstrapMachineC
 	return m, nil
 }
 
+type apiHostPortsSetter interface {
+	SetAPIHostPorts([][]network.HostPort) error
+}
+
 // initAPIHostPorts sets the initial API host/port addresses in state.
-func initAPIHostPorts(c ConfigSetter, st *state.State, addrs []network.Address, apiPort int) error {
+func initAPIHostPorts(c ConfigSetter, st apiHostPortsSetter, addrs []network.Address, apiPort int) error {
 	hostPorts := network.AddressesWithPort(addrs, apiPort)
 	return st.SetAPIHostPorts([][]network.HostPort{hostPorts})
 }

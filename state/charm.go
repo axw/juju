@@ -49,7 +49,7 @@ type charmDoc struct {
 // insertCharmOps returns the txn operations necessary to insert the supplied
 // charm data.
 func insertCharmOps(
-	st *State, ch charm.Charm, curl *charm.URL, storagePath, bundleSha256 string,
+	st *state, ch charm.Charm, curl *charm.URL, storagePath, bundleSha256 string,
 ) ([]txn.Op, error) {
 	return insertAnyCharmOps(&charmDoc{
 		DocID:        curl.String(),
@@ -67,7 +67,7 @@ func insertCharmOps(
 // insertPlaceholderCharmOps returns the txn operations necessary to insert a
 // charm document referencing a store charm that is not yet directly accessible
 // within the environment.
-func insertPlaceholderCharmOps(st *State, curl *charm.URL) ([]txn.Op, error) {
+func insertPlaceholderCharmOps(st *state, curl *charm.URL) ([]txn.Op, error) {
 	return insertAnyCharmOps(&charmDoc{
 		DocID:       curl.String(),
 		URL:         curl,
@@ -78,7 +78,7 @@ func insertPlaceholderCharmOps(st *State, curl *charm.URL) ([]txn.Op, error) {
 
 // insertPendingCharmOps returns the txn operations necessary to insert a charm
 // document referencing a charm that has yet to be uploaded to the environment.
-func insertPendingCharmOps(st *State, curl *charm.URL) ([]txn.Op, error) {
+func insertPendingCharmOps(st *state, curl *charm.URL) ([]txn.Op, error) {
 	return insertAnyCharmOps(&charmDoc{
 		DocID:         curl.String(),
 		URL:           curl,
@@ -102,7 +102,7 @@ func insertAnyCharmOps(cdoc *charmDoc) ([]txn.Op, error) {
 // document with the supplied data, so long as the supplied assert still holds
 // true.
 func updateCharmOps(
-	st *State, ch charm.Charm, curl *charm.URL, storagePath, bundleSha256 string, assert bson.D,
+	st *state, ch charm.Charm, curl *charm.URL, storagePath, bundleSha256 string, assert bson.D,
 ) ([]txn.Op, error) {
 
 	updateFields := bson.D{{"$set", bson.D{
@@ -145,7 +145,7 @@ func convertPlaceholderCharmOps(docID string) ([]txn.Op, error) {
 
 // deleteOldPlaceholderCharmsOps returns the txn ops required to delete all placeholder charm
 // records older than the specified charm URL.
-func deleteOldPlaceholderCharmsOps(st *State, charms mongo.Collection, curl *charm.URL) ([]txn.Op, error) {
+func deleteOldPlaceholderCharmsOps(st *state, charms mongo.Collection, curl *charm.URL) ([]txn.Op, error) {
 	// Get a regex with the charm URL and no revision.
 	noRevURL := curl.WithRevision(-1)
 	curlRegex := "^" + regexp.QuoteMeta(st.docID(noRevURL.String()))
@@ -188,11 +188,11 @@ func safeConfig(ch charm.Charm) *charm.Config {
 
 // Charm represents the state of a charm in the environment.
 type Charm struct {
-	st  *State
+	st  *state
 	doc charmDoc
 }
 
-func newCharm(st *State, cdoc *charmDoc) *Charm {
+func newCharm(st *state, cdoc *charmDoc) *Charm {
 	// Because we probably just read the doc from state, make sure we
 	// unescape any config option names for "$" and ".". See
 	// http://pad.lv/1308146

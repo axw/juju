@@ -18,7 +18,7 @@ type requestedNetworksDoc struct {
 	Networks []string `bson:"networks"`
 }
 
-func (st *State) newRequestedNetworksDoc(id string, networks []string) *requestedNetworksDoc {
+func (st *state) newRequestedNetworksDoc(id string, networks []string) *requestedNetworksDoc {
 	return &requestedNetworksDoc{
 		DocID:    st.docID(id),
 		EnvUUID:  st.EnvironUUID(),
@@ -26,7 +26,7 @@ func (st *State) newRequestedNetworksDoc(id string, networks []string) *requeste
 	}
 }
 
-func createRequestedNetworksOp(st *State, id string, networks []string) txn.Op {
+func createRequestedNetworksOp(st *state, id string, networks []string) txn.Op {
 	doc := st.newRequestedNetworksDoc(id, networks)
 	return txn.Op{
 		C:      requestedNetworksC,
@@ -38,7 +38,7 @@ func createRequestedNetworksOp(st *State, id string, networks []string) txn.Op {
 
 // While networks are immutable, there is no setNetworksOp function.
 
-func removeRequestedNetworksOp(st *State, id string) txn.Op {
+func removeRequestedNetworksOp(st *state, id string) txn.Op {
 	return txn.Op{
 		C:      requestedNetworksC,
 		Id:     st.docID(id),
@@ -46,7 +46,7 @@ func removeRequestedNetworksOp(st *State, id string) txn.Op {
 	}
 }
 
-func readRequestedNetworks(st *State, id string) ([]string, error) {
+func readRequestedNetworks(st *state, id string) ([]string, error) {
 	requestedNetworks, closer := st.getCollection(requestedNetworksC)
 	defer closer()
 

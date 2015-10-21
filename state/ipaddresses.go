@@ -19,7 +19,7 @@ import (
 )
 
 // addIPAddress implements the State method to add an IP address.
-func addIPAddress(st *State, addr network.Address, subnetid string) (ipaddress *IPAddress, err error) {
+func addIPAddress(st *state, addr network.Address, subnetid string) (ipaddress *IPAddress, err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot add IP address %q", addr)
 
 	// This checks for a missing value as well as invalid values
@@ -75,7 +75,7 @@ func addIPAddress(st *State, addr network.Address, subnetid string) (ipaddress *
 
 // ipAddress implements the State method to return an existing IP
 // address by its value.
-func ipAddress(st *State, value string) (*IPAddress, error) {
+func ipAddress(st *state, value string) (*IPAddress, error) {
 	addresses, closer := st.getCollection(ipaddressesC)
 	defer closer()
 
@@ -92,7 +92,7 @@ func ipAddress(st *State, value string) (*IPAddress, error) {
 
 // ipAddressByTag implements the State method to return an existing IP
 // address by its tag.
-func ipAddressByTag(st *State, tag names.IPAddressTag) (*IPAddress, error) {
+func ipAddressByTag(st *state, tag names.IPAddressTag) (*IPAddress, error) {
 	addresses, closer := st.getCollection(ipaddressesC)
 	defer closer()
 
@@ -108,7 +108,7 @@ func ipAddressByTag(st *State, tag names.IPAddressTag) (*IPAddress, error) {
 }
 
 // fetchIPAddresses is a helper function for finding IP addresses
-func fetchIPAddresses(st *State, query bson.D) ([]*IPAddress, error) {
+func fetchIPAddresses(st *state, query bson.D) ([]*IPAddress, error) {
 	addresses, closer := st.getCollection(ipaddressesC)
 	result := []*IPAddress{}
 	defer closer()
@@ -158,7 +158,7 @@ func (s AddressState) String() string {
 
 // IPAddress represents the state of an IP address.
 type IPAddress struct {
-	st  *State
+	st  *state
 	doc ipaddressDoc
 }
 

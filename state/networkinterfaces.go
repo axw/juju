@@ -17,7 +17,7 @@ import (
 // NetworkInterface represents the state of a machine network
 // interface.
 type NetworkInterface struct {
-	st  *State
+	st  *state
 	doc networkInterfaceDoc
 }
 
@@ -178,7 +178,7 @@ func (ni *NetworkInterface) Remove() (err error) {
 	return onAbort(ni.st.runTransaction(ops), nil)
 }
 
-func newNetworkInterface(st *State, doc *networkInterfaceDoc) *NetworkInterface {
+func newNetworkInterface(st *state, doc *networkInterfaceDoc) *NetworkInterface {
 	return &NetworkInterface{st, *doc}
 }
 

@@ -56,9 +56,9 @@ const (
 	serviceLeadershipNamespace = "service-leadership"
 )
 
-// State represents the state of an environment
+// state represents the state of an environment
 // managed by juju.
-type State struct {
+type state struct {
 	environTag names.EnvironTag
 	serverTag  names.EnvironTag
 	mongoInfo  *mongo.MongoInfo
@@ -98,7 +98,7 @@ type StateServingInfo struct {
 
 // IsStateServer returns true if this state instance has the bootstrap
 // environment UUID.
-func (st *State) IsStateServer() bool {
+func (st *state) IsStateServer() bool {
 	return st.environTag == st.serverTag
 }
 
@@ -106,7 +106,7 @@ func (st *State) IsStateServer() bool {
 // collections. The environment should be put into a dying state before call
 // this method. Otherwise, there is a race condition in which collections
 // could be added to during or after the running of this method.
-func (st *State) RemoveAllEnvironDocs() error {
+func (st *state) RemoveAllEnvironDocs() error {
 	env, err := st.Environment()
 	if err != nil {
 		return errors.Trace(err)
@@ -157,7 +157,15 @@ func (st *State) RemoveAllEnvironDocs() error {
 
 // ForEnviron returns a connection to mongo for the specified environment. The
 // connection uses the same credentials and policy as the existing connection.
-func (st *State) ForEnviron(env names.EnvironTag) (*State, error) {
+func (st *state) ForEnviron(env names.EnvironTag) (State, error) {
+	newState, err := st.forEnviron(env)
+	if err != nil {
+		return nil, err
+	}
+	return newState, nil
+}
+
+func (st *state) forEnviron(env names.EnvironTag) (*state, error) {
 	newState, err := open(env, st.mongoInfo, mongo.DefaultDialOpts(), st.policy)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -170,7 +178,7 @@ func (st *State) ForEnviron(env names.EnvironTag) (*State, error) {
 
 // start starts the presence watcher, leadership manager and images metadata storage,
 // and fills in the serverTag field with the supplied value.
-func (st *State) start(serverTag names.EnvironTag) error {
+func (st *state) start(serverTag names.EnvironTag) error {
 	st.serverTag = serverTag
 
 	var clientId string
@@ -225,13 +233,13 @@ func (st *State) start(serverTag names.EnvironTag) error {
 
 // EnvironTag() returns the environment tag for the environment controlled by
 // this state instance.
-func (st *State) EnvironTag() names.EnvironTag {
+func (st *state) EnvironTag() names.EnvironTag {
 	return st.environTag
 }
 
 // EnvironUUID returns the environment UUID for the environment
 // controlled by this state instance.
-func (st *State) EnvironUUID() string {
+func (st *state) EnvironUUID() string {
 	return st.environTag.Id()
 }
 
@@ -243,7 +251,7 @@ func userEnvNameIndex(username, envName string) string {
 // EnsureEnvironmentRemoved returns an error if any multi-environment
 // documents for this environment are found. It is intended only to be used in
 // tests and exported so it can be used in the tests of other packages.
-func (st *State) EnsureEnvironmentRemoved() error {
+func (st *state) EnsureEnvironmentRemoved() error {
 	found := map[string]int{}
 	var foundOrdered []string
 	for name, info := range st.database.Schema() {
@@ -277,7 +285,7 @@ func (st *State) EnsureEnvironmentRemoved() error {
 }
 
 // getPresence returns the presence m.
-func (st *State) getPresence() *mgo.Collection {
+func (st *state) getPresence() *mgo.Collection {
 	return st.session.DB(presenceDB).C(presenceC)
 }
 
@@ -285,13 +293,13 @@ func (st *State) getPresence() *mgo.Collection {
 // a closer function for the session. This is useful where you need to work
 // with various collections in a single session, so don't want to call
 // getCollection multiple times.
-func (st *State) newDB() (Database, func()) {
+func (st *state) newDB() (Database, func()) {
 	return st.database.CopySession()
 }
 
 // Ping probes the state's database connection to ensure
 // that it is still alive.
-func (st *State) Ping() error {
+func (st *state) Ping() error {
 	return st.session.Ping()
 }
 
@@ -299,13 +307,13 @@ func (st *State) Ping() error {
 // used by the state. It is exposed so that external code
 // can maintain the mongo replica set and should not
 // otherwise be used.
-func (st *State) MongoSession() *mgo.Session {
+func (st *state) MongoSession() *mgo.Session {
 	return st.session
 }
 
 type closeFunc func()
 
-func (st *State) Watch() *Multiwatcher {
+func (st *state) Watch() *Multiwatcher {
 	st.mu.Lock()
 	if st.allManager == nil {
 		st.allManager = newStoreManager(newAllWatcherStateBacking(st))
@@ -314,7 +322,7 @@ func (st *State) Watch() *Multiwatcher {
 	return NewMultiwatcher(st.allManager)
 }
 
-func (st *State) WatchAllEnvs() *Multiwatcher {
+func (st *state) WatchAllEnvs() *Multiwatcher {
 	st.mu.Lock()
 	if st.allEnvManager == nil {
 		st.allEnvWatcherBacking = newAllEnvWatcherStateBacking(st)
@@ -324,7 +332,7 @@ func (st *State) WatchAllEnvs() *Multiwatcher {
 	return NewMultiwatcher(st.allEnvManager)
 }
 
-func (st *State) EnvironConfig() (*config.Config, error) {
+func (st *state) EnvironConfig() (*config.Config, error) {
 	settings, err := readSettings(st, environGlobalKey)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -376,7 +384,7 @@ func IsVersionInconsistentError(e interface{}) bool {
 	return ok
 }
 
-func (st *State) checkCanUpgrade(currentVersion, newVersion string) error {
+func (st *state) checkCanUpgrade(currentVersion, newVersion string) error {
 	matchCurrent := "^" + regexp.QuoteMeta(currentVersion) + "-"
 	matchNew := "^" + regexp.QuoteMeta(newVersion) + "-"
 	// Get all machines and units with a different or empty version.
@@ -429,7 +437,7 @@ func IsUpgradeInProgressError(err error) bool {
 // given version, only if the environment is in a stable state (all agents are
 // running the current version). If this is a hosted environment, newVersion
 // cannot be higher than the state server version.
-func (st *State) SetEnvironAgentVersion(newVersion version.Number) (err error) {
+func (st *state) SetEnvironAgentVersion(newVersion version.Number) (err error) {
 	if newVersion.Compare(version.Current.Number) > 0 && !st.IsStateServer() {
 		return errors.Errorf("a hosted environment cannot have a higher version than the server environment: %s > %s",
 			newVersion.String(),
@@ -489,7 +497,7 @@ func (st *State) SetEnvironAgentVersion(newVersion version.Number) (err error) {
 	return errors.Trace(err)
 }
 
-func (st *State) buildAndValidateEnvironConfig(updateAttrs map[string]interface{}, removeAttrs []string, oldConfig *config.Config) (validCfg *config.Config, err error) {
+func (st *state) buildAndValidateEnvironConfig(updateAttrs map[string]interface{}, removeAttrs []string, oldConfig *config.Config) (validCfg *config.Config, err error) {
 	newConfig, err := oldConfig.Apply(updateAttrs)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -511,7 +519,7 @@ type ValidateConfigFunc func(updateAttrs map[string]interface{}, removeAttrs []s
 // UpdateEnvironConfig adds, updates or removes attributes in the current
 // configuration of the environment with the provided updateAttrs and
 // removeAttrs.
-func (st *State) UpdateEnvironConfig(updateAttrs map[string]interface{}, removeAttrs []string, additionalValidation ValidateConfigFunc) error {
+func (st *state) UpdateEnvironConfig(updateAttrs map[string]interface{}, removeAttrs []string, additionalValidation ValidateConfigFunc) error {
 	if len(updateAttrs)+len(removeAttrs) == 0 {
 		return nil
 	}
@@ -555,13 +563,13 @@ func (st *State) UpdateEnvironConfig(updateAttrs map[string]interface{}, removeA
 }
 
 // EnvironConstraints returns the current environment constraints.
-func (st *State) EnvironConstraints() (constraints.Value, error) {
+func (st *state) EnvironConstraints() (constraints.Value, error) {
 	cons, err := readConstraints(st, environGlobalKey)
 	return cons, errors.Trace(err)
 }
 
 // SetEnvironConstraints replaces the current environment constraints.
-func (st *State) SetEnvironConstraints(cons constraints.Value) error {
+func (st *state) SetEnvironConstraints(cons constraints.Value) error {
 	unsupported, err := st.validateConstraints(cons)
 	if len(unsupported) > 0 {
 		logger.Warningf(
@@ -574,7 +582,7 @@ func (st *State) SetEnvironConstraints(cons constraints.Value) error {
 
 // AllMachines returns all machines in the environment
 // ordered by id.
-func (st *State) AllMachines() (machines []*Machine, err error) {
+func (st *state) AllMachines() (machines []*Machine, err error) {
 	machinesCollection, closer := st.getCollection(machinesC)
 	defer closer()
 
@@ -641,7 +649,7 @@ func machineIdLessThan(id1, id2 string) bool {
 }
 
 // Machine returns the machine with the given id.
-func (st *State) Machine(id string) (*Machine, error) {
+func (st *state) Machine(id string) (*Machine, error) {
 	mdoc, err := st.getMachineDoc(id)
 	if err != nil {
 		return nil, err
@@ -649,7 +657,7 @@ func (st *State) Machine(id string) (*Machine, error) {
 	return newMachine(st, mdoc), nil
 }
 
-func (st *State) getMachineDoc(id string) (*machineDoc, error) {
+func (st *state) getMachineDoc(id string) (*machineDoc, error) {
 	machinesCollection, closer := st.getRawCollection(machinesC)
 	defer closer()
 
@@ -683,7 +691,7 @@ func (st *State) getMachineDoc(id string) (*machineDoc, error) {
 // The returned value can be of type *Machine, *Unit,
 // *User, *Service, *Environment, or *Action, depending
 // on the tag.
-func (st *State) FindEntity(tag names.Tag) (Entity, error) {
+func (st *state) FindEntity(tag names.Tag) (Entity, error) {
 	id := tag.Id()
 	switch tag := tag.(type) {
 	case names.MachineTag:
@@ -744,7 +752,7 @@ func (st *State) FindEntity(tag names.Tag) (Entity, error) {
 
 // tagToCollectionAndId, given an entity tag, returns the collection name and id
 // of the entity document.
-func (st *State) tagToCollectionAndId(tag names.Tag) (string, interface{}, error) {
+func (st *state) tagToCollectionAndId(tag names.Tag) (string, interface{}, error) {
 	if tag == nil {
 		return "", nil, errors.Errorf("tag is nil")
 	}
@@ -788,7 +796,7 @@ func (st *State) tagToCollectionAndId(tag names.Tag) (string, interface{}, error
 
 // AddCharm adds the ch charm with curl to the state.
 // On success the newly added charm state is returned.
-func (st *State) AddCharm(ch charm.Charm, curl *charm.URL, storagePath, bundleSha256 string) (stch *Charm, err error) {
+func (st *state) AddCharm(ch charm.Charm, curl *charm.URL, storagePath, bundleSha256 string) (stch *Charm, err error) {
 	charms, closer := st.getCollection(charmsC)
 	defer closer()
 
@@ -814,7 +822,7 @@ func (st *State) AddCharm(ch charm.Charm, curl *charm.URL, storagePath, bundleSh
 }
 
 // AllCharms returns all charms in state.
-func (st *State) AllCharms() ([]*Charm, error) {
+func (st *state) AllCharms() ([]*Charm, error) {
 	charmsCollection, closer := st.getCollection(charmsC)
 	defer closer()
 	var cdoc charmDoc
@@ -828,7 +836,7 @@ func (st *State) AllCharms() ([]*Charm, error) {
 
 // Charm returns the charm with the given URL. Charms pending upload
 // to storage and placeholders are never returned.
-func (st *State) Charm(curl *charm.URL) (*Charm, error) {
+func (st *state) Charm(curl *charm.URL) (*Charm, error) {
 	charms, closer := st.getCollection(charmsC)
 	defer closer()
 
@@ -853,7 +861,7 @@ func (st *State) Charm(curl *charm.URL) (*Charm, error) {
 
 // LatestPlaceholderCharm returns the latest charm described by the
 // given URL but which is not yet deployed.
-func (st *State) LatestPlaceholderCharm(curl *charm.URL) (*Charm, error) {
+func (st *state) LatestPlaceholderCharm(curl *charm.URL) (*Charm, error) {
 	charms, closer := st.getCollection(charmsC)
 	defer closer()
 
@@ -883,7 +891,7 @@ func (st *State) LatestPlaceholderCharm(curl *charm.URL) (*Charm, error) {
 // in state for the charm.
 //
 // The url's schema must be "local" and it must include a revision.
-func (st *State) PrepareLocalCharmUpload(curl *charm.URL) (chosenUrl *charm.URL, err error) {
+func (st *state) PrepareLocalCharmUpload(curl *charm.URL) (chosenUrl *charm.URL, err error) {
 	// Perform a few sanity checks first.
 	if curl.Schema != "local" {
 		return nil, errors.Errorf("expected charm URL with local schema, got %q", curl)
@@ -938,7 +946,7 @@ func (st *State) PrepareLocalCharmUpload(curl *charm.URL) (chosenUrl *charm.URL,
 // PendingUpload=true, which is then returned as a *state.Charm.
 //
 // The url's schema must be "cs" and it must include a revision.
-func (st *State) PrepareStoreCharmUpload(curl *charm.URL) (*Charm, error) {
+func (st *state) PrepareStoreCharmUpload(curl *charm.URL) (*Charm, error) {
 	// Perform a few sanity checks first.
 	if curl.Schema != "cs" {
 		return nil, errors.Errorf("expected charm URL with cs schema, got %q", curl)
@@ -994,7 +1002,7 @@ var (
 // AddStoreCharmPlaceholder creates a charm document in state for the given charm URL which
 // must reference a charm from the store. The charm document is marked as a placeholder which
 // means that if the charm is to be deployed, it will need to first be uploaded to env storage.
-func (st *State) AddStoreCharmPlaceholder(curl *charm.URL) (err error) {
+func (st *state) AddStoreCharmPlaceholder(curl *charm.URL) (err error) {
 	// Perform sanity checks first.
 	if curl.Schema != "cs" {
 		return errors.Errorf("expected charm URL with cs schema, got %q", curl)
@@ -1033,7 +1041,7 @@ func (st *State) AddStoreCharmPlaceholder(curl *charm.URL) (err error) {
 
 // UpdateUploadedCharm marks the given charm URL as uploaded and
 // updates the rest of its data, returning it as *state.Charm.
-func (st *State) UpdateUploadedCharm(ch charm.Charm, curl *charm.URL, storagePath, bundleSha256 string) (*Charm, error) {
+func (st *state) UpdateUploadedCharm(ch charm.Charm, curl *charm.URL, storagePath, bundleSha256 string) (*Charm, error) {
 	charms, closer := st.getCollection(charmsC)
 	defer closer()
 
@@ -1061,7 +1069,7 @@ func (st *State) UpdateUploadedCharm(ch charm.Charm, curl *charm.URL, storagePat
 
 // addPeerRelationsOps returns the operations necessary to add the
 // specified service peer relations to the state.
-func (st *State) addPeerRelationsOps(serviceName string, peers map[string]charm.Relation) ([]txn.Op, error) {
+func (st *state) addPeerRelationsOps(serviceName string, peers map[string]charm.Relation) ([]txn.Op, error) {
 	var ops []txn.Op
 	for _, rel := range peers {
 		relId, err := st.sequence("relation")
@@ -1094,7 +1102,7 @@ func (st *State) addPeerRelationsOps(serviceName string, peers map[string]charm.
 // AddService creates a new service, running the supplied charm, with the
 // supplied name (which must be unique). If the charm defines peer relations,
 // they will be created automatically.
-func (st *State) AddService(
+func (st *state) AddService(
 	name, owner string, ch *Charm, networks []string, storage map[string]StorageConstraints,
 ) (service *Service, err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot add service %q", name)
@@ -1216,33 +1224,33 @@ func (st *State) AddService(
 // AddIPAddress creates and returns a new IP address. It can return an
 // error satisfying IsNotValid() or IsAlreadyExists() when the addr
 // does not contain a valid IP, or when addr is already added.
-func (st *State) AddIPAddress(addr network.Address, subnetID string) (*IPAddress, error) {
+func (st *state) AddIPAddress(addr network.Address, subnetID string) (*IPAddress, error) {
 	return addIPAddress(st, addr, subnetID)
 }
 
 // IPAddress returns an existing IP address from the state.
-func (st *State) IPAddress(value string) (*IPAddress, error) {
+func (st *state) IPAddress(value string) (*IPAddress, error) {
 	return ipAddress(st, value)
 }
 
 // IPAddressByTag returns an existing IP address from the state
 // identified by its tag.
-func (st *State) IPAddressByTag(tag names.IPAddressTag) (*IPAddress, error) {
+func (st *state) IPAddressByTag(tag names.IPAddressTag) (*IPAddress, error) {
 	return ipAddressByTag(st, tag)
 }
 
 // AllocatedIPAddresses returns all the allocated addresses for a machine
-func (st *State) AllocatedIPAddresses(machineId string) ([]*IPAddress, error) {
+func (st *state) AllocatedIPAddresses(machineId string) ([]*IPAddress, error) {
 	return fetchIPAddresses(st, bson.D{{"machineid", machineId}})
 }
 
 // DeadIPAddresses returns all IP addresses with a Life of Dead
-func (st *State) DeadIPAddresses() ([]*IPAddress, error) {
+func (st *state) DeadIPAddresses() ([]*IPAddress, error) {
 	return fetchIPAddresses(st, isDeadDoc)
 }
 
 // AddSubnet creates and returns a new subnet
-func (st *State) AddSubnet(args SubnetInfo) (subnet *Subnet, err error) {
+func (st *state) AddSubnet(args SubnetInfo) (subnet *Subnet, err error) {
 	defer errors.DeferredAnnotatef(&err, "adding subnet %q", args.CIDR)
 
 	subnetID := st.docID(args.CIDR)
@@ -1296,7 +1304,7 @@ func (st *State) AddSubnet(args SubnetInfo) (subnet *Subnet, err error) {
 	return nil, errors.Trace(err)
 }
 
-func (st *State) Subnet(cidr string) (*Subnet, error) {
+func (st *state) Subnet(cidr string) (*Subnet, error) {
 	subnets, closer := st.getCollection(subnetsC)
 	defer closer()
 
@@ -1312,7 +1320,7 @@ func (st *State) Subnet(cidr string) (*Subnet, error) {
 }
 
 // AllSubnets returns all known subnets in the environment.
-func (st *State) AllSubnets() (subnets []*Subnet, err error) {
+func (st *state) AllSubnets() (subnets []*Subnet, err error) {
 	subnetsCollection, closer := st.getCollection(subnetsC)
 	defer closer()
 
@@ -1330,7 +1338,7 @@ func (st *State) AllSubnets() (subnets []*Subnet, err error) {
 // AddNetwork creates a new network with the given params. If a
 // network with the same name or provider id already exists in state,
 // an error satisfying errors.IsAlreadyExists is returned.
-func (st *State) AddNetwork(args NetworkInfo) (n *Network, err error) {
+func (st *state) AddNetwork(args NetworkInfo) (n *Network, err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot add network %q", args.Name)
 	if args.CIDR != "" {
 		_, _, err := net.ParseCIDR(args.CIDR)
@@ -1387,7 +1395,7 @@ func (st *State) AddNetwork(args NetworkInfo) (n *Network, err error) {
 }
 
 // Network returns the network with the given name.
-func (st *State) Network(name string) (*Network, error) {
+func (st *state) Network(name string) (*Network, error) {
 	networks, closer := st.getCollection(networksC)
 	defer closer()
 
@@ -1403,7 +1411,7 @@ func (st *State) Network(name string) (*Network, error) {
 }
 
 // AllNetworks returns all known networks in the environment.
-func (st *State) AllNetworks() (networks []*Network, err error) {
+func (st *state) AllNetworks() (networks []*Network, err error) {
 	networksCollection, closer := st.getCollection(networksC)
 	defer closer()
 
@@ -1419,7 +1427,7 @@ func (st *State) AllNetworks() (networks []*Network, err error) {
 }
 
 // Service returns a service state by name.
-func (st *State) Service(name string) (service *Service, err error) {
+func (st *state) Service(name string) (service *Service, err error) {
 	services, closer := st.getCollection(servicesC)
 	defer closer()
 
@@ -1438,7 +1446,7 @@ func (st *State) Service(name string) (service *Service, err error) {
 }
 
 // AllServices returns all deployed services in the environment.
-func (st *State) AllServices() (services []*Service, err error) {
+func (st *state) AllServices() (services []*Service, err error) {
 	servicesCollection, closer := st.getCollection(servicesC)
 	defer closer()
 
@@ -1456,13 +1464,13 @@ func (st *State) AllServices() (services []*Service, err error) {
 // docID generates a globally unique id value
 // where the environment uuid is prefixed to the
 // localID.
-func (st *State) docID(localID string) string {
+func (st *state) docID(localID string) string {
 	return ensureEnvUUID(st.EnvironUUID(), localID)
 }
 
 // localID returns the local id value by stripping
 // off the environment uuid prefix if it is there.
-func (st *State) localID(ID string) string {
+func (st *state) localID(ID string) string {
 	envUUID, localID, ok := splitDocID(ID)
 	if !ok || envUUID != st.EnvironUUID() {
 		return ID
@@ -1475,7 +1483,7 @@ func (st *State) localID(ID string) string {
 //
 // If there is no prefix matching the State's environment, an error is
 // returned.
-func (st *State) strictLocalID(ID string) (string, error) {
+func (st *state) strictLocalID(ID string) (string, error) {
 	envUUID, localID, ok := splitDocID(ID)
 	if !ok || envUUID != st.EnvironUUID() {
 		return "", errors.Errorf("unexpected id: %#v", ID)
@@ -1488,7 +1496,7 @@ func (st *State) strictLocalID(ID string) (string, error) {
 // If the supplied names uniquely specify a possible relation, or if they
 // uniquely specify a possible relation once all implicit relations have been
 // filtered, the endpoints corresponding to that relation will be returned.
-func (st *State) InferEndpoints(names ...string) ([]Endpoint, error) {
+func (st *state) InferEndpoints(names ...string) ([]Endpoint, error) {
 	// Collect all possible sane endpoint lists.
 	var candidates [][]Endpoint
 	switch len(names) {
@@ -1556,7 +1564,7 @@ func notPeer(ep Endpoint) bool {
 	return ep.Role != charm.RolePeer
 }
 
-func containerScopeOk(st *State, ep1, ep2 Endpoint) bool {
+func containerScopeOk(st *state, ep1, ep2 Endpoint) bool {
 	if ep1.Scope != charm.ScopeContainer && ep2.Scope != charm.ScopeContainer {
 		return true
 	}
@@ -1576,7 +1584,7 @@ func containerScopeOk(st *State, ep1, ep2 Endpoint) bool {
 // endpoints returns all endpoints that could be intended by the
 // supplied endpoint name, and which cause the filter param to
 // return true.
-func (st *State) endpoints(name string, filter func(ep Endpoint) bool) ([]Endpoint, error) {
+func (st *state) endpoints(name string, filter func(ep Endpoint) bool) ([]Endpoint, error) {
 	var svcName, relName string
 	if i := strings.Index(name, ":"); i == -1 {
 		svcName = name
@@ -1613,7 +1621,7 @@ func (st *State) endpoints(name string, filter func(ep Endpoint) bool) ([]Endpoi
 }
 
 // AddRelation creates a new relation with the given endpoints.
-func (st *State) AddRelation(eps ...Endpoint) (r *Relation, err error) {
+func (st *state) AddRelation(eps ...Endpoint) (r *Relation, err error) {
 	key := relationKey(eps)
 	defer errors.DeferredAnnotatef(&err, "cannot add relation %q", key)
 	// Enforce basic endpoint sanity. The epCount restrictions may be relaxed
@@ -1719,13 +1727,13 @@ func (st *State) AddRelation(eps ...Endpoint) (r *Relation, err error) {
 }
 
 // EndpointsRelation returns the existing relation with the given endpoints.
-func (st *State) EndpointsRelation(endpoints ...Endpoint) (*Relation, error) {
+func (st *state) EndpointsRelation(endpoints ...Endpoint) (*Relation, error) {
 	return st.KeyRelation(relationKey(endpoints))
 }
 
 // KeyRelation returns the existing relation with the given key (which can
 // be derived unambiguously from the relation's endpoints).
-func (st *State) KeyRelation(key string) (*Relation, error) {
+func (st *state) KeyRelation(key string) (*Relation, error) {
 	relations, closer := st.getCollection(relationsC)
 	defer closer()
 
@@ -1741,7 +1749,7 @@ func (st *State) KeyRelation(key string) (*Relation, error) {
 }
 
 // Relation returns the existing relation with the given id.
-func (st *State) Relation(id int) (*Relation, error) {
+func (st *state) Relation(id int) (*Relation, error) {
 	relations, closer := st.getCollection(relationsC)
 	defer closer()
 
@@ -1757,7 +1765,7 @@ func (st *State) Relation(id int) (*Relation, error) {
 }
 
 // AllRelations returns all relations in the environment ordered by id.
-func (st *State) AllRelations() (relations []*Relation, err error) {
+func (st *state) AllRelations() (relations []*Relation, err error) {
 	relationsCollection, closer := st.getCollection(relationsC)
 	defer closer()
 
@@ -1782,7 +1790,7 @@ func (rdc relationDocSlice) Less(i, j int) bool {
 }
 
 // Unit returns a unit by name.
-func (st *State) Unit(name string) (*Unit, error) {
+func (st *state) Unit(name string) (*Unit, error) {
 	if !names.IsValidUnit(name) {
 		return nil, errors.Errorf("%q is not a valid unit name", name)
 	}
@@ -1801,7 +1809,7 @@ func (st *State) Unit(name string) (*Unit, error) {
 }
 
 // UnitsFor returns the units placed in the given machine id.
-func (st *State) UnitsFor(machineId string) ([]*Unit, error) {
+func (st *state) UnitsFor(machineId string) ([]*Unit, error) {
 	if !names.IsValidMachine(machineId) {
 		return nil, errors.Errorf("%q is not a valid machine id", machineId)
 	}
@@ -1817,7 +1825,7 @@ func (st *State) UnitsFor(machineId string) ([]*Unit, error) {
 // AssignUnit places the unit on a machine. Depending on the policy, and the
 // state of the environment, this may lead to new instances being launched
 // within the environment.
-func (st *State) AssignUnit(u *Unit, policy AssignmentPolicy) (err error) {
+func (st *state) AssignUnit(u *Unit, policy AssignmentPolicy) (err error) {
 	if !u.IsPrincipal() {
 		return errors.Errorf("subordinate unit %q cannot be assigned directly to a machine", u)
 	}
@@ -1848,7 +1856,7 @@ func (st *State) AssignUnit(u *Unit, policy AssignmentPolicy) (err error) {
 
 // StartSync forces watchers to resynchronize their state with the
 // database immediately. This will happen periodically automatically.
-func (st *State) StartSync() {
+func (st *state) StartSync() {
 	st.watcher.StartSync()
 	st.pwatcher.Sync()
 }
@@ -1857,7 +1865,7 @@ func (st *State) StartSync() {
 // to access the state. If the password is non-empty,
 // all subsequent attempts to access the state must
 // be authorized; otherwise no authorization is required.
-func (st *State) SetAdminMongoPassword(password string) error {
+func (st *state) SetAdminMongoPassword(password string) error {
 	err := mongo.SetAdminMongoPassword(st.session, mongo.AdminUser, password)
 	return errors.Trace(err)
 }
@@ -1890,7 +1898,7 @@ type StateServerInfo struct {
 
 // StateServerInfo returns information about
 // the currently configured state server machines.
-func (st *State) StateServerInfo() (*StateServerInfo, error) {
+func (st *state) StateServerInfo() (*StateServerInfo, error) {
 	session := st.session.Copy()
 	defer session.Close()
 	return readRawStateServerInfo(st.session)
@@ -1943,7 +1951,7 @@ func readRawStateServerInfo(session *mgo.Session) (*StateServerInfo, error) {
 const stateServingInfoKey = "stateServingInfo"
 
 // StateServingInfo returns information for running a state server machine
-func (st *State) StateServingInfo() (StateServingInfo, error) {
+func (st *state) StateServingInfo() (StateServingInfo, error) {
 	stateServers, closer := st.getCollection(stateServersC)
 	defer closer()
 
@@ -1959,7 +1967,7 @@ func (st *State) StateServingInfo() (StateServingInfo, error) {
 }
 
 // SetStateServingInfo stores information needed for running a state server
-func (st *State) SetStateServingInfo(info StateServingInfo) error {
+func (st *state) SetStateServingInfo(info StateServingInfo) error {
 	if info.StatePort == 0 || info.APIPort == 0 ||
 		info.Cert == "" || info.PrivateKey == "" {
 		return errors.Errorf("incomplete state serving info set in state")
@@ -1985,7 +1993,7 @@ func (st *State) SetStateServingInfo(info StateServingInfo) error {
 
 // SetSystemIdentity sets the system identity value in the database
 // if and only iff it is empty.
-func SetSystemIdentity(st *State, identity string) error {
+func SetSystemIdentity(st *state, identity string) error {
 	ops := []txn.Op{{
 		C:      stateServersC,
 		Id:     stateServingInfoKey,

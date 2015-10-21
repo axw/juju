@@ -4,13 +4,84 @@
 package state
 
 import (
+	"io"
+
+	"gopkg.in/mgo.v2"
+
 	"github.com/juju/names"
 
+	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/instance"
+	"github.com/juju/juju/leadership"
+	"github.com/juju/juju/network"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
+
+type State interface {
+	io.Closer
+
+	BlockState
+	EnvironmentState
+	LeadershipState
+	MachineState
+	MetricState
+	ServerState
+	ServiceState
+	UnitState
+
+	EntityFinder
+
+	MongoSession() *mgo.Session
+}
+
+type BlockState interface {
+	GetBlockForType(BlockType) (Block, bool, error)
+}
+
+type LeadershipState interface {
+	LeadershipClaimer() leadership.Claimer
+	LeadershipChecker() leadership.Checker
+}
+
+type MachineState interface {
+	AddOneMachine(MachineTemplate) (*Machine, error)
+	AllMachines() ([]*Machine, error)
+	Machine(name string) (*Machine, error)
+}
+
+type EnvironmentState interface {
+	Environment() (*Environment, error)
+	EnvironConfig() (*config.Config, error)
+	EnvironTag() names.EnvironTag
+	ForEnviron(names.EnvironTag) (State, error)
+	SetEnvironConstraints(constraints.Value) error
+	// TODO(axw) rename
+	RemoveAllEnvironDocs() error
+}
+
+type ServerState interface {
+	SetAPIHostPorts([][]network.HostPort) error
+	SetStateServingInfo(StateServingInfo) error
+	StateServingInfo() (StateServingInfo, error)
+}
+
+type ServiceState interface {
+	Service(name string) (*Service, error)
+}
+
+type MetricState interface {
+	CountOfSentMetrics() (int, error)
+	CountOfUnsentMetrics() (int, error)
+	MetricsManager() (*MetricsManager, error)
+	MetricsToSend(int) ([]*MetricBatch, error)
+	SetMetricBatchesSent([]string) error
+}
+
+type UnitState interface {
+	Unit(name string) (*Unit, error)
+}
 
 // EntityFinder is implemented by *State. See State.FindEntity
 // for documentation on the method.

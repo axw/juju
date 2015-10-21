@@ -26,7 +26,7 @@ const (
 	localUserProviderName = "local"
 )
 
-func (st *State) checkUserExists(name string) (bool, error) {
+func (st *state) checkUserExists(name string) (bool, error) {
 	users, closer := st.getCollection(usersC)
 	defer closer()
 
@@ -39,7 +39,7 @@ func (st *State) checkUserExists(name string) (bool, error) {
 }
 
 // AddUser adds a user to the database.
-func (st *State) AddUser(name, displayName, password, creator string) (*User, error) {
+func (st *state) AddUser(name, displayName, password, creator string) (*User, error) {
 	if !names.IsValidUserName(name) {
 		return nil, errors.Errorf("invalid user name %q", name)
 	}
@@ -76,7 +76,7 @@ func (st *State) AddUser(name, displayName, password, creator string) (*User, er
 	return user, nil
 }
 
-func createInitialUserOp(st *State, user names.UserTag, password string) txn.Op {
+func createInitialUserOp(st *state, user names.UserTag, password string) txn.Op {
 	nameToLower := strings.ToLower(user.Name())
 	doc := userDoc{
 		DocID:        nameToLower,
@@ -97,7 +97,7 @@ func createInitialUserOp(st *State, user names.UserTag, password string) txn.Op 
 
 // getUser fetches information about the user with the
 // given name into the provided userDoc.
-func (st *State) getUser(name string, udoc *userDoc) error {
+func (st *state) getUser(name string, udoc *userDoc) error {
 	users, closer := st.getCollection(usersC)
 	defer closer()
 
@@ -113,7 +113,7 @@ func (st *State) getUser(name string, udoc *userDoc) error {
 }
 
 // User returns the state User for the given name.
-func (st *State) User(tag names.UserTag) (*User, error) {
+func (st *state) User(tag names.UserTag) (*User, error) {
 	if !tag.IsLocal() {
 		return nil, errors.NotFoundf("user %q", tag.Username())
 	}
@@ -125,7 +125,7 @@ func (st *State) User(tag names.UserTag) (*User, error) {
 }
 
 // User returns the state User for the given name,
-func (st *State) AllUsers(includeDeactivated bool) ([]*User, error) {
+func (st *state) AllUsers(includeDeactivated bool) ([]*User, error) {
 	var result []*User
 
 	users, closer := st.getCollection(usersC)
@@ -152,7 +152,7 @@ func (st *State) AllUsers(includeDeactivated bool) ([]*User, error) {
 
 // User represents a local user in the database.
 type User struct {
-	st           *State
+	st           *state
 	doc          userDoc
 	lastLoginDoc userLastLoginDoc
 }

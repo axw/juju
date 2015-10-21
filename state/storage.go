@@ -77,7 +77,7 @@ const (
 )
 
 type storageInstance struct {
-	st  *State
+	st  *state
 	doc storageInstanceDoc
 }
 
@@ -160,7 +160,7 @@ type storageAttachmentDoc struct {
 // newStorageInstanceId returns a unique storage instance name. The name
 // incorporates the storage name as defined in the charm storage metadata,
 // and a unique sequence number.
-func newStorageInstanceId(st *State, store string) (string, error) {
+func newStorageInstanceId(st *state, store string) (string, error) {
 	seq, err := st.sequence("stores")
 	if err != nil {
 		return "", errors.Trace(err)
@@ -173,12 +173,12 @@ func storageAttachmentId(unit string, storageInstanceId string) string {
 }
 
 // StorageInstance returns the StorageInstance with the specified tag.
-func (st *State) StorageInstance(tag names.StorageTag) (StorageInstance, error) {
+func (st *state) StorageInstance(tag names.StorageTag) (StorageInstance, error) {
 	s, err := st.storageInstance(tag)
 	return s, err
 }
 
-func (st *State) storageInstance(tag names.StorageTag) (*storageInstance, error) {
+func (st *state) storageInstance(tag names.StorageTag) (*storageInstance, error) {
 	storageInstances, cleanup := st.getCollection(storageInstancesC)
 	defer cleanup()
 
@@ -194,7 +194,7 @@ func (st *State) storageInstance(tag names.StorageTag) (*storageInstance, error)
 
 // AllStorageInstances lists all storage instances currently in state
 // for this Juju environment.
-func (st *State) AllStorageInstances() (storageInstances []StorageInstance, err error) {
+func (st *state) AllStorageInstances() (storageInstances []StorageInstance, err error) {
 	storageCollection, closer := st.getCollection(storageInstancesC)
 	defer closer()
 
@@ -212,7 +212,7 @@ func (st *State) AllStorageInstances() (storageInstances []StorageInstance, err 
 // DestroyStorageInstance ensures that the storage instance and all its
 // attachments will be removed at some point; if the storage instance has
 // no attachments, it will be removed immediately.
-func (st *State) DestroyStorageInstance(tag names.StorageTag) (err error) {
+func (st *state) DestroyStorageInstance(tag names.StorageTag) (err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot destroy storage %q", tag.Id())
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		s, err := st.storageInstance(tag)
@@ -233,7 +233,7 @@ func (st *State) DestroyStorageInstance(tag names.StorageTag) (err error) {
 	return st.run(buildTxn)
 }
 
-func (st *State) destroyStorageInstanceOps(s *storageInstance) ([]txn.Op, error) {
+func (st *state) destroyStorageInstanceOps(s *storageInstance) ([]txn.Op, error) {
 	if s.doc.Life == Dying {
 		return nil, errAlreadyDying
 	}
@@ -267,7 +267,7 @@ func (st *State) destroyStorageInstanceOps(s *storageInstance) ([]txn.Op, error)
 // removeStorageInstanceOps removes the storage instance with the given
 // tag from state, if the specified assertions hold true.
 func removeStorageInstanceOps(
-	st *State,
+	st *state,
 	tag names.StorageTag,
 	assert bson.D,
 ) ([]txn.Op, error) {
@@ -331,7 +331,7 @@ func removeStorageInstanceOps(
 // will be correlated with the charm storage metadata for validation
 // and supplementing.
 func createStorageOps(
-	st *State,
+	st *state,
 	entity names.Tag,
 	charmMeta *charm.Meta,
 	curl *charm.URL,
@@ -447,7 +447,7 @@ func createStorageOps(
 // and their attachments to the machine that the specified unit is assigned to,
 // corresponding to the specified storage instance.
 func unitAssignedMachineStorageOps(
-	st *State,
+	st *state,
 	entity names.Tag,
 	charmMeta *charm.Meta,
 	cons map[string]StorageConstraints,
@@ -510,7 +510,7 @@ func createStorageAttachmentOp(storage names.StorageTag, unit names.UnitTag) txn
 
 // StorageAttachments returns the StorageAttachments for the specified storage
 // instance.
-func (st *State) StorageAttachments(storage names.StorageTag) ([]StorageAttachment, error) {
+func (st *state) StorageAttachments(storage names.StorageTag) ([]StorageAttachment, error) {
 	query := bson.D{{"storageid", storage.Id()}}
 	attachments, err := st.storageAttachments(query)
 	if err != nil {
@@ -520,7 +520,7 @@ func (st *State) StorageAttachments(storage names.StorageTag) ([]StorageAttachme
 }
 
 // UnitStorageAttachments returns the StorageAttachments for the specified unit.
-func (st *State) UnitStorageAttachments(unit names.UnitTag) ([]StorageAttachment, error) {
+func (st *state) UnitStorageAttachments(unit names.UnitTag) ([]StorageAttachment, error) {
 	query := bson.D{{"unitid", unit.Id()}}
 	attachments, err := st.storageAttachments(query)
 	if err != nil {
@@ -529,7 +529,7 @@ func (st *State) UnitStorageAttachments(unit names.UnitTag) ([]StorageAttachment
 	return attachments, nil
 }
 
-func (st *State) storageAttachments(query bson.D) ([]StorageAttachment, error) {
+func (st *state) storageAttachments(query bson.D) ([]StorageAttachment, error) {
 	coll, closer := st.getCollection(storageAttachmentsC)
 	defer closer()
 
@@ -545,7 +545,7 @@ func (st *State) storageAttachments(query bson.D) ([]StorageAttachment, error) {
 }
 
 // StorageAttachment returns the StorageAttachment wit hthe specified tags.
-func (st *State) StorageAttachment(storage names.StorageTag, unit names.UnitTag) (StorageAttachment, error) {
+func (st *state) StorageAttachment(storage names.StorageTag, unit names.UnitTag) (StorageAttachment, error) {
 	att, err := st.storageAttachment(storage, unit)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -553,7 +553,7 @@ func (st *State) StorageAttachment(storage names.StorageTag, unit names.UnitTag)
 	return att, nil
 }
 
-func (st *State) storageAttachment(storage names.StorageTag, unit names.UnitTag) (*storageAttachment, error) {
+func (st *state) storageAttachment(storage names.StorageTag, unit names.UnitTag) (*storageAttachment, error) {
 	coll, closer := st.getCollection(storageAttachmentsC)
 	defer closer()
 	var s storageAttachment
@@ -568,7 +568,7 @@ func (st *State) storageAttachment(storage names.StorageTag, unit names.UnitTag)
 
 // DestroyStorageAttachment ensures that the existing storage attachments of
 // the specified unit are removed at some point.
-func (st *State) DestroyUnitStorageAttachments(unit names.UnitTag) (err error) {
+func (st *state) DestroyUnitStorageAttachments(unit names.UnitTag) (err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot destroy unit %s storage attachments", unit.Id())
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		attachments, err := st.UnitStorageAttachments(unit)
@@ -594,7 +594,7 @@ func (st *State) DestroyUnitStorageAttachments(unit names.UnitTag) (err error) {
 
 // DestroyStorageAttachment ensures that the storage attachment will be
 // removed at some point.
-func (st *State) DestroyStorageAttachment(storage names.StorageTag, unit names.UnitTag) (err error) {
+func (st *state) DestroyStorageAttachment(storage names.StorageTag, unit names.UnitTag) (err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot destroy storage attachment %s:%s", storage.Id(), unit.Id())
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		s, err := st.storageAttachment(storage, unit)
@@ -624,7 +624,7 @@ func destroyStorageAttachmentOps(storage names.StorageTag, unit names.UnitTag) [
 // Remove removes the storage attachment from state, and may remove its storage
 // instance as well, if the storage instance is Dying and no other references to
 // it exist. It will fail if the storage attachment is not Dead.
-func (st *State) RemoveStorageAttachment(storage names.StorageTag, unit names.UnitTag) (err error) {
+func (st *state) RemoveStorageAttachment(storage names.StorageTag, unit names.UnitTag) (err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot remove storage attachment %s:%s", storage.Id(), unit.Id())
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		s, err := st.storageAttachment(storage, unit)
@@ -651,7 +651,7 @@ func (st *State) RemoveStorageAttachment(storage names.StorageTag, unit names.Un
 }
 
 func removeStorageAttachmentOps(
-	st *State,
+	st *state,
 	s *storageAttachment,
 	si *storageInstance,
 ) ([]txn.Op, error) {
@@ -717,7 +717,7 @@ func removeStorageAttachmentOps(
 
 // removeStorageInstancesOps returns the transaction operations to remove all
 // storage instances owned by the specified entity.
-func removeStorageInstancesOps(st *State, owner names.Tag) ([]txn.Op, error) {
+func removeStorageInstancesOps(st *state, owner names.Tag) ([]txn.Op, error) {
 	coll, closer := st.getCollection(storageInstancesC)
 	defer closer()
 
@@ -777,7 +777,7 @@ func removeStorageConstraintsOp(key string) txn.Op {
 	}
 }
 
-func readStorageConstraints(st *State, key string) (map[string]StorageConstraints, error) {
+func readStorageConstraints(st *state, key string) (map[string]StorageConstraints, error) {
 	coll, closer := st.getCollection(storageConstraintsC)
 	defer closer()
 
@@ -803,7 +803,7 @@ func storageKind(storageType charm.StorageType) storage.StorageKind {
 	return kind
 }
 
-func validateStorageConstraints(st *State, allCons map[string]StorageConstraints, charmMeta *charm.Meta) error {
+func validateStorageConstraints(st *state, allCons map[string]StorageConstraints, charmMeta *charm.Meta) error {
 	err := validateStorageConstraintsAgainstCharm(st, allCons, charmMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -819,7 +819,7 @@ func validateStorageConstraints(st *State, allCons map[string]StorageConstraints
 }
 
 func validateStorageConstraintsAgainstCharm(
-	st *State,
+	st *state,
 	allCons map[string]StorageConstraints,
 	charmMeta *charm.Meta,
 ) error {
@@ -868,7 +868,7 @@ func validateStorageConstraintsAgainstCharm(
 // the machineId; if the storage is not machine-scoped, then the machineId
 // will be updated to "".
 func validateStoragePool(
-	st *State, poolName string, kind storage.StorageKind, machineId *string,
+	st *state, poolName string, kind storage.StorageKind, machineId *string,
 ) error {
 	if poolName == "" {
 		return errors.New("pool name is required")
@@ -928,7 +928,7 @@ func validateStoragePool(
 	return nil
 }
 
-func poolStorageProvider(st *State, poolName string) (storage.ProviderType, storage.Provider, error) {
+func poolStorageProvider(st *state, poolName string) (storage.ProviderType, storage.Provider, error) {
 	poolManager := poolmanager.New(NewStateSettings(st))
 	pool, err := poolManager.Get(poolName)
 	if errors.IsNotFound(err) {
@@ -959,7 +959,7 @@ var ErrNoDefaultStoragePool = fmt.Errorf("no storage pool specifed and no defaul
 
 // addDefaultStorageConstraints fills in default constraint values, replacing any empty/missing values
 // in the specified constraints.
-func addDefaultStorageConstraints(st *State, allCons map[string]StorageConstraints, charmMeta *charm.Meta) error {
+func addDefaultStorageConstraints(st *state, allCons map[string]StorageConstraints, charmMeta *charm.Meta) error {
 	conf, err := st.EnvironConfig()
 	if err != nil {
 		return errors.Trace(err)
@@ -1066,7 +1066,7 @@ func defaultStoragePool(cfg *config.Config, kind storage.StorageKind, cons Stora
 // Combination of existing storage instances and
 // anticipated additional storage instances is validated against storage
 // store as specified in the charm.
-func (st *State) AddStorageForUnit(
+func (st *state) AddStorageForUnit(
 	tag names.UnitTag, name string, cons StorageConstraints,
 ) error {
 	u, err := st.Unit(tag.Id())
@@ -1087,7 +1087,7 @@ func (st *State) AddStorageForUnit(
 }
 
 // addStorage adds storage instances to given unit as specified.
-func (st *State) addStorageForUnit(
+func (st *state) addStorageForUnit(
 	ch *Charm, u *Unit,
 	name string, cons StorageConstraints,
 ) error {
@@ -1148,7 +1148,7 @@ func (st *State) addStorageForUnit(
 	return nil
 }
 
-func (st *State) validateUnitStorage(
+func (st *state) validateUnitStorage(
 	charmMeta *charm.Meta, u *Unit, name string, cons StorageConstraints,
 ) error {
 	// Storage directive may provide storage instance count
@@ -1171,7 +1171,7 @@ func (st *State) validateUnitStorage(
 	return nil
 }
 
-func (st *State) constructAddUnitStorageOps(
+func (st *state) constructAddUnitStorageOps(
 	ch *Charm, u *Unit, name string, cons StorageConstraints,
 ) ([]txn.Op, error) {
 	// Create storage db operations
@@ -1203,7 +1203,7 @@ func (st *State) constructAddUnitStorageOps(
 	return append(ops, storageOps...), nil
 }
 
-func (st *State) countEntityStorageInstancesForName(
+func (st *state) countEntityStorageInstancesForName(
 	tag names.Tag,
 	name string,
 ) (uint64, error) {

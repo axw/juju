@@ -71,7 +71,7 @@ type VolumeAttachment interface {
 }
 
 type volume struct {
-	st  *State
+	st  *state
 	doc volumeDoc
 }
 
@@ -277,12 +277,12 @@ func (v *volumeAttachment) Params() (VolumeAttachmentParams, bool) {
 }
 
 // Volume returns the Volume with the specified name.
-func (st *State) Volume(tag names.VolumeTag) (Volume, error) {
+func (st *state) Volume(tag names.VolumeTag) (Volume, error) {
 	v, err := st.volumeByTag(tag)
 	return v, err
 }
 
-func (st *State) volumes(query interface{}) ([]*volume, error) {
+func (st *state) volumes(query interface{}) ([]*volume, error) {
 	coll, cleanup := st.getCollection(volumesC)
 	defer cleanup()
 
@@ -302,7 +302,7 @@ func (st *State) volumes(query interface{}) ([]*volume, error) {
 	return volumes, nil
 }
 
-func (st *State) volume(query bson.D, description string) (*volume, error) {
+func (st *state) volume(query bson.D, description string) (*volume, error) {
 	volumes, err := st.volumes(query)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -315,7 +315,7 @@ func (st *State) volume(query bson.D, description string) (*volume, error) {
 	return volumes[0], nil
 }
 
-func (st *State) volumeByTag(tag names.VolumeTag) (*volume, error) {
+func (st *state) volumeByTag(tag names.VolumeTag) (*volume, error) {
 	return st.volume(bson.D{{"_id", tag.Id()}}, fmt.Sprintf("volume %q", tag.Id()))
 }
 
@@ -327,7 +327,7 @@ func volumesToInterfaces(volumes []*volume) []Volume {
 	return result
 }
 
-func (st *State) storageInstanceVolume(tag names.StorageTag) (*volume, error) {
+func (st *state) storageInstanceVolume(tag names.StorageTag) (*volume, error) {
 	return st.volume(
 		bson.D{{"storageid", tag.Id()}},
 		fmt.Sprintf("volume for storage instance %q", tag.Id()),
@@ -336,14 +336,14 @@ func (st *State) storageInstanceVolume(tag names.StorageTag) (*volume, error) {
 
 // StorageInstanceVolume returns the Volume assigned to the specified
 // storage instance.
-func (st *State) StorageInstanceVolume(tag names.StorageTag) (Volume, error) {
+func (st *state) StorageInstanceVolume(tag names.StorageTag) (Volume, error) {
 	v, err := st.storageInstanceVolume(tag)
 	return v, err
 }
 
 // VolumeAttachment returns the VolumeAttachment corresponding to
 // the specified volume and machine.
-func (st *State) VolumeAttachment(machine names.MachineTag, volume names.VolumeTag) (VolumeAttachment, error) {
+func (st *state) VolumeAttachment(machine names.MachineTag, volume names.VolumeTag) (VolumeAttachment, error) {
 	coll, cleanup := st.getCollection(volumeAttachmentsC)
 	defer cleanup()
 
@@ -359,7 +359,7 @@ func (st *State) VolumeAttachment(machine names.MachineTag, volume names.VolumeT
 
 // MachineVolumeAttachments returns all of the VolumeAttachments for the
 // specified machine.
-func (st *State) MachineVolumeAttachments(machine names.MachineTag) ([]VolumeAttachment, error) {
+func (st *state) MachineVolumeAttachments(machine names.MachineTag) ([]VolumeAttachment, error) {
 	attachments, err := st.volumeAttachments(bson.D{{"machineid", machine.Id()}})
 	if err != nil {
 		return nil, errors.Annotatef(err, "getting volume attachments for machine %q", machine.Id())
@@ -369,7 +369,7 @@ func (st *State) MachineVolumeAttachments(machine names.MachineTag) ([]VolumeAtt
 
 // VolumeAttachments returns all of the VolumeAttachments for the specified
 // volume.
-func (st *State) VolumeAttachments(volume names.VolumeTag) ([]VolumeAttachment, error) {
+func (st *state) VolumeAttachments(volume names.VolumeTag) ([]VolumeAttachment, error) {
 	attachments, err := st.volumeAttachments(bson.D{{"volumeid", volume.Id()}})
 	if err != nil {
 		return nil, errors.Annotatef(err, "getting volume attachments for volume %q", volume.Id())
@@ -377,7 +377,7 @@ func (st *State) VolumeAttachments(volume names.VolumeTag) ([]VolumeAttachment, 
 	return attachments, nil
 }
 
-func (st *State) volumeAttachments(query bson.D) ([]VolumeAttachment, error) {
+func (st *state) volumeAttachments(query bson.D) ([]VolumeAttachment, error) {
 	coll, cleanup := st.getCollection(volumeAttachmentsC)
 	defer cleanup()
 
@@ -407,7 +407,7 @@ func IsContainsFilesystem(err error) bool {
 // removeMachineVolumesOps returns txn.Ops to remove non-persistent volumes
 // attached to the specified machine. This is used when the given machine is
 // being removed from state.
-func (st *State) removeMachineVolumesOps(machine names.MachineTag) ([]txn.Op, error) {
+func (st *state) removeMachineVolumesOps(machine names.MachineTag) ([]txn.Op, error) {
 	attachments, err := st.MachineVolumeAttachments(machine)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -446,7 +446,7 @@ func (st *State) removeMachineVolumesOps(machine names.MachineTag) ([]txn.Op, er
 // isVolumeInherentlyMachineBound reports whether or not the volume with the
 // specified tag is inherently bound to the lifetime of the machine, and will
 // be removed along with it, leaving no resources dangling.
-func isVolumeInherentlyMachineBound(st *State, tag names.VolumeTag) (bool, error) {
+func isVolumeInherentlyMachineBound(st *state, tag names.VolumeTag) (bool, error) {
 	volume, err := st.Volume(tag)
 	if err != nil {
 		return false, errors.Trace(err)
@@ -484,7 +484,7 @@ func isVolumeInherentlyMachineBound(st *State, tag names.VolumeTag) (bool, error
 // and volume tags as Dying, if it is Alive. DetachVolume will fail with a
 // IsContainsFilesystem error if the volume contains an attached filesystem; the
 // filesystem attachment must be removed first.
-func (st *State) DetachVolume(machine names.MachineTag, volume names.VolumeTag) (err error) {
+func (st *state) DetachVolume(machine names.MachineTag, volume names.VolumeTag) (err error) {
 	defer errors.DeferredAnnotatef(&err, "detaching volume %s from machine %s", volume.Id(), machine.Id())
 	// If the volume is backing a filesystem, the volume cannot be detached
 	// until the filesystem has been detached.
@@ -506,7 +506,7 @@ func (st *State) DetachVolume(machine names.MachineTag, volume names.VolumeTag) 
 	return st.run(buildTxn)
 }
 
-func (st *State) volumeFilesystemAttachment(machine names.MachineTag, volume names.VolumeTag) (FilesystemAttachment, error) {
+func (st *state) volumeFilesystemAttachment(machine names.MachineTag, volume names.VolumeTag) (FilesystemAttachment, error) {
 	filesystem, err := st.VolumeFilesystem(volume)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -525,7 +525,7 @@ func detachVolumeOps(m names.MachineTag, v names.VolumeTag) []txn.Op {
 
 // RemoveVolumeAttachment removes the volume attachment from state.
 // RemoveVolumeAttachment will fail if the attachment is not Dying.
-func (st *State) RemoveVolumeAttachment(machine names.MachineTag, volume names.VolumeTag) (err error) {
+func (st *state) RemoveVolumeAttachment(machine names.MachineTag, volume names.VolumeTag) (err error) {
 	defer errors.DeferredAnnotatef(&err, "removing attachment of volume %s from machine %s", volume.Id(), machine.Id())
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		attachment, err := st.VolumeAttachment(machine, volume)
@@ -640,7 +640,7 @@ func machineStorageDecrefOp(
 // destroyed and removed from state at some point in the future. DestroyVolume
 // will fail with an IsContainsFilesystem error if the volume contains a
 // filesystem; the filesystem must be fully removed first.
-func (st *State) DestroyVolume(tag names.VolumeTag) (err error) {
+func (st *state) DestroyVolume(tag names.VolumeTag) (err error) {
 	defer errors.DeferredAnnotatef(&err, "destroying volume %s", tag.Id())
 	if _, err := st.VolumeFilesystem(tag); err == nil {
 		return &errContainsFilesystem{errors.New("volume contains filesystem")}
@@ -662,7 +662,7 @@ func (st *State) DestroyVolume(tag names.VolumeTag) (err error) {
 	return st.run(buildTxn)
 }
 
-func destroyVolumeOps(st *State, v *volume) []txn.Op {
+func destroyVolumeOps(st *state, v *volume) []txn.Op {
 	if v.doc.AttachmentCount == 0 {
 		hasNoAttachments := bson.D{{"attachmentcount", 0}}
 		return []txn.Op{{
@@ -684,7 +684,7 @@ func destroyVolumeOps(st *State, v *volume) []txn.Op {
 
 // RemoveVolume removes the volume from state. RemoveVolume will fail if
 // the volume is not Dead, which implies that it still has attachments.
-func (st *State) RemoveVolume(tag names.VolumeTag) (err error) {
+func (st *state) RemoveVolume(tag names.VolumeTag) (err error) {
 	defer errors.DeferredAnnotatef(&err, "removing volume %s", tag.Id())
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		volume, err := st.Volume(tag)
@@ -713,7 +713,7 @@ func (st *State) RemoveVolume(tag names.VolumeTag) (err error) {
 // If the machine ID supplied is non-empty, the
 // volume ID will incorporate it as the volume's
 // machine scope.
-func newVolumeName(st *State, machineId string) (string, error) {
+func newVolumeName(st *state, machineId string) (string, error) {
 	seq, err := st.sequence("volume")
 	if err != nil {
 		return "", errors.Trace(err)
@@ -729,7 +729,7 @@ func newVolumeName(st *State, machineId string) (string, error) {
 // parameters. If the supplied machine ID is non-empty, and the storage
 // provider is machine-scoped, then the volume will be scoped to that
 // machine.
-func (st *State) addVolumeOps(params VolumeParams, machineId string) ([]txn.Op, names.VolumeTag, error) {
+func (st *state) addVolumeOps(params VolumeParams, machineId string) ([]txn.Op, names.VolumeTag, error) {
 	if params.binding == nil {
 		params.binding = names.NewMachineTag(machineId)
 	}
@@ -767,7 +767,7 @@ func (st *State) addVolumeOps(params VolumeParams, machineId string) ([]txn.Op, 
 	return ops, names.NewVolumeTag(name), nil
 }
 
-func (st *State) volumeParamsWithDefaults(params VolumeParams) (VolumeParams, error) {
+func (st *state) volumeParamsWithDefaults(params VolumeParams) (VolumeParams, error) {
 	if params.Pool != "" {
 		return params, nil
 	}
@@ -790,7 +790,7 @@ func (st *State) volumeParamsWithDefaults(params VolumeParams) (VolumeParams, er
 
 // validateVolumeParams validates the volume parameters, and returns the
 // machine ID to use as the scope in the volume tag.
-func (st *State) validateVolumeParams(params VolumeParams, machineId string) (maybeMachineId string, _ error) {
+func (st *state) validateVolumeParams(params VolumeParams, machineId string) (maybeMachineId string, _ error) {
 	if err := validateStoragePool(st, params.Pool, storage.StorageKindBlock, &machineId); err != nil {
 		return "", err
 	}
@@ -850,7 +850,7 @@ func createMachineVolumeAttachmentsOps(machineId string, attachments []volumeAtt
 // structure is keyed by the name of the volume it corresponds
 // to.
 func setMachineVolumeAttachmentInfo(
-	st *State,
+	st *state,
 	machineId string,
 	attachments map[names.VolumeTag]VolumeAttachmentInfo,
 ) (err error) {
@@ -866,7 +866,7 @@ func setMachineVolumeAttachmentInfo(
 
 // SetVolumeAttachmentInfo sets the VolumeAttachmentInfo for the specified
 // volume attachment.
-func (st *State) SetVolumeAttachmentInfo(machineTag names.MachineTag, volumeTag names.VolumeTag, info VolumeAttachmentInfo) (err error) {
+func (st *state) SetVolumeAttachmentInfo(machineTag names.MachineTag, volumeTag names.VolumeTag, info VolumeAttachmentInfo) (err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot set info for volume attachment %s:%s", volumeTag.Id(), machineTag.Id())
 	v, err := st.Volume(volumeTag)
 	if err != nil {
@@ -889,7 +889,7 @@ func (st *State) SetVolumeAttachmentInfo(machineTag names.MachineTag, volumeTag 
 	return st.setVolumeAttachmentInfo(machineTag, volumeTag, info)
 }
 
-func (st *State) setVolumeAttachmentInfo(
+func (st *state) setVolumeAttachmentInfo(
 	machineTag names.MachineTag,
 	volumeTag names.VolumeTag,
 	info VolumeAttachmentInfo,
@@ -932,7 +932,7 @@ func setVolumeAttachmentInfoOps(machine names.MachineTag, volume names.VolumeTag
 // setProvisionedVolumeInfo sets the initial info for newly
 // provisioned volumes. If non-empty, machineId must be the
 // machine ID associated with the volumes.
-func setProvisionedVolumeInfo(st *State, volumes map[names.VolumeTag]VolumeInfo) error {
+func setProvisionedVolumeInfo(st *state, volumes map[names.VolumeTag]VolumeInfo) error {
 	for volumeTag, info := range volumes {
 		if err := st.SetVolumeInfo(volumeTag, info); err != nil {
 			return errors.Trace(err)
@@ -942,7 +942,7 @@ func setProvisionedVolumeInfo(st *State, volumes map[names.VolumeTag]VolumeInfo)
 }
 
 // SetVolumeInfo sets the VolumeInfo for the specified volume.
-func (st *State) SetVolumeInfo(tag names.VolumeTag, info VolumeInfo) (err error) {
+func (st *state) SetVolumeInfo(tag names.VolumeTag, info VolumeInfo) (err error) {
 	defer errors.DeferredAnnotatef(&err, "cannot set info for volume %q", tag.Id())
 	if info.VolumeId == "" {
 		return errors.New("volume ID not set")
@@ -1013,7 +1013,7 @@ func setVolumeInfoOps(tag names.VolumeTag, info VolumeInfo, unsetParams bool) []
 }
 
 // AllVolumes returns all Volumes scoped to the environment.
-func (st *State) AllVolumes() ([]Volume, error) {
+func (st *state) AllVolumes() ([]Volume, error) {
 	volumes, err := st.volumes(nil)
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot get volumes")
@@ -1026,12 +1026,12 @@ func volumeGlobalKey(name string) string {
 }
 
 // VolumeStatus returns the status of the specified volume.
-func (st *State) VolumeStatus(tag names.VolumeTag) (StatusInfo, error) {
+func (st *state) VolumeStatus(tag names.VolumeTag) (StatusInfo, error) {
 	return getStatus(st, volumeGlobalKey(tag.Id()), "volume")
 }
 
 // SetVolumeStatus sets the status of the specified volume.
-func (st *State) SetVolumeStatus(tag names.VolumeTag, status Status, info string, data map[string]interface{}) error {
+func (st *state) SetVolumeStatus(tag names.VolumeTag, status Status, info string, data map[string]interface{}) error {
 	switch status {
 	case StatusAttaching, StatusAttached, StatusDetaching, StatusDetached, StatusDestroying:
 	case StatusError:

@@ -132,13 +132,13 @@ func (b *block) Type() BlockType {
 
 // SwitchBlockOn enables block of specified type for the
 // current environment.
-func (st *State) SwitchBlockOn(t BlockType, msg string) error {
+func (st *state) SwitchBlockOn(t BlockType, msg string) error {
 	return setEnvironmentBlock(st, t, msg)
 }
 
 // SwitchBlockOff disables block of specified type for the
 // current environment.
-func (st *State) SwitchBlockOff(t BlockType) error {
+func (st *state) SwitchBlockOff(t BlockType) error {
 	return removeEnvironmentBlock(st, t)
 }
 
@@ -147,7 +147,7 @@ func (st *State) SwitchBlockOff(t BlockType) error {
 //     not found -> nil, false, nil
 //     found -> block, true, nil
 //     error -> nil, false, err
-func (st *State) GetBlockForType(t BlockType) (Block, bool, error) {
+func (st *state) GetBlockForType(t BlockType) (Block, bool, error) {
 	all, closer := st.getCollection(blocksC)
 	defer closer()
 
@@ -165,7 +165,7 @@ func (st *State) GetBlockForType(t BlockType) (Block, bool, error) {
 }
 
 // AllBlocks returns all blocks in the environment.
-func (st *State) AllBlocks() ([]Block, error) {
+func (st *state) AllBlocks() ([]Block, error) {
 	blocksCollection, closer := st.getCollection(blocksC)
 	defer closer()
 
@@ -183,7 +183,7 @@ func (st *State) AllBlocks() ([]Block, error) {
 
 // AllBlocksForSystem returns all blocks in any environments on
 // the system.
-func (st *State) AllBlocksForSystem() ([]Block, error) {
+func (st *state) AllBlocksForSystem() ([]Block, error) {
 	blocksCollection, closer := st.getRawCollection(blocksC)
 	defer closer()
 
@@ -203,7 +203,7 @@ func (st *State) AllBlocksForSystem() ([]Block, error) {
 // RemoveAllBlocksForSystem removes all the blocks for the system.
 // It does not prevent new blocks from being added during / after
 // removal.
-func (st *State) RemoveAllBlocksForSystem() error {
+func (st *state) RemoveAllBlocksForSystem() error {
 	blocks, err := st.AllBlocksForSystem()
 	if err != nil {
 		return errors.Trace(err)
@@ -226,7 +226,7 @@ func (st *State) RemoveAllBlocksForSystem() error {
 // setEnvironmentBlock updates the blocks collection with the
 // specified block.
 // Only one instance of each block type can exist in environment.
-func setEnvironmentBlock(st *State, t BlockType, msg string) error {
+func setEnvironmentBlock(st *state, t BlockType, msg string) error {
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		_, exists, err := st.GetBlockForType(t)
 		if err != nil {
@@ -243,7 +243,7 @@ func setEnvironmentBlock(st *State, t BlockType, msg string) error {
 }
 
 // newBlockId returns a sequential block id for this environment.
-func newBlockId(st *State) (string, error) {
+func newBlockId(st *state) (string, error) {
 	seq, err := st.sequence("block")
 	if err != nil {
 		return "", errors.Trace(err)
@@ -251,7 +251,7 @@ func newBlockId(st *State) (string, error) {
 	return fmt.Sprint(seq), nil
 }
 
-func createEnvironmentBlockOps(st *State, t BlockType, msg string) ([]txn.Op, error) {
+func createEnvironmentBlockOps(st *state, t BlockType, msg string) ([]txn.Op, error) {
 	id, err := newBlockId(st)
 	if err != nil {
 		return nil, errors.Annotatef(err, "getting new block id")
@@ -272,14 +272,14 @@ func createEnvironmentBlockOps(st *State, t BlockType, msg string) ([]txn.Op, er
 	return []txn.Op{insertOp}, nil
 }
 
-func removeEnvironmentBlock(st *State, t BlockType) error {
+func removeEnvironmentBlock(st *state, t BlockType) error {
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		return removeEnvironmentBlockOps(st, t)
 	}
 	return st.run(buildTxn)
 }
 
-func removeEnvironmentBlockOps(st *State, t BlockType) ([]txn.Op, error) {
+func removeEnvironmentBlockOps(st *state, t BlockType) ([]txn.Op, error) {
 	tBlock, exists, err := st.GetBlockForType(t)
 	if err != nil {
 		return nil, errors.Annotatef(err, "removing block %v", t.String())

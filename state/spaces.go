@@ -16,7 +16,7 @@ import (
 // is a collection of related subnets that have no firewalls between
 // each other, and that have the same ingress and egress policies.
 type Space struct {
-	st  *State
+	st  *state
 	doc spaceDoc
 }
 
@@ -70,7 +70,7 @@ func (s *Space) Subnets() (results []*Subnet, err error) {
 }
 
 // AddSpace creates and returns a new space.
-func (st *State) AddSpace(name string, subnets []string, isPublic bool) (newSpace *Space, err error) {
+func (st *state) AddSpace(name string, subnets []string, isPublic bool) (newSpace *Space, err error) {
 	defer errors.DeferredAnnotatef(&err, "adding space %q", name)
 	if !names.IsValidSpace(name) {
 		return nil, errors.NewNotValid(nil, "invalid space name")
@@ -123,7 +123,7 @@ func (st *State) AddSpace(name string, subnets []string, isPublic bool) (newSpac
 // Space returns a space from state that matches the provided name. An error
 // is returned if the space doesn't exist or if there was a problem accessing
 // its information.
-func (st *State) Space(name string) (*Space, error) {
+func (st *state) Space(name string) (*Space, error) {
 	spaces, closer := st.getCollection(spacesC)
 	defer closer()
 
@@ -139,7 +139,7 @@ func (st *State) Space(name string) (*Space, error) {
 }
 
 // AllSpaces returns all spaces for the environment.
-func (st *State) AllSpaces() ([]*Space, error) {
+func (st *state) AllSpaces() ([]*Space, error) {
 	spacesCollection, closer := st.getCollection(spacesC)
 	defer closer()
 

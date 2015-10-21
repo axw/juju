@@ -47,7 +47,7 @@ func distributeUnit(u *Unit, candidates []instance.Id) ([]instance.Id, error) {
 
 // ServiceInstances returns the instance IDs of provisioned
 // machines that are assigned units of the specified service.
-func ServiceInstances(st *State, service string) ([]instance.Id, error) {
+func ServiceInstances(st *state, service string) ([]instance.Id, error) {
 	units, err := allUnits(st, service)
 	if err != nil {
 		return nil, err

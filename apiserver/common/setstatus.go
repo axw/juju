@@ -19,12 +19,12 @@ import (
 // StatusSetter already; all this does is set the status for the wrong
 // entity, and render the auth so confused as to be ~worthless.
 type ServiceStatusSetter struct {
-	st           *state.State
+	st           state.State
 	getCanModify GetAuthFunc
 }
 
 // NewServiceStatusSetter returns a ServiceStatusSetter.
-func NewServiceStatusSetter(st *state.State, getCanModify GetAuthFunc) *ServiceStatusSetter {
+func NewServiceStatusSetter(st state.State, getCanModify GetAuthFunc) *ServiceStatusSetter {
 	return &ServiceStatusSetter{
 		st:           st,
 		getCanModify: getCanModify,

@@ -87,7 +87,7 @@ type upgradeInfoDoc struct {
 
 // UpgradeInfo is used to synchronise state server upgrades.
 type UpgradeInfo struct {
-	st  *State
+	st  *state
 	doc upgradeInfoDoc
 }
 
@@ -255,7 +255,7 @@ func (info *UpgradeInfo) SetStatus(status UpgradeStatus) error {
 // supplied versions. If a matching upgrade is in progress, that upgrade is returned;
 // if there's a mismatch, an error is returned. The supplied machine id must correspond
 // to a current state server.
-func (st *State) EnsureUpgradeInfo(machineId string, previousVersion, targetVersion version.Number) (*UpgradeInfo, error) {
+func (st *state) EnsureUpgradeInfo(machineId string, previousVersion, targetVersion version.Number) (*UpgradeInfo, error) {
 
 	assertSanity, err := checkUpgradeInfoSanity(st, machineId, previousVersion, targetVersion)
 	if err != nil {
@@ -323,7 +323,7 @@ func (st *State) EnsureUpgradeInfo(machineId string, previousVersion, targetVers
 	return nil, errors.Annotate(err, "cannot update upgrade info")
 }
 
-func (st *State) isMachineProvisioned(machineId string) (bool, error) {
+func (st *state) isMachineProvisioned(machineId string) (bool, error) {
 	instanceData, closer := st.getRawCollection(instanceDataC)
 	defer closer()
 
@@ -341,7 +341,7 @@ func (st *State) isMachineProvisioned(machineId string) (bool, error) {
 
 var errUpgradeInfoNotUpdated = errors.New("upgrade info not updated")
 
-func ensureUpgradeInfoUpdated(st *State, machineId string, previousVersion, targetVersion version.Number) (*UpgradeInfo, error) {
+func ensureUpgradeInfoUpdated(st *state, machineId string, previousVersion, targetVersion version.Number) (*UpgradeInfo, error) {
 	var doc upgradeInfoDoc
 	if pdoc, err := currentUpgradeInfoDoc(st); err != nil {
 		return nil, errors.Trace(err)
@@ -453,7 +453,7 @@ func (info *UpgradeInfo) makeArchiveOps(doc *upgradeInfoDoc, status UpgradeStatu
 }
 
 // IsUpgrading returns true if an upgrade is currently in progress.
-func (st *State) IsUpgrading() (bool, error) {
+func (st *state) IsUpgrading() (bool, error) {
 	doc, err := currentUpgradeInfoDoc(st)
 	if doc != nil && err == nil {
 		return true, nil
@@ -467,7 +467,7 @@ func (st *State) IsUpgrading() (bool, error) {
 // AbortCurrentUpgrade archives any current UpgradeInfo and sets its
 // status to UpgradeAborted. Nothing happens if there's no current
 // UpgradeInfo.
-func (st *State) AbortCurrentUpgrade() error {
+func (st *state) AbortCurrentUpgrade() error {
 	doc, err := currentUpgradeInfoDoc(st)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -480,7 +480,7 @@ func (st *State) AbortCurrentUpgrade() error {
 
 }
 
-func currentUpgradeInfoDoc(st *State) (*upgradeInfoDoc, error) {
+func currentUpgradeInfoDoc(st *state) (*upgradeInfoDoc, error) {
 	var doc upgradeInfoDoc
 	upgradeInfo, closer := st.getCollection(upgradeInfoC)
 	defer closer()
@@ -492,7 +492,7 @@ func currentUpgradeInfoDoc(st *State) (*upgradeInfoDoc, error) {
 	return &doc, nil
 }
 
-func checkUpgradeInfoSanity(st *State, machineId string, previousVersion, targetVersion version.Number) (bson.D, error) {
+func checkUpgradeInfoSanity(st *state, machineId string, previousVersion, targetVersion version.Number) (bson.D, error) {
 	if previousVersion.Compare(targetVersion) != -1 {
 		return nil, errors.Errorf("cannot sanely upgrade from %s to %s", previousVersion, targetVersion)
 	}
@@ -517,7 +517,7 @@ func assertExpectedVersions(previousVersion, targetVersion version.Number) bson.
 
 // ClearUpgradeInfo clears information about an upgrade in progress. It returns
 // an error if no upgrade is current.
-func (st *State) ClearUpgradeInfo() error {
+func (st *state) ClearUpgradeInfo() error {
 	ops := []txn.Op{{
 		C:      upgradeInfoC,
 		Id:     currentUpgradeId,

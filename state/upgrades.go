@@ -31,7 +31,7 @@ type userDocBefore struct {
 	LastConnection time.Time `bson:"lastconnection"`
 }
 
-func MigrateUserLastConnectionToLastLogin(st *State) error {
+func MigrateUserLastConnectionToLastLogin(st *state) error {
 	var oldDocs []userDocBefore
 
 	err := st.ResumeTransactions()
@@ -74,7 +74,7 @@ func MigrateUserLastConnectionToLastLogin(st *State) error {
 
 // AddStateUsersAsEnvironUsers loops through all users stored in state and
 // adds them as environment users with a local provider.
-func AddStateUsersAsEnvironUsers(st *State) error {
+func AddStateUsersAsEnvironUsers(st *state) error {
 	err := st.ResumeTransactions()
 	if err != nil {
 		return err
@@ -110,7 +110,7 @@ func AddStateUsersAsEnvironUsers(st *State) error {
 	return nil
 }
 
-func validateUnitPorts(st *State, unit *Unit) (
+func validateUnitPorts(st *state, unit *Unit) (
 	skippedRanges int,
 	mergedRanges []network.PortRange,
 	validRanges []PortRange,
@@ -161,7 +161,7 @@ func validateUnitPorts(st *State, unit *Unit) (
 	return skippedRanges, mergedRanges, validRanges
 }
 
-func beginUnitMigrationOps(st *State, unit *Unit, machineId string) (
+func beginUnitMigrationOps(st *state, unit *Unit, machineId string) (
 	ops []txn.Op,
 	machinePorts *Ports,
 	err error,
@@ -290,7 +290,7 @@ func finishUnitMigrationOps(
 
 // MigrateUnitPortsToOpenedPorts loops through all units stored in state and
 // migrates any ports into the openedPorts collection.
-func MigrateUnitPortsToOpenedPorts(st *State) error {
+func MigrateUnitPortsToOpenedPorts(st *state) error {
 	err := st.ResumeTransactions()
 	if err != nil {
 		return errors.Trace(err)
@@ -369,7 +369,7 @@ func MigrateUnitPortsToOpenedPorts(st *State) error {
 }
 
 // CreateUnitMeterStatus creates documents in the meter status collection for all existing units.
-func CreateUnitMeterStatus(st *State) error {
+func CreateUnitMeterStatus(st *state) error {
 	err := st.ResumeTransactions()
 	if err != nil {
 		return errors.Trace(err)
@@ -412,7 +412,7 @@ func CreateUnitMeterStatus(st *State) error {
 }
 
 // AddEnvironmentUUIDToStateServerDoc adds environment uuid to state server doc.
-func AddEnvironmentUUIDToStateServerDoc(st *State) error {
+func AddEnvironmentUUIDToStateServerDoc(st *state) error {
 	env, err := st.Environment()
 	if err != nil {
 		return errors.Annotate(err, "failed to load environment")
@@ -432,7 +432,7 @@ func AddEnvironmentUUIDToStateServerDoc(st *State) error {
 }
 
 // AddEnvUUIDToEnvUsersDoc adds environment uuid to state server doc.
-func AddEnvUUIDToEnvUsersDoc(st *State) error {
+func AddEnvUUIDToEnvUsersDoc(st *state) error {
 	envUsers, closer := st.getRawCollection(envUsersC)
 	defer closer()
 
@@ -463,7 +463,7 @@ func AddEnvUUIDToEnvUsersDoc(st *State) error {
 // AddLifeFieldOfIPAddresses creates the Life field for all IP addresses
 // that don't have this field. For addresses referencing live machines Life
 // will be set to Alive, otherwise Life will be set to Dead.
-func AddLifeFieldOfIPAddresses(st *State) error {
+func AddLifeFieldOfIPAddresses(st *state) error {
 	addresses, iCloser := st.getCollection(ipaddressesC)
 	defer iCloser()
 	machines, mCloser := st.getCollection(machinesC)
@@ -520,7 +520,7 @@ func AddLifeFieldOfIPAddresses(st *State) error {
 
 // AddInstanceIdFieldOfIPAddresses creates and populates the instance Id field
 // for all IP addresses referencing a live machine with a provisioned instance.
-func AddInstanceIdFieldOfIPAddresses(st *State) error {
+func AddInstanceIdFieldOfIPAddresses(st *state) error {
 	addresses, iCloser := st.getCollection(ipaddressesC)
 	defer iCloser()
 	instances, mCloser := st.getCollection(instanceDataC)
@@ -584,7 +584,7 @@ func AddInstanceIdFieldOfIPAddresses(st *State) error {
 
 // AddUUIDToIPAddresses creates and populates the UUID field
 // for all IP addresses.
-func AddUUIDToIPAddresses(st *State) error {
+func AddUUIDToIPAddresses(st *state) error {
 	addresses, iCloser := st.getCollection(ipaddressesC)
 	defer iCloser()
 
@@ -623,7 +623,7 @@ func AddUUIDToIPAddresses(st *State) error {
 	return st.runRawTransaction(ops)
 }
 
-func AddNameFieldLowerCaseIdOfUsers(st *State) error {
+func AddNameFieldLowerCaseIdOfUsers(st *state) error {
 	users, closer := st.getCollection(usersC)
 	defer closer()
 
@@ -672,7 +672,7 @@ func AddNameFieldLowerCaseIdOfUsers(st *State) error {
 	return st.runRawTransaction(ops)
 }
 
-func AddPreferredAddressesToMachines(st *State) error {
+func AddPreferredAddressesToMachines(st *state) error {
 	machines, err := st.AllMachines()
 	if err != nil {
 		return errors.Trace(err)
@@ -697,7 +697,7 @@ func AddPreferredAddressesToMachines(st *State) error {
 	return nil
 }
 
-func LowerCaseEnvUsersID(st *State) error {
+func LowerCaseEnvUsersID(st *state) error {
 	users, closer := st.getRawCollection(envUsersC)
 	defer closer()
 
@@ -730,7 +730,7 @@ func LowerCaseEnvUsersID(st *State) error {
 	return st.runRawTransaction(ops)
 }
 
-func AddUniqueOwnerEnvNameForEnvirons(st *State) error {
+func AddUniqueOwnerEnvNameForEnvirons(st *state) error {
 	environs, closer := st.getCollection(environmentsC)
 	defer closer()
 
@@ -770,7 +770,7 @@ func AddUniqueOwnerEnvNameForEnvirons(st *State) error {
 
 // AddCharmStoragePaths adds storagepath fields
 // to the specified charms.
-func AddCharmStoragePaths(st *State, storagePaths map[*charm.URL]string) error {
+func AddCharmStoragePaths(st *state, storagePaths map[*charm.URL]string) error {
 	var ops []txn.Op
 	for curl, storagePath := range storagePaths {
 		upgradesLogger.Debugf("adding storage path %q to %s", storagePath, curl)
@@ -796,7 +796,7 @@ func AddCharmStoragePaths(st *State, storagePaths map[*charm.URL]string) error {
 // uuid as well (it is the initial environment, so all good), and the owner to
 // "admin@local", again all good as all existing environments have a user
 // called "admin".
-func SetOwnerAndServerUUIDForEnvironment(st *State) error {
+func SetOwnerAndServerUUIDForEnvironment(st *state) error {
 	err := st.ResumeTransactions()
 	if err != nil {
 		return err
@@ -821,7 +821,7 @@ func SetOwnerAndServerUUIDForEnvironment(st *State) error {
 
 // MigrateMachineInstanceIdToInstanceData migrates the deprecated "instanceid"
 // machine field into "instanceid" in the instanceData doc.
-func MigrateMachineInstanceIdToInstanceData(st *State) error {
+func MigrateMachineInstanceIdToInstanceData(st *state) error {
 	err := st.ResumeTransactions()
 	if err != nil {
 		return errors.Trace(err)
@@ -882,7 +882,7 @@ func MigrateMachineInstanceIdToInstanceData(st *State) error {
 
 // AddAvailabilityZoneToInstanceData sets the AvailZone field on
 // instanceData docs that don't have it already.
-func AddAvailabilityZoneToInstanceData(st *State, azFunc func(*State, instance.Id) (string, error)) error {
+func AddAvailabilityZoneToInstanceData(st *state, azFunc func(*state, instance.Id) (string, error)) error {
 	err := st.ResumeTransactions()
 	if err != nil {
 		return errors.Trace(err)
@@ -934,25 +934,25 @@ func AddAvailabilityZoneToInstanceData(st *State, azFunc func(*State, instance.I
 
 // AddEnvUUIDToServices prepends the environment UUID to the ID of
 // all service docs and adds new "env-uuid" field.
-func AddEnvUUIDToServices(st *State) error {
+func AddEnvUUIDToServices(st *state) error {
 	return addEnvUUIDToEntityCollection(st, servicesC, setOldID("name"))
 }
 
 // AddEnvUUIDToUnits prepends the environment UUID to the ID of all
 // unit docs and adds new "env-uuid" field.
-func AddEnvUUIDToUnits(st *State) error {
+func AddEnvUUIDToUnits(st *state) error {
 	return addEnvUUIDToEntityCollection(st, unitsC, setOldID("name"))
 }
 
 // AddEnvUUIDToMachines prepends the environment UUID to the ID of
 // all machine docs and adds new "env-uuid" field.
-func AddEnvUUIDToMachines(st *State) error {
+func AddEnvUUIDToMachines(st *state) error {
 	return addEnvUUIDToEntityCollection(st, machinesC, setOldID("machineid"))
 }
 
 // AddEnvUUIDToOpenPorts prepends the environment UUID to the ID of
 // all openPorts docs and adds new "env-uuid" field.
-func AddEnvUUIDToOpenPorts(st *State) error {
+func AddEnvUUIDToOpenPorts(st *state) error {
 	setNewFields := func(d bson.D) (bson.D, error) {
 		id, err := readBsonDField(d, "_id")
 		if err != nil {
@@ -977,31 +977,31 @@ func AddEnvUUIDToOpenPorts(st *State) error {
 
 // AddEnvUUIDToAnnotations prepends the environment UUID to the ID of
 // all annotation docs and adds new "env-uuid" field.
-func AddEnvUUIDToAnnotations(st *State) error {
+func AddEnvUUIDToAnnotations(st *state) error {
 	return addEnvUUIDToEntityCollection(st, annotationsC, setOldID("globalkey"))
 }
 
 // AddEnvUUIDToStatuses prepends the environment UUID to the ID of
 // all Statuses docs and adds new "env-uuid" field.
-func AddEnvUUIDToStatuses(st *State) error {
+func AddEnvUUIDToStatuses(st *state) error {
 	return addEnvUUIDToEntityCollection(st, statusesC)
 }
 
 // AddEnvUUIDToNetworks prepends the environment UUID to the ID of
 // all network docs and adds new "env-uuid" field.
-func AddEnvUUIDToNetworks(st *State) error {
+func AddEnvUUIDToNetworks(st *state) error {
 	return addEnvUUIDToEntityCollection(st, networksC, setOldID("name"))
 }
 
 // AddEnvUUIDToRequestedNetworks prepends the environment UUID to the ID of
 // all requestedNetworks docs and adds new "env-uuid" field.
-func AddEnvUUIDToRequestedNetworks(st *State) error {
+func AddEnvUUIDToRequestedNetworks(st *state) error {
 	return addEnvUUIDToEntityCollection(st, requestedNetworksC, setOldID("requestednetworkid"))
 }
 
 // AddEnvUUIDToNetworkInterfaces prepends adds a new "env-uuid" field to all
 // networkInterfaces docs.
-func AddEnvUUIDToNetworkInterfaces(st *State) error {
+func AddEnvUUIDToNetworkInterfaces(st *state) error {
 	coll, closer := st.getRawCollection(networkInterfacesC)
 	defer closer()
 
@@ -1028,83 +1028,83 @@ func AddEnvUUIDToNetworkInterfaces(st *State) error {
 
 // AddEnvUUIDToCharms prepends the environment UUID to the ID of
 // all charm docs and adds new "env-uuid" field.
-func AddEnvUUIDToCharms(st *State) error {
+func AddEnvUUIDToCharms(st *state) error {
 	return addEnvUUIDToEntityCollection(st, charmsC, setOldID("url"))
 }
 
 // AddEnvUUIDToMinUnits prepends the environment UUID to the ID of
 // all minUnits docs and adds new "env-uuid" field.
-func AddEnvUUIDToMinUnits(st *State) error {
+func AddEnvUUIDToMinUnits(st *state) error {
 	return addEnvUUIDToEntityCollection(st, minUnitsC, setOldID("servicename"))
 }
 
 // AddEnvUUIDToSequences prepends the environment UUID to the ID of
 // all sequence docs and adds new "env-uuid" field.
-func AddEnvUUIDToSequences(st *State) error {
+func AddEnvUUIDToSequences(st *state) error {
 	return addEnvUUIDToEntityCollection(st, sequenceC, setOldID("name"))
 }
 
 // AddEnvUUIDToReboots prepends the environment UUID to the ID of
 // all reboot docs and adds new "env-uuid" field.
-func AddEnvUUIDToReboots(st *State) error {
+func AddEnvUUIDToReboots(st *state) error {
 	return addEnvUUIDToEntityCollection(st, rebootC, setOldID("machineid"))
 }
 
 // AddEnvUUIDToContainerRefs prepends the environment UUID to the ID of all
 // containerRef docs and adds new "env-uuid" field.
-func AddEnvUUIDToContainerRefs(st *State) error {
+func AddEnvUUIDToContainerRefs(st *state) error {
 	return addEnvUUIDToEntityCollection(st, containerRefsC, setOldID("machineid"))
 }
 
 // AddEnvUUIDToInstanceData prepends the environment UUID to the ID of
 // all instanceData docs and adds new "env-uuid" field.
-func AddEnvUUIDToInstanceData(st *State) error {
+func AddEnvUUIDToInstanceData(st *state) error {
 	return addEnvUUIDToEntityCollection(st, instanceDataC, setOldID("machineid"))
 }
 
 // AddEnvUUIDToCleanups prepends the environment UUID to the ID of
 // all cleanup docs and adds new "env-uuid" field.
-func AddEnvUUIDToCleanups(st *State) error {
+func AddEnvUUIDToCleanups(st *state) error {
 	return addEnvUUIDToEntityCollection(st, cleanupsC)
 }
 
 // AddEnvUUIDToConstraints prepends the environment UUID to the ID of
 // all constraints docs and adds new "env-uuid" field.
-func AddEnvUUIDToConstraints(st *State) error {
+func AddEnvUUIDToConstraints(st *state) error {
 	return addEnvUUIDToEntityCollection(st, constraintsC)
 }
 
 // AddEnvUUIDToSettings prepends the environment UUID to the ID of
 // all settings docs and adds new "env-uuid" field.
-func AddEnvUUIDToSettings(st *State) error {
+func AddEnvUUIDToSettings(st *state) error {
 	return addEnvUUIDToEntityCollection(st, settingsC)
 }
 
 // AddEnvUUIDToSettingsRefs prepends the environment UUID to the ID of
 // all settingRef docs and adds new "env-uuid" field.
-func AddEnvUUIDToSettingsRefs(st *State) error {
+func AddEnvUUIDToSettingsRefs(st *state) error {
 	return addEnvUUIDToEntityCollection(st, settingsrefsC)
 }
 
 // AddEnvUUIDToRelations prepends the environment UUID to the ID of
 // all relations docs and adds new "env-uuid" and "key" fields.
-func AddEnvUUIDToRelations(st *State) error {
+func AddEnvUUIDToRelations(st *state) error {
 	return addEnvUUIDToEntityCollection(st, relationsC, setOldID("key"))
 }
 
 // AddEnvUUIDToRelationScopes prepends the environment UUID to the ID of
 // all relationscopes docs and adds new "env-uuid" field and "key" fields.
-func AddEnvUUIDToRelationScopes(st *State) error {
+func AddEnvUUIDToRelationScopes(st *state) error {
 	return addEnvUUIDToEntityCollection(st, relationScopesC, setOldID("key"))
 }
 
 // AddEnvUUIDToMeterStatus prepends the environment UUID to the ID of
 // all meterStatus docs and adds new "env-uuid" field and "id" fields.
-func AddEnvUUIDToMeterStatus(st *State) error {
+func AddEnvUUIDToMeterStatus(st *state) error {
 	return addEnvUUIDToEntityCollection(st, meterStatusC)
 }
 
-func addEnvUUIDToEntityCollection(st *State, collName string, updates ...updateFunc) error {
+func addEnvUUIDToEntityCollection(st *state, collName string, updates ...updateFunc) error {
 	env, err := st.Environment()
 	if err != nil {
 		return errors.Annotate(err, "failed to load environment")
@@ -1223,7 +1223,7 @@ func setOldID(name string) updateFunc {
 // - machines in a manual environment,
 // - bootstrap node (host machine) in a local environment, and
 // - manually provisioned machines.
-func MigrateJobManageNetworking(st *State) error {
+func MigrateJobManageNetworking(st *state) error {
 	// Retrieve the provider.
 	envConfig, err := st.EnvironConfig()
 	if err != nil {
@@ -1280,7 +1280,7 @@ func MigrateJobManageNetworking(st *State) error {
 // minUnits collection where the field is blank. This is needed
 // because a code change was missed with the env UUID migration was
 // done for this collection (in 1.21).
-func FixMinUnitsEnvUUID(st *State) error {
+func FixMinUnitsEnvUUID(st *state) error {
 	minUnits, closer := st.getRawCollection(minUnitsC)
 	defer closer()
 
@@ -1308,7 +1308,7 @@ func FixMinUnitsEnvUUID(st *State) error {
 // the sequence collection where these fields are blank. This is
 // needed because code changes were missed with the env UUID migration
 // was done for this collection (in 1.21).
-func FixSequenceFields(st *State) error {
+func FixSequenceFields(st *state) error {
 	sequence, closer := st.getRawCollection(sequenceC)
 	defer closer()
 
@@ -1357,7 +1357,7 @@ func FixSequenceFields(st *State) error {
 // this phase overwrites any existing sequence documents that existed and
 // were ignored during the install phase
 // Unset: The last phase is to remove the unitseq from the service collection.
-func MoveServiceUnitSeqToSequence(st *State) error {
+func MoveServiceUnitSeqToSequence(st *state) error {
 	unitSeqDocs := []struct {
 		Name    string `bson:"name"`
 		UnitSeq int    `bson:"unitseq"`
@@ -1409,7 +1409,7 @@ func MoveServiceUnitSeqToSequence(st *State) error {
 }
 
 // DropOldIndexesv123 drops old mongo indexes.
-func DropOldIndexesv123(st *State) error {
+func DropOldIndexesv123(st *state) error {
 	for collName, indexes := range oldIndexesv123 {
 		c, closer := st.getRawCollection(collName)
 		defer closer()
@@ -1462,7 +1462,7 @@ var oldIndexesv123 = map[string][][]string{
 
 // AddLeadsershipSettingsDocs creates service leadership documents in
 // the settings collection for all services in all environments.
-func AddLeadershipSettingsDocs(st *State) error {
+func AddLeadershipSettingsDocs(st *state) error {
 	environments, closer := st.getCollection(environmentsC)
 	defer closer()
 
@@ -1474,7 +1474,7 @@ func AddLeadershipSettingsDocs(st *State) error {
 
 	for _, envDoc := range envDocs {
 		envUUID := envDoc["_id"].(string)
-		envSt, err := st.ForEnviron(names.NewEnvironTag(envUUID))
+		envSt, err := st.forEnviron(names.NewEnvironTag(envUUID))
 		if err != nil {
 			return errors.Annotatef(err, "failed to open environment %q", envUUID)
 		}
@@ -1499,7 +1499,7 @@ func AddLeadershipSettingsDocs(st *State) error {
 
 // AddDefaultBlockDevicesDocs creates block devices documents
 // for all existing machines in all environments.
-func AddDefaultBlockDevicesDocs(st *State) error {
+func AddDefaultBlockDevicesDocs(st *state) error {
 	environments, closer := st.getCollection(environmentsC)
 	defer closer()
 
@@ -1511,7 +1511,7 @@ func AddDefaultBlockDevicesDocs(st *State) error {
 
 	for _, envDoc := range envDocs {
 		envUUID := envDoc["_id"].(string)
-		envSt, err := st.ForEnviron(names.NewEnvironTag(envUUID))
+		envSt, err := st.forEnviron(names.NewEnvironTag(envUUID))
 		if err != nil {
 			return errors.Annotatef(err, "failed to open environment %q", envUUID)
 		}
@@ -1536,7 +1536,7 @@ func AddDefaultBlockDevicesDocs(st *State) error {
 
 // SetHostedEnvironCount is an upgrade step that sets hostedEnvCountDoc.Count
 // to the number of hosted environments.
-func SetHostedEnvironCount(st *State) error {
+func SetHostedEnvironCount(st *state) error {
 	environments, closer := st.getCollection(environmentsC)
 	defer closer()
 
@@ -1585,7 +1585,7 @@ type oldEnvUserDoc struct {
 // LastLogin from the userDoc into its own collection and removes the
 // lastlogin field from the userDoc. It does the same for LastConnection in
 // the envUserDoc.
-func MigrateLastLoginAndLastConnection(st *State) error {
+func MigrateLastLoginAndLastConnection(st *state) error {
 	err := st.ResumeTransactions()
 	if err != nil {
 		return err
@@ -1698,7 +1698,7 @@ func MigrateLastLoginAndLastConnection(st *State) error {
 
 // AddMissingEnvUUIDOnStatuses populates the env-uuid field where it
 // is missing due to LP #1474606.
-func AddMissingEnvUUIDOnStatuses(st *State) error {
+func AddMissingEnvUUIDOnStatuses(st *state) error {
 	statuses, closer := st.getRawCollection(statusesC)
 	defer closer()
 
@@ -1740,7 +1740,7 @@ func AddMissingEnvUUIDOnStatuses(st *State) error {
 
 // runForAllEnvStates will run runner function for every env passing a state
 // for that env.
-func runForAllEnvStates(st *State, runner func(st *State) error) error {
+func runForAllEnvStates(st *state, runner func(st *state) error) error {
 	environments, closer := st.getCollection(environmentsC)
 	defer closer()
 
@@ -1752,7 +1752,7 @@ func runForAllEnvStates(st *State, runner func(st *State) error) error {
 
 	for _, envDoc := range envDocs {
 		envUUID := envDoc["_id"].(string)
-		envSt, err := st.ForEnviron(names.NewEnvironTag(envUUID))
+		envSt, err := st.forEnviron(names.NewEnvironTag(envUUID))
 		if err != nil {
 			return errors.Annotatef(err, "failed to open environment %q", envUUID)
 		}
@@ -1766,7 +1766,7 @@ func runForAllEnvStates(st *State, runner func(st *State) error) error {
 
 // AddMissingServiceStatuses creates all service status documents that do
 // not already exist.
-func AddMissingServiceStatuses(st *State) error {
+func AddMissingServiceStatuses(st *state) error {
 	now := time.Now()
 
 	environments, closer := st.getCollection(environmentsC)
@@ -1780,7 +1780,7 @@ func AddMissingServiceStatuses(st *State) error {
 
 	for _, envDoc := range envDocs {
 		envUUID := envDoc["_id"].(string)
-		envSt, err := st.ForEnviron(names.NewEnvironTag(envUUID))
+		envSt, err := st.forEnviron(names.NewEnvironTag(envUUID))
 		if err != nil {
 			return errors.Annotatef(err, "failed to open environment %q", envUUID)
 		}
@@ -1821,7 +1821,7 @@ func AddMissingServiceStatuses(st *State) error {
 	return nil
 }
 
-func addVolumeAttachmentCount(st *State) error {
+func addVolumeAttachmentCount(st *state) error {
 	volumes, err := st.AllVolumes()
 	if err != nil {
 		return errors.Trace(err)
@@ -1847,11 +1847,11 @@ func addVolumeAttachmentCount(st *State) error {
 
 // AddVolumeAttachmentCount adds volumeDoc.AttachmentCount and
 // sets the right number to it.
-func AddVolumeAttachmentCount(st *State) error {
+func AddVolumeAttachmentCount(st *state) error {
 	return runForAllEnvStates(st, addVolumeAttachmentCount)
 }
 
-func addFilesystemsAttachmentCount(st *State) error {
+func addFilesystemsAttachmentCount(st *state) error {
 	filesystems, err := st.AllFilesystems()
 	if err != nil {
 		return errors.Trace(err)
@@ -1878,11 +1878,11 @@ func addFilesystemsAttachmentCount(st *State) error {
 
 // AddFilesystemAttachmentCount adds filesystemDoc.AttachmentCount and
 // sets the right number to it.
-func AddFilesystemsAttachmentCount(st *State) error {
+func AddFilesystemsAttachmentCount(st *state) error {
 	return runForAllEnvStates(st, addFilesystemsAttachmentCount)
 }
 
-func getVolumeBinding(st *State, volume Volume) (string, error) {
+func getVolumeBinding(st *state, volume Volume) (string, error) {
 	// first filesystem
 	fs, err := st.VolumeFilesystem(volume.VolumeTag())
 	if err == nil {
@@ -1912,7 +1912,7 @@ func getVolumeBinding(st *State, volume Volume) (string, error) {
 
 }
 
-func addBindingToVolume(st *State) error {
+func addBindingToVolume(st *state) error {
 	volumes, err := st.AllVolumes()
 	if err != nil {
 		return errors.Trace(err)
@@ -1938,11 +1938,11 @@ func addBindingToVolume(st *State) error {
 
 // AddBindingToVolumes adds the binding field to volumesDoc and
 // populates it.
-func AddBindingToVolumes(st *State) error {
+func AddBindingToVolumes(st *state) error {
 	return runForAllEnvStates(st, addBindingToVolume)
 }
 
-func getFilesystemBinding(st *State, filesystem Filesystem) (string, error) {
+func getFilesystemBinding(st *state, filesystem Filesystem) (string, error) {
 	storage, err := filesystem.Storage()
 	if err == nil {
 		return storage.String(), nil
@@ -1960,7 +1960,7 @@ func getFilesystemBinding(st *State, filesystem Filesystem) (string, error) {
 
 }
 
-func addBindingToFilesystems(st *State) error {
+func addBindingToFilesystems(st *state) error {
 	filesystems, err := st.AllFilesystems()
 	if err != nil {
 		return errors.Trace(err)
@@ -1985,29 +1985,29 @@ func addBindingToFilesystems(st *State) error {
 }
 
 // AddBindingToFilesystems adds the binding field to filesystemDoc and populates it.
-func AddBindingToFilesystems(st *State) error {
+func AddBindingToFilesystems(st *state) error {
 	return runForAllEnvStates(st, addBindingToFilesystems)
 }
 
 // ChangeStatusHistoryUpdatedType seeks for historicalStatusDoc records
 // whose updated attribute is a time and converts them to int64.
-func ChangeStatusHistoryUpdatedType(st *State) error {
+func ChangeStatusHistoryUpdatedType(st *state) error {
 	// Ensure all ids are using the new form.
 	if err := runForAllEnvStates(st, changeIdsFromSeqToAuto); err != nil {
 		return errors.Annotate(err, "cannot update ids of status history")
 	}
-	run := func(st *State) error { return changeUpdatedType(st, statusesHistoryC) }
+	run := func(st *state) error { return changeUpdatedType(st, statusesHistoryC) }
 	return runForAllEnvStates(st, run)
 }
 
 // ChangeStatusUpdatedType seeks for statusDoc records
 // whose updated attribute is a time and converts them to int64.
-func ChangeStatusUpdatedType(st *State) error {
-	run := func(st *State) error { return changeUpdatedType(st, statusesC) }
+func ChangeStatusUpdatedType(st *state) error {
+	run := func(st *state) error { return changeUpdatedType(st, statusesC) }
 	return runForAllEnvStates(st, run)
 }
 
-func changeIdsFromSeqToAuto(st *State) error {
+func changeIdsFromSeqToAuto(st *state) error {
 	var docs []bson.M
 	rawColl, closer := st.getRawCollection(statusesHistoryC)
 	defer closer()
@@ -2050,7 +2050,7 @@ func changeIdsFromSeqToAuto(st *State) error {
 
 }
 
-func changeUpdatedType(st *State, collection string) error {
+func changeUpdatedType(st *state, collection string) error {
 	var docs []bson.M
 	coll, closer := st.getCollection(collection)
 	defer closer()
@@ -2076,7 +2076,7 @@ func changeUpdatedType(st *State, collection string) error {
 }
 
 // ChangeStatusHistoryEntityId renames entityId field to globalkey.
-func ChangeStatusHistoryEntityId(st *State) error {
+func ChangeStatusHistoryEntityId(st *state) error {
 	// Ensure all ids are using the new form.
 	if err := runForAllEnvStates(st, changeIdsFromSeqToAuto); err != nil {
 		return errors.Annotate(err, "cannot update ids of status history")
@@ -2084,7 +2084,7 @@ func ChangeStatusHistoryEntityId(st *State) error {
 	return runForAllEnvStates(st, changeStatusHistoryEntityId)
 }
 
-func changeStatusHistoryEntityId(st *State) error {
+func changeStatusHistoryEntityId(st *state) error {
 	statusHistory, closer := st.getRawCollection(statusesHistoryC)
 	defer closer()
 
@@ -2114,8 +2114,8 @@ func changeStatusHistoryEntityId(st *State) error {
 }
 
 // AddVolumeStatus ensures each volume has a status doc.
-func AddVolumeStatus(st *State) error {
-	return runForAllEnvStates(st, func(st *State) error {
+func AddVolumeStatus(st *state) error {
+	return runForAllEnvStates(st, func(st *state) error {
 		volumes, err := st.AllVolumes()
 		if err != nil {
 			return errors.Trace(err)
@@ -2148,7 +2148,7 @@ func AddVolumeStatus(st *State) error {
 // If the volume has not been provisioned, then it should be Pending;
 // if it has been provisioned, but there is an unprovisioned attachment,
 // then it should be Attaching; otherwise it is Attached.
-func upgradingVolumeStatus(st *State, volume Volume) (Status, error) {
+func upgradingVolumeStatus(st *state, volume Volume) (Status, error) {
 	if _, err := volume.Info(); errors.IsNotProvisioned(err) {
 		return StatusPending, nil
 	}
@@ -2166,8 +2166,8 @@ func upgradingVolumeStatus(st *State, volume Volume) (Status, error) {
 }
 
 // AddFilesystemStatus ensures each filesystem has a status doc.
-func AddFilesystemStatus(st *State) error {
-	return runForAllEnvStates(st, func(st *State) error {
+func AddFilesystemStatus(st *state) error {
+	return runForAllEnvStates(st, func(st *state) error {
 		filesystems, err := st.AllFilesystems()
 		if err != nil {
 			return errors.Trace(err)
@@ -2200,7 +2200,7 @@ func AddFilesystemStatus(st *State) error {
 // If the filesystem has not been provisioned, then it should be Pending;
 // if it has been provisioned, but there is an unprovisioned attachment, then
 // it should be Attaching; otherwise it is Attached.
-func upgradingFilesystemStatus(st *State, filesystem Filesystem) (Status, error) {
+func upgradingFilesystemStatus(st *state, filesystem Filesystem) (Status, error) {
 	if _, err := filesystem.Info(); errors.IsNotProvisioned(err) {
 		return StatusPending, nil
 	}
@@ -2223,7 +2223,7 @@ func upgradingFilesystemStatus(st *State, filesystem Filesystem) (Status, error)
 //
 // This migration takes place both before and after env-uuid migration,
 // to get the correct txn-revno value.
-func MigrateSettingsSchema(st *State) error {
+func MigrateSettingsSchema(st *state) error {
 	coll, closer := st.getRawCollection(settingsC)
 	defer closer()
 

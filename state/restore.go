@@ -38,7 +38,7 @@ type restoreInfoDoc struct {
 
 // RestoreInfo its used to syncronize Restore and machine agent
 type RestoreInfo struct {
-	st  *State
+	st  *state
 	doc restoreInfoDoc
 }
 
@@ -75,7 +75,7 @@ func (info *RestoreInfo) SetStatus(status RestoreStatus) error {
 
 // RestoreInfoSetter returns the current info doc, if it does not exists
 // it creates it with UnknownRestoreStatus status
-func (st *State) RestoreInfoSetter() (*RestoreInfo, error) {
+func (st *state) RestoreInfoSetter() (*RestoreInfo, error) {
 	doc := restoreInfoDoc{}
 	restoreInfo, closer := st.getCollection(restoreInfoC)
 	defer closer()

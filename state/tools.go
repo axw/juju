@@ -20,7 +20,7 @@ var (
 // "toolsmetadata" collection.
 //
 // TODO(axw) remove this, add a constructor function in toolstorage.
-func (st *State) ToolsStorage() (toolstorage.StorageCloser, error) {
+func (st *state) ToolsStorage() (toolstorage.StorageCloser, error) {
 	uuid := st.EnvironUUID()
 	session := st.session.Copy()
 	rs := blobstore.NewGridFS(blobstoreDB, uuid, session)

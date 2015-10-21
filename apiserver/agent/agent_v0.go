@@ -19,13 +19,13 @@ type AgentAPIV0 struct {
 	*common.PasswordChanger
 	*common.RebootFlagClearer
 
-	st   *state.State
+	st   state.State
 	auth common.Authorizer
 }
 
 // NewAgentAPIV0 returns an object implementing version 0 of the Agent API
 // with the given authorizer representing the currently logged in client.
-func NewAgentAPIV0(st *state.State, resources *common.Resources, auth common.Authorizer) (*AgentAPIV0, error) {
+func NewAgentAPIV0(st state.State, resources *common.Resources, auth common.Authorizer) (*AgentAPIV0, error) {
 	// Agents are defined to be any user that's not a client user.
 	if !auth.AuthMachineAgent() && !auth.AuthUnitAgent() {
 		return nil, common.ErrPerm

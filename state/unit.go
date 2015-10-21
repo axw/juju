@@ -109,13 +109,13 @@ type unitDoc struct {
 
 // Unit represents the state of a service unit.
 type Unit struct {
-	st  *State
+	st  *state
 	doc unitDoc
 	presence.Presencer
 	StatusHistoryGetter
 }
 
-func newUnit(st *State, udoc *unitDoc) *Unit {
+func newUnit(st *state, udoc *unitDoc) *Unit {
 	unit := &Unit{
 		st:  st,
 		doc: *udoc,
@@ -1252,7 +1252,7 @@ func validateDynamicMachineStorageParams(m *Machine, params *machineStorageParam
 // provisioning the storage in params support dynamic storage.
 // If any provider doesn't support dynamic storage, then an IsNotSupported error
 // is returned.
-func validateDynamicStorageParams(st *State, params *machineStorageParams) error {
+func validateDynamicStorageParams(st *state, params *machineStorageParams) error {
 	pools := make(set.Strings)
 	for _, v := range params.volumes {
 		v, err := st.volumeParamsWithDefaults(v.Volume)
@@ -1606,7 +1606,7 @@ func (u *Unit) machineStorageParams() (*machineStorageParams, error) {
 // the unit will be assigned to. These parameters are based on a given storage
 // instance.
 func machineStorageParamsForStorageInstance(
-	st *State,
+	st *state,
 	charmMeta *charm.Meta,
 	unit names.UnitTag,
 	series string,

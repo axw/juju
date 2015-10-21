@@ -22,7 +22,7 @@ import (
 // RelationUnit holds information about a single unit in a relation, and
 // allows clients to conveniently access unit-specific functionality.
 type RelationUnit struct {
-	st       *State
+	st       *state
 	relation *Relation
 	unit     *Unit
 	endpoint Endpoint

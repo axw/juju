@@ -24,19 +24,19 @@ func leadershipSettingsKey(serviceId string) string {
 
 // LeadershipClaimer returns a leadership.Claimer for units and services in the
 // state's environment.
-func (st *State) LeadershipClaimer() leadership.Claimer {
+func (st *state) LeadershipClaimer() leadership.Claimer {
 	return st.leadershipManager
 }
 
 // LeadershipChecker returns a leadership.Checker for units and services in the
 // state's environment.
-func (st *State) LeadershipChecker() leadership.Checker {
+func (st *state) LeadershipChecker() leadership.Checker {
 	return st.leadershipManager
 }
 
 // HackLeadership stops the state's internal leadership manager to prevent it
 // from interfering with apiserver shutdown.
-func (st *State) HackLeadership() {
+func (st *state) HackLeadership() {
 	// TODO(fwereade): 2015-08-07 lp:1482634
 	// obviously, this should not exist: it's a quick hack to address lp:1481368 in
 	// 1.24.4, and should be quickly replaced with something that isn't so heinous.

@@ -48,11 +48,11 @@ type relationDoc struct {
 
 // Relation represents a relation between one or two service endpoints.
 type Relation struct {
-	st  *State
+	st  *state
 	doc relationDoc
 }
 
-func newRelation(st *State, doc *relationDoc) *Relation {
+func newRelation(st *state, doc *relationDoc) *Relation {
 	return &Relation{
 		st:  st,
 		doc: *doc,

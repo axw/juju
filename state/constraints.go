@@ -47,7 +47,7 @@ func (doc constraintsDoc) value() constraints.Value {
 	}
 }
 
-func newConstraintsDoc(st *State, cons constraints.Value) constraintsDoc {
+func newConstraintsDoc(st *state, cons constraints.Value) constraintsDoc {
 	return constraintsDoc{
 		EnvUUID:      st.EnvironUUID(),
 		Arch:         cons.Arch,
@@ -63,7 +63,7 @@ func newConstraintsDoc(st *State, cons constraints.Value) constraintsDoc {
 	}
 }
 
-func createConstraintsOp(st *State, id string, cons constraints.Value) txn.Op {
+func createConstraintsOp(st *state, id string, cons constraints.Value) txn.Op {
 	return txn.Op{
 		C:      constraintsC,
 		Id:     st.docID(id),
@@ -72,7 +72,7 @@ func createConstraintsOp(st *State, id string, cons constraints.Value) txn.Op {
 	}
 }
 
-func setConstraintsOp(st *State, id string, cons constraints.Value) txn.Op {
+func setConstraintsOp(st *state, id string, cons constraints.Value) txn.Op {
 	return txn.Op{
 		C:      constraintsC,
 		Id:     st.docID(id),
@@ -81,7 +81,7 @@ func setConstraintsOp(st *State, id string, cons constraints.Value) txn.Op {
 	}
 }
 
-func removeConstraintsOp(st *State, id string) txn.Op {
+func removeConstraintsOp(st *state, id string) txn.Op {
 	return txn.Op{
 		C:      constraintsC,
 		Id:     st.docID(id),
@@ -89,7 +89,7 @@ func removeConstraintsOp(st *State, id string) txn.Op {
 	}
 }
 
-func readConstraints(st *State, id string) (constraints.Value, error) {
+func readConstraints(st *state, id string) (constraints.Value, error) {
 	constraintsCollection, closer := st.getCollection(constraintsC)
 	defer closer()
 
@@ -102,7 +102,7 @@ func readConstraints(st *State, id string) (constraints.Value, error) {
 	return doc.value(), nil
 }
 
-func writeConstraints(st *State, id string, cons constraints.Value) error {
+func writeConstraints(st *state, id string, cons constraints.Value) error {
 	ops := []txn.Op{setConstraintsOp(st, id, cons)}
 	if err := st.runTransaction(ops); err != nil {
 		return fmt.Errorf("cannot set constraints: %v", err)

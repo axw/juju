@@ -103,7 +103,7 @@ func setMinUnitsOps(service *Service, minUnits int) []txn.Op {
 // destroyed: if the document exists, then we need to update the Revno.
 // If the service does not require a minimum number of units, then the
 // operation is a noop.
-func minUnitsTriggerOp(st *State, serviceName string) txn.Op {
+func minUnitsTriggerOp(st *state, serviceName string) txn.Op {
 	return txn.Op{
 		C:      minUnitsC,
 		Id:     st.docID(serviceName),
@@ -113,7 +113,7 @@ func minUnitsTriggerOp(st *State, serviceName string) txn.Op {
 
 // minUnitsRemoveOp returns the operation required to remove the minimum
 // units document from MongoDB.
-func minUnitsRemoveOp(st *State, serviceName string) txn.Op {
+func minUnitsRemoveOp(st *state, serviceName string) txn.Op {
 	return txn.Op{
 		C:      minUnitsC,
 		Id:     st.docID(serviceName),

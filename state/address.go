@@ -16,7 +16,7 @@ import (
 
 // stateServerAddresses returns the list of internal addresses of the state
 // server machines.
-func (st *State) stateServerAddresses() ([]string, error) {
+func (st *state) stateServerAddresses() ([]string, error) {
 	ssState := st
 	env, err := st.StateServerEnvironment()
 	if err != nil {
@@ -25,7 +25,7 @@ func (st *State) stateServerAddresses() ([]string, error) {
 	if st.EnvironTag() != env.EnvironTag() {
 		// We are not using the state server environment, so get one.
 		logger.Debugf("getting a state server state connection, current env: %s", st.EnvironTag())
-		ssState, err = st.ForEnviron(env.EnvironTag())
+		ssState, err = st.forEnviron(env.EnvironTag())
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -71,7 +71,7 @@ func appendPort(addrs []string, port int) []string {
 
 // Addresses returns the list of cloud-internal addresses that
 // can be used to connect to the state.
-func (st *State) Addresses() ([]string, error) {
+func (st *state) Addresses() ([]string, error) {
 	addrs, err := st.stateServerAddresses()
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -87,7 +87,7 @@ func (st *State) Addresses() ([]string, error) {
 // can be used to connect to the state API server.
 // This method will be deprecated when API addresses are
 // stored independently in their own document.
-func (st *State) APIAddressesFromMachines() ([]string, error) {
+func (st *state) APIAddressesFromMachines() ([]string, error) {
 	addrs, err := st.stateServerAddresses()
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -107,7 +107,7 @@ type apiHostPortsDoc struct {
 
 // SetAPIHostPorts sets the addresses of the API server instances.
 // Each server is represented by one element in the top level slice.
-func (st *State) SetAPIHostPorts(netHostsPorts [][]network.HostPort) error {
+func (st *state) SetAPIHostPorts(netHostsPorts [][]network.HostPort) error {
 	doc := apiHostPortsDoc{
 		APIHostPorts: fromNetworkHostsPorts(netHostsPorts),
 	}
@@ -138,7 +138,7 @@ func (st *State) SetAPIHostPorts(netHostsPorts [][]network.HostPort) error {
 }
 
 // APIHostPorts returns the API addresses as set by SetAPIHostPorts.
-func (st *State) APIHostPorts() ([][]network.HostPort, error) {
+func (st *state) APIHostPorts() ([][]network.HostPort, error) {
 	var doc apiHostPortsDoc
 	stateServers, closer := st.getCollection(stateServersC)
 	defer closer()
@@ -156,7 +156,7 @@ type DeployerConnectionValues struct {
 
 // DeployerConnectionInfo returns the address information necessary for the deployer.
 // The function does the expensive operations (getting stuff from mongo) just once.
-func (st *State) DeployerConnectionInfo() (*DeployerConnectionValues, error) {
+func (st *state) DeployerConnectionInfo() (*DeployerConnectionValues, error) {
 	addrs, err := st.stateServerAddresses()
 	if err != nil {
 		return nil, errors.Trace(err)

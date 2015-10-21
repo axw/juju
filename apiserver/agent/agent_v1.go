@@ -19,7 +19,7 @@ type AgentAPIV1 struct {
 // with the given authorizer representing the currently logged in client.
 // The functionality is like V0, except that it also knows about the additional
 // JobManageNetworking.
-func NewAgentAPIV1(st *state.State, resources *common.Resources, auth common.Authorizer) (*AgentAPIV1, error) {
+func NewAgentAPIV1(st state.State, resources *common.Resources, auth common.Authorizer) (*AgentAPIV1, error) {
 	apiV0, err := NewAgentAPIV0(st, resources, auth)
 	if err != nil {
 		return nil, errors.Trace(err)

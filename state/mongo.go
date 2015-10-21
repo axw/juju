@@ -12,7 +12,7 @@ import (
 // environMongo implements state/lease.Mongo to expose environ-filtered mongo
 // capabilities to the lease package.
 type environMongo struct {
-	state *State
+	state *state
 }
 
 // GetCollection is part of the lease.Mongo interface.

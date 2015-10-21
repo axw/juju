@@ -11,7 +11,7 @@ import (
 )
 
 // readTxnRevno is a convenience method delegating to the state's Database.
-func (st *State) readTxnRevno(collectionName string, id interface{}) (int64, error) {
+func (st *state) readTxnRevno(collectionName string, id interface{}) (int64, error) {
 	collection, closer := st.database.GetCollection(collectionName)
 	defer closer()
 	query := collection.FindId(id).Select(bson.D{{"txn-revno", 1}})
@@ -23,7 +23,7 @@ func (st *State) readTxnRevno(collectionName string, id interface{}) (int64, err
 }
 
 // runTransaction is a convenience method delegating to the state's Database.
-func (st *State) runTransaction(ops []txn.Op) error {
+func (st *state) runTransaction(ops []txn.Op) error {
 	runner, closer := st.database.TransactionRunner()
 	defer closer()
 	return runner.RunTransaction(ops)
@@ -32,7 +32,7 @@ func (st *State) runTransaction(ops []txn.Op) error {
 // runRawTransaction is a convenience method that will run a single
 // transaction using a "raw" transaction runner that won't perform
 // environment filtering.
-func (st *State) runRawTransaction(ops []txn.Op) error {
+func (st *state) runRawTransaction(ops []txn.Op) error {
 	runner, closer := st.database.TransactionRunner()
 	defer closer()
 	if multiRunner, ok := runner.(*multiEnvRunner); ok {
@@ -42,21 +42,21 @@ func (st *State) runRawTransaction(ops []txn.Op) error {
 }
 
 // run is a convenience method delegating to the state's Database.
-func (st *State) run(transactions jujutxn.TransactionSource) error {
+func (st *state) run(transactions jujutxn.TransactionSource) error {
 	runner, closer := st.database.TransactionRunner()
 	defer closer()
 	return runner.Run(transactions)
 }
 
 // ResumeTransactions resumes all pending transactions.
-func (st *State) ResumeTransactions() error {
+func (st *state) ResumeTransactions() error {
 	runner, closer := st.database.TransactionRunner()
 	defer closer()
 	return runner.ResumeTransactions()
 }
 
 // MaybePruneTransactions removes data for completed transactions.
-func (st *State) MaybePruneTransactions() error {
+func (st *state) MaybePruneTransactions() error {
 	runner, closer := st.database.TransactionRunner()
 	defer closer()
 	// Prune txns only when txn count has doubled since last prune.

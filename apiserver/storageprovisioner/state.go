@@ -51,7 +51,7 @@ type provisionerState interface {
 }
 
 type stateShim struct {
-	*state.State
+	state.State
 }
 
 func (s stateShim) MachineInstanceId(tag names.MachineTag) (instance.Id, error) {

@@ -27,7 +27,7 @@ type UniterAPIV1 struct {
 }
 
 // NewUniterAPIV1 creates a new instance of the Uniter API, version 1.
-func NewUniterAPIV1(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*UniterAPIV1, error) {
+func NewUniterAPIV1(st state.State, resources *common.Resources, authorizer common.Authorizer) (*UniterAPIV1, error) {
 	baseAPI, err := newUniterBaseAPI(st, resources, authorizer)
 	if err != nil {
 		return nil, err

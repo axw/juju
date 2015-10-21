@@ -84,12 +84,12 @@ type storageAccess interface {
 	GetBlockForType(t state.BlockType) (state.Block, bool, error)
 }
 
-var getState = func(st *state.State) storageAccess {
+var getState = func(st state.State) storageAccess {
 	return stateShim{st}
 }
 
 type stateShim struct {
-	*state.State
+	state.State
 }
 
 // UnitAssignedMachine returns the tag of the machine that the unit

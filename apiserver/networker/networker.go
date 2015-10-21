@@ -24,7 +24,7 @@ var logger = loggo.GetLogger("juju.apiserver.networker")
 
 // NetworkerAPI provides access to the Networker API facade.
 type NetworkerAPI struct {
-	st          *state.State
+	st          state.State
 	resources   *common.Resources
 	authorizer  common.Authorizer
 	getAuthFunc common.GetAuthFunc
@@ -32,7 +32,7 @@ type NetworkerAPI struct {
 
 // NewNetworkerAPI creates a new server-side Networker API facade.
 func NewNetworkerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*NetworkerAPI, error) {

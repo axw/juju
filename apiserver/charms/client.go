@@ -18,7 +18,7 @@ func init() {
 	common.RegisterStandardFacade("Charms", 1, NewAPI)
 }
 
-var getState = func(st *state.State) charmsAccess {
+var getState = func(st state.State) charmsAccess {
 	return stateShim{st}
 }
 
@@ -38,7 +38,7 @@ type API struct {
 
 // NewAPI returns a new charms API facade.
 func NewAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*API, error) {

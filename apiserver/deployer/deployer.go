@@ -26,14 +26,14 @@ type DeployerAPI struct {
 	*common.APIAddresser
 	*common.UnitsWatcher
 
-	st         *state.State
+	st         state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 }
 
 // NewDeployerAPI creates a new server-side DeployerAPI facade.
 func NewDeployerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*DeployerAPI, error) {
@@ -90,7 +90,7 @@ func (d *DeployerAPI) ConnectionInfo() (result params.DeployerConnectionValues, 
 
 // getAllUnits returns a list of all principal and subordinate units
 // assigned to the given machine.
-func getAllUnits(st *state.State, tag names.Tag) ([]string, error) {
+func getAllUnits(st state.State, tag names.Tag) ([]string, error) {
 	machine, err := st.Machine(tag.Id())
 	if err != nil {
 		return nil, err

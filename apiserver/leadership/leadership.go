@@ -46,7 +46,7 @@ func init() {
 // NewLeadershipServiceFacade constructs a new LeadershipService and presents
 // a signature that can be used with RegisterStandardFacade.
 func NewLeadershipServiceFacade(
-	state *state.State, resources *common.Resources, authorizer common.Authorizer,
+	state state.State, resources *common.Resources, authorizer common.Authorizer,
 ) (LeadershipService, error) {
 	return NewLeadershipService(state.LeadershipClaimer(), authorizer)
 }

@@ -19,7 +19,7 @@ import (
 	"github.com/juju/juju/state/backups"
 )
 
-var newBackups = func(st *state.State) (backups.Backups, io.Closer) {
+var newBackups = func(st state.State) (backups.Backups, io.Closer) {
 	stor := backups.NewStorage(st)
 	return backups.NewBackups(stor), stor
 }

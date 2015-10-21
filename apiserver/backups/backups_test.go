@@ -55,7 +55,7 @@ func (s *backupsSuite) setBackups(c *gc.C, meta *backups.Metadata, err string) *
 		fake.Error = errors.Errorf(err)
 	}
 	s.PatchValue(backupsAPI.NewBackups,
-		func(*state.State) (backups.Backups, io.Closer) {
+		func(state.State) (backups.Backups, io.Closer) {
 			return &fake, ioutil.NopCloser(nil)
 		},
 	)

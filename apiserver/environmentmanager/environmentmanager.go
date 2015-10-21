@@ -49,7 +49,7 @@ var _ EnvironmentManager = (*EnvironmentManagerAPI)(nil)
 // NewEnvironmentManagerAPI creates a new api server endpoint for managing
 // environments.
 func NewEnvironmentManagerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*EnvironmentManagerAPI, error) {

@@ -26,14 +26,14 @@ type EnvironmentWatcher interface {
 
 type EnvironWatcherTest struct {
 	envWatcher EnvironmentWatcher
-	st         *state.State
+	st         state.State
 	resources  *common.Resources
 	hasSecrets bool
 }
 
 func NewEnvironWatcherTest(
 	envWatcher EnvironmentWatcher,
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	hasSecrets bool) *EnvironWatcherTest {
 	return &EnvironWatcherTest{envWatcher, st, resources, hasSecrets}

@@ -38,13 +38,13 @@ type Service interface {
 // implementation of the api end point.
 type API struct {
 	check      *common.BlockChecker
-	state      *state.State
+	state      state.State
 	authorizer common.Authorizer
 }
 
 // NewAPI returns a new service API facade.
 func NewAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*API, error) {
@@ -106,7 +106,7 @@ func (api *API) ServicesDeployWithPlacement(args params.ServicesDeploy) (params.
 // DeployService fetches the charm from the charm store and deploys it.
 // The logic has been factored out into a common function which is called by
 // both the legacy API on the client facade, as well as the new service facade.
-func DeployService(st *state.State, owner string, args params.ServiceDeploy) error {
+func DeployService(st state.State, owner string, args params.ServiceDeploy) error {
 	curl, err := charm.ParseURL(args.CharmUrl)
 	if err != nil {
 		return errors.Trace(err)

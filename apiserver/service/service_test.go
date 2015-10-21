@@ -181,7 +181,7 @@ func (s *serviceSuite) TestCompatibleSettingsParsing(c *gc.C) {
 	c.Assert(err, gc.ErrorMatches, `unknown option "yummy"`)
 }
 
-func setupStoragePool(c *gc.C, st *state.State) {
+func setupStoragePool(c *gc.C, st state.State) {
 	pm := poolmanager.New(state.NewStateSettings(st))
 	_, err := pm.Create("loop-pool", provider.LoopProviderType, map[string]interface{}{})
 	c.Assert(err, jc.ErrorIsNil)

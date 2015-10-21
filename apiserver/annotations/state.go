@@ -16,7 +16,7 @@ type annotationAccess interface {
 }
 
 type stateShim struct {
-	state *state.State
+	state state.State
 }
 
 func (s stateShim) FindEntity(tag names.Tag) (state.Entity, error) {

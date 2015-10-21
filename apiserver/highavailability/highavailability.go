@@ -26,7 +26,7 @@ type HighAvailability interface {
 // HighAvailabilityAPI implements the HighAvailability interface and is the concrete
 // implementation of the api end point.
 type HighAvailabilityAPI struct {
-	state      *state.State
+	state      state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 }
@@ -34,7 +34,7 @@ type HighAvailabilityAPI struct {
 var _ HighAvailability = (*HighAvailabilityAPI)(nil)
 
 // NewHighAvailabilityAPI creates a new server-side highavailability API end point.
-func NewHighAvailabilityAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*HighAvailabilityAPI, error) {
+func NewHighAvailabilityAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*HighAvailabilityAPI, error) {
 	// Only clients and environment managers can access the high availability service.
 	if !authorizer.AuthClient() && !authorizer.AuthEnvironManager() {
 		return nil, common.ErrPerm
@@ -79,7 +79,7 @@ func stateServersChanges(change state.StateServersChanges) params.StateServersCh
 
 // EnsureAvailabilitySingle applies a single StateServersSpec specification to the current environment.
 // Exported so it can be called by the legacy client API in the client package.
-func EnsureAvailabilitySingle(st *state.State, spec params.StateServersSpec) (params.StateServersChanges, error) {
+func EnsureAvailabilitySingle(st state.State, spec params.StateServersSpec) (params.StateServersChanges, error) {
 	if !st.IsStateServer() {
 		return params.StateServersChanges{}, errors.New("unsupported with hosted environments")
 	}

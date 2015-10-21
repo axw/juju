@@ -11,9 +11,9 @@ type StateInterface interface {
 }
 
 type stateShim struct {
-	*state.State
+	state.State
 }
 
-var getState = func(st *state.State) StateInterface {
+var getState = func(st state.State) StateInterface {
 	return stateShim{st}
 }

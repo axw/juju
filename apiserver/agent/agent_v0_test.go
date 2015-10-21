@@ -16,7 +16,7 @@ import (
 
 // Definition of reusable V0 tests.
 
-type factoryV0 func(st *state.State, resources *common.Resources, auth common.Authorizer) (interface{}, error)
+type factoryV0 func(st state.State, resources *common.Resources, auth common.Authorizer) (interface{}, error)
 
 func (s *baseSuite) testAgentFailsWithNonAgentV0(c *gc.C, factory factoryV0) {
 	auth := s.authorizer
@@ -158,7 +158,7 @@ func (s *baseSuite) testSetPasswordsShortV0(c *gc.C, api setPasswordsV0) {
 
 // V0 test suite.
 
-func factoryWrapperV0(st *state.State, resources *common.Resources, auth common.Authorizer) (interface{}, error) {
+func factoryWrapperV0(st state.State, resources *common.Resources, auth common.Authorizer) (interface{}, error) {
 	return agent.NewAgentAPIV0(st, resources, auth)
 }
 

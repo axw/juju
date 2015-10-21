@@ -235,7 +235,7 @@ var doCheckCreds = checkCreds
 // for the environment.  In the case of a user logging in to the server, but
 // not an environment, there is no env user needed.  While we have the env
 // user, if we do have it, update the last login time.
-func checkCreds(st *state.State, req params.LoginRequest, lookForEnvUser bool) (state.Entity, *time.Time, error) {
+func checkCreds(st state.State, req params.LoginRequest, lookForEnvUser bool) (state.Entity, *time.Time, error) {
 	tag, err := names.ParseTag(req.AuthTag)
 	if err != nil {
 		return nil, nil, err

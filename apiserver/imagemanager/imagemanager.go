@@ -36,12 +36,12 @@ type ImageManagerAPI struct {
 
 var _ ImageManager = (*ImageManagerAPI)(nil)
 
-var getState = func(st *state.State) stateInterface {
+var getState = func(st state.State) stateInterface {
 	return stateShim{st}
 }
 
 // NewImageManagerAPI creates a new server-side imagemanager API end point.
-func NewImageManagerAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*ImageManagerAPI, error) {
+func NewImageManagerAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*ImageManagerAPI, error) {
 	// Only clients can access the image manager service.
 	if !authorizer.AuthClient() {
 		return nil, common.ErrPerm

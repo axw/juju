@@ -16,7 +16,7 @@ func init() {
 	common.RegisterStandardFacade("Annotations", 1, NewAPI)
 }
 
-var getState = func(st *state.State) annotationAccess {
+var getState = func(st state.State) annotationAccess {
 	return stateShim{st}
 }
 
@@ -35,7 +35,7 @@ type API struct {
 
 // NewAPI returns a new charm annotator API facade.
 func NewAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*API, error) {

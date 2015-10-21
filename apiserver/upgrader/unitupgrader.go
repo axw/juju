@@ -17,14 +17,14 @@ import (
 type UnitUpgraderAPI struct {
 	*common.ToolsSetter
 
-	st         *state.State
+	st         state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 }
 
 // NewUnitUpgraderAPI creates a new server-side UnitUpgraderAPI facade.
 func NewUnitUpgraderAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*UnitUpgraderAPI, error) {

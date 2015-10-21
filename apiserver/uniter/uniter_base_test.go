@@ -114,7 +114,7 @@ func (s *uniterBaseSuite) setUpTest(c *gc.C) {
 
 func (s *uniterBaseSuite) testUniterFailsWithNonUnitAgentUser(
 	c *gc.C,
-	factory func(_ *state.State, _ *common.Resources, _ common.Authorizer) error,
+	factory func(_ state.State, _ *common.Resources, _ common.Authorizer) error,
 ) {
 	anAuthorizer := s.authorizer
 	anAuthorizer.Tag = names.NewMachineTag("9")
@@ -508,7 +508,7 @@ func (s *uniterBaseSuite) testAvailabilityZone(
 		AvailabilityZone(args params.Entities) (params.StringResults, error)
 	},
 ) {
-	s.PatchValue(uniter.GetZone, func(st *state.State, tag names.Tag) (string, error) {
+	s.PatchValue(uniter.GetZone, func(st state.State, tag names.Tag) (string, error) {
 		return "a_zone", nil
 	})
 
@@ -592,7 +592,7 @@ type getPrincipal interface {
 func (s *uniterBaseSuite) testGetPrincipal(
 	c *gc.C,
 	facade getPrincipal,
-	factory func(_ *state.State, _ *common.Resources, _ common.Authorizer) (getPrincipal, error),
+	factory func(_ state.State, _ *common.Resources, _ common.Authorizer) (getPrincipal, error),
 ) {
 	// Add a subordinate to wordpressUnit.
 	_, _, subordinate := s.addRelatedService(c, "wordpress", "logging", s.wordpressUnit)
@@ -1345,7 +1345,7 @@ func (s *uniterBaseSuite) testActionsNotPresent(c *gc.C, facade actions) {
 
 func (s *uniterBaseSuite) testActionsWrongUnit(
 	c *gc.C,
-	factory func(_ *state.State, _ *common.Resources, _ common.Authorizer) (actions, error),
+	factory func(_ state.State, _ *common.Resources, _ common.Authorizer) (actions, error),
 ) {
 	// Action doesn't match unit.
 	mysqlUnitAuthorizer := apiservertesting.FakeAuthorizer{

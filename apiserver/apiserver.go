@@ -39,8 +39,8 @@ const loginRateLimit = 10
 type Server struct {
 	tomb              tomb.Tomb
 	wg                sync.WaitGroup
-	state             *state.State
-	statePool         *state.StatePool
+	state             state.State
+	statePool         state.StatePool
 	addr              *net.TCPAddr
 	tag               names.Tag
 	dataDir           string
@@ -157,7 +157,7 @@ func (cl *changeCertListener) updateCertificate(cert, key []byte) {
 // NewServer serves the given state by accepting requests on the given
 // listener, using the given certificate and key (in PEM format) for
 // authentication.
-func NewServer(s *state.State, lis net.Listener, cfg ServerConfig) (*Server, error) {
+func NewServer(s state.State, lis net.Listener, cfg ServerConfig) (*Server, error) {
 	l, ok := lis.(*net.TCPListener)
 	if !ok {
 		return nil, errors.Errorf("listener is not of type *net.TCPListener: %T", lis)
@@ -165,7 +165,7 @@ func NewServer(s *state.State, lis net.Listener, cfg ServerConfig) (*Server, err
 	return newServer(s, l, cfg)
 }
 
-func newServer(s *state.State, lis *net.TCPListener, cfg ServerConfig) (*Server, error) {
+func newServer(s state.State, lis *net.TCPListener, cfg ServerConfig) (*Server, error) {
 	logger.Infof("listening on %q", lis.Addr())
 	srv := &Server{
 		state:     s,

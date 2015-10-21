@@ -19,7 +19,7 @@ func init() {
 type RsyslogAPI struct {
 	*common.EnvironWatcher
 
-	st             *state.State
+	st             state.State
 	resources      *common.Resources
 	authorizer     common.Authorizer
 	StateAddresser *common.StateAddresser
@@ -27,7 +27,7 @@ type RsyslogAPI struct {
 }
 
 // NewRsyslogAPI creates a new instance of the Rsyslog API.
-func NewRsyslogAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*RsyslogAPI, error) {
+func NewRsyslogAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*RsyslogAPI, error) {
 	if !authorizer.AuthMachineAgent() && !authorizer.AuthUnitAgent() {
 		return nil, common.ErrPerm
 	}

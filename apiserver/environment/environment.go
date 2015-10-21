@@ -19,7 +19,7 @@ type EnvironmentAPI struct {
 }
 
 // NewEnvironmentAPI creates a new instance of the Environment API.
-func NewEnvironmentAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*EnvironmentAPI, error) {
+func NewEnvironmentAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*EnvironmentAPI, error) {
 	return &EnvironmentAPI{
 		EnvironWatcher: common.NewEnvironWatcher(st, resources, authorizer),
 		EnvironTools:   NewEnvironTools(st, authorizer),

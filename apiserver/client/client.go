@@ -47,7 +47,7 @@ type API struct {
 // state returns a state.State instance for this API.
 // Until all code is refactored to use interfaces, we
 // need this helper to keep older code happy.
-func (api *API) state() *state.State {
+func (api *API) state() state.State {
 	return api.stateAccessor.(*stateShim).State
 }
 
@@ -57,12 +57,12 @@ type Client struct {
 	check *common.BlockChecker
 }
 
-var getState = func(st *state.State) stateInterface {
+var getState = func(st state.State) stateInterface {
 	return &stateShim{st}
 }
 
 // NewClient creates a new instance of the Client Facade.
-func NewClient(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*Client, error) {
+func NewClient(st state.State, resources *common.Resources, authorizer common.Authorizer) (*Client, error) {
 	if !authorizer.AuthClient() {
 		return nil, common.ErrPerm
 	}
@@ -420,7 +420,7 @@ func (c *Client) ServiceSetCharm(args params.ServiceSetCharm) error {
 }
 
 // addServiceUnits adds a given number of units to a service.
-func addServiceUnits(st *state.State, args params.AddServiceUnits) ([]*state.Unit, error) {
+func addServiceUnits(st state.State, args params.AddServiceUnits) ([]*state.Unit, error) {
 	service, err := st.Service(args.ServiceName)
 	if err != nil {
 		return nil, err

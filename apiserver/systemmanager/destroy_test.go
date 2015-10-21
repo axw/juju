@@ -32,7 +32,7 @@ type destroySystemSuite struct {
 
 	systemManager *systemmanager.SystemManagerAPI
 
-	otherState    *state.State
+	otherState    state.State
 	otherEnvOwner names.UserTag
 	otherEnvUUID  string
 }

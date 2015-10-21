@@ -37,7 +37,7 @@ type InstancePollerAPI struct {
 // NewInstancePollerAPI creates a new server-side InstancePoller API
 // facade.
 func NewInstancePollerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*InstancePollerAPI, error) {

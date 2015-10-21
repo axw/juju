@@ -15,12 +15,12 @@ type metadataAcess interface {
 	EnvironConfig() (*config.Config, error)
 }
 
-var getState = func(st *state.State) metadataAcess {
+var getState = func(st state.State) metadataAcess {
 	return stateShim{st}
 }
 
 type stateShim struct {
-	*state.State
+	state.State
 }
 
 func (s stateShim) FindMetadata(f cloudimagemetadata.MetadataFilter) (map[cloudimagemetadata.SourceType][]cloudimagemetadata.Metadata, error) {

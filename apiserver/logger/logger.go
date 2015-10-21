@@ -31,7 +31,7 @@ type Logger interface {
 // LoggerAPI implements the Logger interface and is the concrete
 // implementation of the api end point.
 type LoggerAPI struct {
-	state      *state.State
+	state      state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 }
@@ -40,7 +40,7 @@ var _ Logger = (*LoggerAPI)(nil)
 
 // NewLoggerAPI creates a new server-side logger API end point.
 func NewLoggerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*LoggerAPI, error) {

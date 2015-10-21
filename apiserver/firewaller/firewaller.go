@@ -28,7 +28,7 @@ type FirewallerAPI struct {
 	*common.EnvironMachinesWatcher
 	*common.InstanceIdGetter
 
-	st            *state.State
+	st            state.State
 	resources     *common.Resources
 	authorizer    common.Authorizer
 	accessUnit    common.GetAuthFunc
@@ -39,7 +39,7 @@ type FirewallerAPI struct {
 
 // NewFirewallerAPI creates a new server-side FirewallerAPI facade.
 func NewFirewallerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*FirewallerAPI, error) {

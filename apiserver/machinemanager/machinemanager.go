@@ -26,13 +26,13 @@ type MachineManagerAPI struct {
 	check      *common.BlockChecker
 }
 
-var getState = func(st *state.State) stateInterface {
+var getState = func(st state.State) stateInterface {
 	return stateShim{st}
 }
 
 // NewMachineManagerAPI creates a new server-side MachineManager API facade.
 func NewMachineManagerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*MachineManagerAPI, error) {

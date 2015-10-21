@@ -28,7 +28,7 @@ type CharmRevisionUpdater interface {
 // CharmRevisionUpdaterAPI implements the CharmRevisionUpdater interface and is the concrete
 // implementation of the api end point.
 type CharmRevisionUpdaterAPI struct {
-	state      *state.State
+	state      state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 }
@@ -37,7 +37,7 @@ var _ CharmRevisionUpdater = (*CharmRevisionUpdaterAPI)(nil)
 
 // NewCharmRevisionUpdaterAPI creates a new server-side charmrevisionupdater API end point.
 func NewCharmRevisionUpdaterAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*CharmRevisionUpdaterAPI, error) {
@@ -78,7 +78,7 @@ func (api *CharmRevisionUpdaterAPI) UpdateLatestRevisions() (params.ErrorResult,
 
 // fetchAllDeployedCharms returns a map from service name to service
 // and a map from service name to unit name to unit.
-func fetchAllDeployedCharms(st *state.State) (map[string]*charm.URL, error) {
+func fetchAllDeployedCharms(st state.State) (map[string]*charm.URL, error) {
 	deployedCharms := make(map[string]*charm.URL)
 	services, err := st.AllServices()
 	if err != nil {

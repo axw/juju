@@ -80,7 +80,7 @@ func (s *spaceShim) Subnets() ([]common.BackingSubnet, error) {
 // method.
 type stateShim struct {
 	Backing
-	st *state.State
+	st state.State
 }
 
 func (s *stateShim) EnvironConfig() (*config.Config, error) {

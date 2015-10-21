@@ -10,7 +10,7 @@ type stateInterface interface {
 }
 
 type stateShim struct {
-	*state.State
+	state.State
 }
 
 func (s stateShim) SetMachineBlockDevices(machineId string, devices []state.BlockDeviceInfo) error {

@@ -51,14 +51,14 @@ func createAPI(
 
 // NewAPI returns a new storage API facade.
 func NewAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*API, error) {
 	return createAPI(getState(st), poolManager(st), resources, authorizer)
 }
 
-func poolManager(st *state.State) poolmanager.PoolManager {
+func poolManager(st state.State) poolmanager.PoolManager {
 	return poolmanager.New(state.NewStateSettings(st))
 }
 

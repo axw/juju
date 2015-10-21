@@ -204,7 +204,7 @@ func (s *destroyEnvironmentSuite) TestBlockChangesDestroyEnvironment(c *gc.C) {
 
 type destroyTwoEnvironmentsSuite struct {
 	testing.JujuConnSuite
-	otherState     *state.State
+	otherState     state.State
 	otherEnvOwner  names.UserTag
 	otherEnvClient *client.Client
 	metricSender   *testMetricSender
@@ -306,7 +306,7 @@ type testMetricSender struct {
 	jtesting.Stub
 }
 
-func (t *testMetricSender) SendMetrics(st *state.State) error {
+func (t *testMetricSender) SendMetrics(st state.State) error {
 	t.AddCall("SendMetrics")
 	return nil
 }

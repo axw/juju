@@ -16,7 +16,7 @@ import (
 // worker.
 
 type stateShim struct {
-	*state.State
+	state.State
 	mongoPort int
 	apiPort   int
 }

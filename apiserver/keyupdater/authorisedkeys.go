@@ -27,7 +27,7 @@ type KeyUpdater interface {
 // KeyUpdaterAPI implements the KeyUpdater interface and is the concrete
 // implementation of the api end point.
 type KeyUpdaterAPI struct {
-	state      *state.State
+	state      state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 	getCanRead common.GetAuthFunc
@@ -37,7 +37,7 @@ var _ KeyUpdater = (*KeyUpdaterAPI)(nil)
 
 // NewKeyUpdaterAPI creates a new server-side keyupdater API end point.
 func NewKeyUpdaterAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*KeyUpdaterAPI, error) {

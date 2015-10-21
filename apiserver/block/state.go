@@ -12,5 +12,5 @@ type blockAccess interface {
 }
 
 type stateShim struct {
-	*state.State
+	state.State
 }

@@ -19,7 +19,7 @@ type stateInterface interface {
 }
 
 type stateShim struct {
-	*state.State
+	state.State
 }
 
 func (s stateShim) EnvironConfig() (*config.Config, error) {

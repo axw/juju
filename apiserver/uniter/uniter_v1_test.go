@@ -56,7 +56,7 @@ func (s *uniterV1Suite) SetUpTest(c *gc.C) {
 }
 
 func (s *uniterV1Suite) TestUniterFailsWithNonUnitAgentUser(c *gc.C) {
-	factory := func(st *state.State, res *common.Resources, auth common.Authorizer) error {
+	factory := func(st state.State, res *common.Resources, auth common.Authorizer) error {
 		_, err := uniter.NewUniterAPIV1(st, res, auth)
 		return err
 	}
@@ -101,7 +101,7 @@ func (s *uniterV1Suite) TestClearResolved(c *gc.C) {
 
 func (s *uniterV1Suite) TestGetPrincipal(c *gc.C) {
 	factory := func(
-		st *state.State,
+		st state.State,
 		resources *common.Resources,
 		authorizer common.Authorizer,
 	) (getPrincipal, error) {
@@ -208,7 +208,7 @@ func (s *uniterV1Suite) TestActionsNotPresent(c *gc.C) {
 
 func (s *uniterV1Suite) TestActionsWrongUnit(c *gc.C) {
 	factory := func(
-		st *state.State,
+		st state.State,
 		resources *common.Resources,
 		authorizer common.Authorizer,
 	) (actions, error) {

@@ -29,14 +29,14 @@ type MetricsAdder interface {
 // MetricsAdderAPI implements the metrics adder interface and is the concrete
 // implementation of the API end point.
 type MetricsAdderAPI struct {
-	state *state.State
+	state state.State
 }
 
 var _ MetricsAdder = (*MetricsAdderAPI)(nil)
 
 // NewMetricsAdderAPI creates a new API endpoint for adding metrics to state.
 func NewMetricsAdderAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*MetricsAdderAPI, error) {

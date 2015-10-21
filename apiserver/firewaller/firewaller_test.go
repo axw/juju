@@ -44,7 +44,7 @@ func (s *firewallerSuite) SetUpTest(c *gc.C) {
 }
 
 func (s *firewallerSuite) TestFirewallerFailsWithNonEnvironManagerUser(c *gc.C) {
-	constructor := func(st *state.State, res *common.Resources, auth common.Authorizer) error {
+	constructor := func(st state.State, res *common.Resources, auth common.Authorizer) error {
 		_, err := firewaller.NewFirewallerAPI(st, res, auth)
 		return err
 	}

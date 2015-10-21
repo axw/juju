@@ -71,7 +71,7 @@ func (s *firewallerBaseSuite) setUpTest(c *gc.C) {
 
 func (s *firewallerBaseSuite) testFirewallerFailsWithNonEnvironManagerUser(
 	c *gc.C,
-	factory func(_ *state.State, _ *common.Resources, _ common.Authorizer) error,
+	factory func(_ state.State, _ *common.Resources, _ common.Authorizer) error,
 ) {
 	anAuthorizer := s.authorizer
 	anAuthorizer.EnvironManager = false

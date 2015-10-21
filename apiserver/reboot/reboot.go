@@ -27,7 +27,7 @@ type RebootAPI struct {
 	*common.RebootFlagClearer
 
 	auth      common.Authorizer
-	st        *state.State
+	st        state.State
 	machine   *state.Machine
 	resources *common.Resources
 }
@@ -37,7 +37,7 @@ func init() {
 }
 
 // NewRebootAPI creates a new server-side RebootAPI facade.
-func NewRebootAPI(st *state.State, resources *common.Resources, auth common.Authorizer) (*RebootAPI, error) {
+func NewRebootAPI(st state.State, resources *common.Resources, auth common.Authorizer) (*RebootAPI, error) {
 	if !auth.AuthMachineAgent() {
 		return nil, common.ErrPerm
 	}

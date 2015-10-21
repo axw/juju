@@ -30,14 +30,14 @@ type MachinerAPI struct {
 	*common.AgentEntityWatcher
 	*common.APIAddresser
 
-	st           *state.State
+	st           state.State
 	auth         common.Authorizer
 	getCanModify common.GetAuthFunc
 	getCanRead   common.GetAuthFunc
 }
 
 // NewMachinerAPI creates a new instance of the Machiner API.
-func NewMachinerAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*MachinerAPI, error) {
+func NewMachinerAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*MachinerAPI, error) {
 	if !authorizer.AuthMachineAgent() {
 		return nil, common.ErrPerm
 	}

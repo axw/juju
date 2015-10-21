@@ -42,16 +42,16 @@ type StorageProvisionerAPI struct {
 	getAttachmentAuthFunc    func() (func(names.MachineTag, names.Tag) bool, error)
 }
 
-var getState = func(st *state.State) provisionerState {
+var getState = func(st state.State) provisionerState {
 	return stateShim{st}
 }
 
-var getSettingsManager = func(st *state.State) poolmanager.SettingsManager {
+var getSettingsManager = func(st state.State) poolmanager.SettingsManager {
 	return state.NewStateSettings(st)
 }
 
 // NewStorageProvisionerAPI creates a new server-side StorageProvisionerAPI facade.
-func NewStorageProvisionerAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*StorageProvisionerAPI, error) {
+func NewStorageProvisionerAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*StorageProvisionerAPI, error) {
 	if !authorizer.AuthMachineAgent() {
 		return nil, common.ErrPerm
 	}

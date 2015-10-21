@@ -45,7 +45,7 @@ func DelayLogins() (nextChan chan struct{}, cleanup func()) {
 	cleanup = func() {
 		doCheckCreds = checkCreds
 	}
-	delayedCheckCreds := func(st *state.State, c params.LoginRequest, lookForEnvUser bool) (state.Entity, *time.Time, error) {
+	delayedCheckCreds := func(st state.State, c params.LoginRequest, lookForEnvUser bool) (state.Entity, *time.Time, error) {
 		<-nextChan
 		return checkCreds(st, c, lookForEnvUser)
 	}
@@ -60,13 +60,13 @@ func NewErrRoot(err error) *errRoot {
 // TestingApiRoot gives you an ApiRoot as a rpc.Methodfinder that is
 // *barely* connected to anything.  Just enough to let you probe some
 // of the interfaces, but not enough to actually do any RPC calls.
-func TestingApiRoot(st *state.State) rpc.MethodFinder {
+func TestingApiRoot(st state.State) rpc.MethodFinder {
 	return newApiRoot(st, common.NewResources(), nil)
 }
 
 // TestingApiHandler gives you an ApiHandler that isn't connected to
 // anything real. It's enough to let test some basic functionality though.
-func TestingApiHandler(c *gc.C, srvSt, st *state.State) (*apiHandler, *common.Resources) {
+func TestingApiHandler(c *gc.C, srvSt, st state.State) (*apiHandler, *common.Resources) {
 	srv := &Server{
 		state: srvSt,
 		tag:   names.NewMachineTag("0"),
@@ -78,14 +78,14 @@ func TestingApiHandler(c *gc.C, srvSt, st *state.State) (*apiHandler, *common.Re
 
 // TestingUpgradingApiHandler returns a limited srvRoot
 // in an upgrade scenario.
-func TestingUpgradingRoot(st *state.State) rpc.MethodFinder {
+func TestingUpgradingRoot(st state.State) rpc.MethodFinder {
 	r := TestingApiRoot(st)
 	return newUpgradingRoot(r)
 }
 
 // TestingRestrictedApiHandler returns a restricted srvRoot as if accessed
 // from the root of the API path with a recent (verison > 1) login.
-func TestingRestrictedApiHandler(st *state.State) rpc.MethodFinder {
+func TestingRestrictedApiHandler(st state.State) rpc.MethodFinder {
 	r := TestingApiRoot(st)
 	return newRestrictedRoot(r)
 }
@@ -152,14 +152,14 @@ func SetAdminApiVersions(srv *Server, versions ...int) {
 
 // TestingRestoreInProgressRoot returns a limited restoreInProgressRoot
 // containing a srvRoot as returned by TestingSrvRoot.
-func TestingRestoreInProgressRoot(st *state.State) *restoreInProgressRoot {
+func TestingRestoreInProgressRoot(st state.State) *restoreInProgressRoot {
 	r := TestingApiRoot(st)
 	return newRestoreInProgressRoot(r)
 }
 
 // TestingAboutToRestoreRoot returns a limited aboutToRestoreRoot
 // containing a srvRoot as returned by TestingSrvRoot.
-func TestingAboutToRestoreRoot(st *state.State) *aboutToRestoreRoot {
+func TestingAboutToRestoreRoot(st state.State) *aboutToRestoreRoot {
 	r := TestingApiRoot(st)
 	return newAboutToRestoreRoot(r)
 }

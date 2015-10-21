@@ -23,7 +23,7 @@ var logger = loggo.GetLogger("juju.apiserver.backups")
 
 // API serves backup-specific API methods.
 type API struct {
-	st    *state.State
+	st    state.State
 	paths *backups.Paths
 
 	// machineID is the ID of the machine where the API server is running.
@@ -31,7 +31,7 @@ type API struct {
 }
 
 // NewAPI creates a new instance of the Backups API facade.
-func NewAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*API, error) {
+func NewAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*API, error) {
 	if !authorizer.AuthClient() {
 		return nil, errors.Trace(common.ErrPerm)
 	}
@@ -81,7 +81,7 @@ func extractResourceValue(resources *common.Resources, key string) (string, erro
 	return strRes.String(), nil
 }
 
-var newBackups = func(st *state.State) (backups.Backups, io.Closer) {
+var newBackups = func(st state.State) (backups.Backups, io.Closer) {
 	stor := backups.NewStorage(st)
 	return backups.NewBackups(stor), stor
 }

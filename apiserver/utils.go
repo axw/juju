@@ -36,7 +36,7 @@ func setPassword(e state.Authenticator, password string) error {
 }
 
 type validateArgs struct {
-	statePool *state.StatePool
+	statePool state.StatePool
 	envUUID   string
 	// strict validation does not allow empty UUID values
 	strict bool
@@ -48,10 +48,10 @@ type validateArgs struct {
 // apiserver components that need to check for a valid environment
 // UUID.  An empty envUUID means that the connection has come in at
 // the root of the URL space and refers to the state server
-// environment. The returned *state.State is a connection for the
+// environment. The returned state.State is a connection for the
 // specified environment UUID if the UUID refers to an environment
 // contained in the database.
-func validateEnvironUUID(args validateArgs) (*state.State, error) {
+func validateEnvironUUID(args validateArgs) (state.State, error) {
 	ssState := args.statePool.SystemState()
 
 	if args.envUUID == "" {

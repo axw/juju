@@ -13,7 +13,7 @@ import (
 
 // V1 test suite, no additional or changed tests.
 
-func factoryWrapperV1(st *state.State, resources *common.Resources, auth common.Authorizer) (interface{}, error) {
+func factoryWrapperV1(st state.State, resources *common.Resources, auth common.Authorizer) (interface{}, error) {
 	return agent.NewAgentAPIV1(st, resources, auth)
 }
 

@@ -29,7 +29,7 @@ type CleanerAPI struct {
 
 // NewCleanerAPI creates a new instance of the Cleaner API.
 func NewCleanerAPI(
-	st *state.State,
+	st state.State,
 	res *common.Resources,
 	authorizer common.Authorizer,
 ) (*CleanerAPI, error) {

@@ -38,7 +38,7 @@ type uniterBaseAPI struct {
 	*leadershipapiserver.LeadershipSettingsAccessor
 	meterstatus.MeterStatus
 
-	st            *state.State
+	st            state.State
 	auth          common.Authorizer
 	resources     *common.Resources
 	accessUnit    common.GetAuthFunc
@@ -47,7 +47,7 @@ type uniterBaseAPI struct {
 }
 
 // newUniterBaseAPI creates a new instance of the uniter base API.
-func newUniterBaseAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*uniterBaseAPI, error) {
+func newUniterBaseAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*uniterBaseAPI, error) {
 	if !authorizer.AuthUnitAgent() {
 		return nil, common.ErrPerm
 	}
@@ -191,7 +191,7 @@ func (u *uniterBaseAPI) PrivateAddress(args params.Entities) (params.StringResul
 
 // TODO(ericsnow) Factor out the common code amongst the many methods here.
 
-var getZone = func(st *state.State, tag names.Tag) (string, error) {
+var getZone = func(st state.State, tag names.Tag) (string, error) {
 	unit, err := st.Unit(tag.Id())
 	if err != nil {
 		return "", errors.Trace(err)
@@ -1481,7 +1481,7 @@ func relationsInScopeTags(unit *state.Unit) ([]string, error) {
 }
 
 func leadershipSettingsAccessorFactory(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	auth common.Authorizer,
 ) *leadershipapiserver.LeadershipSettingsAccessor {

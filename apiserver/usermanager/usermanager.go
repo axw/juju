@@ -33,7 +33,7 @@ type UserManager interface {
 // UserManagerAPI implements the user manager interface and is the concrete
 // implementation of the api end point.
 type UserManagerAPI struct {
-	state      *state.State
+	state      state.State
 	authorizer common.Authorizer
 	check      *common.BlockChecker
 }
@@ -41,7 +41,7 @@ type UserManagerAPI struct {
 var _ UserManager = (*UserManagerAPI)(nil)
 
 func NewUserManagerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*UserManagerAPI, error) {

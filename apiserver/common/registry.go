@@ -18,7 +18,7 @@ import (
 // FacadeFactory represent a way of creating a Facade from the current
 // connection to the State.
 type FacadeFactory func(
-	st *state.State, resources *Resources, authorizer Authorizer, id string,
+	st state.State, resources *Resources, authorizer Authorizer, id string,
 ) (
 	interface{}, error,
 )
@@ -75,7 +75,7 @@ func validateNewFacade(funcValue reflect.Value) error {
 		isSame = false
 	}
 	if !isSame {
-		return fmt.Errorf("function %q does not have the signature func (*state.State, *common.Resources, common.Authorizer) (*Type, error)",
+		return fmt.Errorf("function %q does not have the signature func (state.State, *common.Resources, common.Authorizer) (*Type, error)",
 			funcName)
 	}
 	return nil
@@ -92,7 +92,7 @@ func wrapNewFacade(newFunc interface{}) (FacadeFactory, reflect.Type, error) {
 	// So we know newFunc is a func with the right args in and out, so
 	// wrap it into a helper function that matches the FacadeFactory.
 	wrapped := func(
-		st *state.State, resources *Resources, auth Authorizer, id string,
+		st state.State, resources *Resources, auth Authorizer, id string,
 	) (
 		interface{}, error,
 	) {
@@ -120,7 +120,7 @@ func wrapNewFacade(newFunc interface{}) (FacadeFactory, reflect.Type, error) {
 
 // RegisterStandardFacade registers a factory function for a normal New* style
 // function. This requires that the function has the form:
-// NewFoo(*state.State, *common.Resources, common.Authorizer) (*Type, error)
+// NewFoo(state.State, *common.Resources, common.Authorizer) (*Type, error)
 // With that syntax, we will create a helper function that wraps calling NewFoo
 // with the right parameters, and returns the *Type correctly.
 func RegisterStandardFacade(name string, version int, newFunc interface{}) {
@@ -129,7 +129,7 @@ func RegisterStandardFacade(name string, version int, newFunc interface{}) {
 
 // RegisterStandardFacadeForFeature registers a factory function for a normal
 // New* style function. This requires that the function has the form:
-// NewFoo(*state.State, *common.Resources, common.Authorizer) (*Type, error)
+// NewFoo(state.State, *common.Resources, common.Authorizer) (*Type, error)
 // With that syntax, we will create a helper function that wraps calling
 // NewFoo with the right parameters, and returns the *Type correctly. If the
 // feature is non-empty, this facade is only available when the specified

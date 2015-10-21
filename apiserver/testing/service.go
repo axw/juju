@@ -12,7 +12,7 @@ import (
 	"github.com/juju/juju/state"
 )
 
-func AssertPrincipalServiceDeployed(c *gc.C, st *state.State, serviceName string, curl *charm.URL, forced bool, bundle charm.Charm, cons constraints.Value) *state.Service {
+func AssertPrincipalServiceDeployed(c *gc.C, st state.State, serviceName string, curl *charm.URL, forced bool, bundle charm.Charm, cons constraints.Value) *state.Service {
 	service, err := st.Service(serviceName)
 	c.Assert(err, jc.ErrorIsNil)
 	charm, force, err := service.Charm()

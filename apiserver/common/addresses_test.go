@@ -27,8 +27,8 @@ func (s *stateAddresserSuite) SetUpTest(c *gc.C) {
 	s.addresser = common.NewStateAddresser(fakeAddresses{})
 }
 
-// Verify that AddressAndCertGetter is satisfied by *state.State.
-var _ common.AddressAndCertGetter = (*state.State)(nil)
+// Verify that AddressAndCertGetter is satisfied by state.State.
+var _ common.AddressAndCertGetter = (state.State)(nil)
 
 func (s *stateAddresserSuite) TestStateAddresses(c *gc.C) {
 	result, err := s.addresser.StateAddresses()

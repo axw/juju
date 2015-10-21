@@ -20,13 +20,13 @@ func init() {
 
 // ActionAPI implements the client API for interacting with Actions
 type ActionAPI struct {
-	state      *state.State
+	state      state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 }
 
 // NewActionAPI returns an initialized ActionAPI
-func NewActionAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*ActionAPI, error) {
+func NewActionAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*ActionAPI, error) {
 	if !authorizer.AuthClient() {
 		return nil, common.ErrPerm
 	}
@@ -225,7 +225,7 @@ func (a *ActionAPI) internalList(arg params.Entities, fn extractorFn) (params.Ac
 
 // tagToActionReceiver takes a tag string and tries to convert it to an
 // ActionReceiver.
-func tagToActionReceiver(st *state.State, tag string) (state.ActionReceiver, error) {
+func tagToActionReceiver(st state.State, tag string) (state.ActionReceiver, error) {
 	receiverTag, err := names.ParseTag(tag)
 	if err != nil {
 		return nil, common.ErrBadId

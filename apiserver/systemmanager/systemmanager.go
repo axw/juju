@@ -38,7 +38,7 @@ type SystemManager interface {
 // SystemManagerAPI implements the environment manager interface and is
 // the concrete implementation of the api end point.
 type SystemManagerAPI struct {
-	state      *state.State
+	state      state.State
 	authorizer common.Authorizer
 	apiUser    names.UserTag
 	resources  *common.Resources
@@ -49,7 +49,7 @@ var _ SystemManager = (*SystemManagerAPI)(nil)
 // NewSystemManagerAPI creates a new api server endpoint for managing
 // environments.
 func NewSystemManagerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*SystemManagerAPI, error) {

@@ -41,7 +41,7 @@ type DeployServiceParams struct {
 }
 
 // DeployService takes a charm and various parameters and deploys it.
-func DeployService(st *state.State, args DeployServiceParams) (*state.Service, error) {
+func DeployService(st state.State, args DeployServiceParams) (*state.Service, error) {
 	if args.NumUnits > 1 && len(args.Placement) == 0 && args.ToMachineSpec != "" {
 		return nil, fmt.Errorf("cannot use --num-units with --to")
 	}
@@ -112,7 +112,7 @@ func DeployService(st *state.State, args DeployServiceParams) (*state.Service, e
 	return service, nil
 }
 
-func addMachineForUnit(st *state.State, unit *state.Unit, placement *instance.Placement, networks []string) (*state.Machine, error) {
+func addMachineForUnit(st state.State, unit *state.Unit, placement *instance.Placement, networks []string) (*state.Machine, error) {
 	unitCons, err := unit.Constraints()
 	if err != nil {
 		return nil, err
@@ -166,7 +166,7 @@ func addMachineForUnit(st *state.State, unit *state.Unit, placement *instance.Pl
 
 // AddUnits starts n units of the given service and allocates machines
 // to them as necessary.
-func AddUnits(st *state.State, svc *state.Service, n int, machineIdSpec string) ([]*state.Unit, error) {
+func AddUnits(st state.State, svc *state.Service, n int, machineIdSpec string) ([]*state.Unit, error) {
 	if machineIdSpec != "" && n != 1 {
 		return nil, errors.Errorf("cannot add multiple units of service %q to a single machine", svc.Name())
 	}
@@ -199,7 +199,7 @@ func AddUnits(st *state.State, svc *state.Service, n int, machineIdSpec string) 
 
 // AddUnitsWithPlacement starts n units of the given service using the specified placement
 // directives to allocate the machines.
-func AddUnitsWithPlacement(st *state.State, svc *state.Service, n int, placement []*instance.Placement) ([]*state.Unit, error) {
+func AddUnitsWithPlacement(st state.State, svc *state.Service, n int, placement []*instance.Placement) ([]*state.Unit, error) {
 	units := make([]*state.Unit, n)
 	// Hard code for now till we implement a different approach.
 	policy := state.AssignCleanEmpty

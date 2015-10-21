@@ -26,13 +26,13 @@ type DiskManagerAPI struct {
 	getAuthFunc common.GetAuthFunc
 }
 
-var getState = func(st *state.State) stateInterface {
+var getState = func(st state.State) stateInterface {
 	return stateShim{st}
 }
 
 // NewDiskManagerAPI creates a new server-side DiskManager API facade.
 func NewDiskManagerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*DiskManagerAPI, error) {

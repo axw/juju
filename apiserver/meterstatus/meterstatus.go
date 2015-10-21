@@ -31,7 +31,7 @@ type MeterStatus interface {
 // MeterStatusAPI implements the MeterStatus interface and is the concrete implementation
 // of the API endpoint.
 type MeterStatusAPI struct {
-	state      *state.State
+	state      state.State
 	accessUnit common.GetAuthFunc
 	resources  *common.Resources
 }
@@ -40,7 +40,7 @@ var _ MeterStatus = (*MeterStatusAPI)(nil)
 
 // NewMeterStatusAPI creates a new API endpoint for dealing with unit meter status.
 func NewMeterStatusAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*MeterStatusAPI, error) {

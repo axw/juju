@@ -31,7 +31,7 @@ import (
 type imagesDownloadHandler struct {
 	httpHandler
 	dataDir string
-	state   *state.State
+	state   state.State
 }
 
 func (h *imagesDownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +75,7 @@ func (h *imagesDownloadHandler) sendError(w http.ResponseWriter, statusCode int,
 }
 
 // processGet handles an image GET request.
-func (h *imagesDownloadHandler) processGet(r *http.Request, resp http.ResponseWriter, st *state.State) error {
+func (h *imagesDownloadHandler) processGet(r *http.Request, resp http.ResponseWriter, st state.State) error {
 	// Get the parameters from the query.
 	kind := r.URL.Query().Get(":kind")
 	series := r.URL.Query().Get(":series")
@@ -103,7 +103,7 @@ func (h *imagesDownloadHandler) processGet(r *http.Request, resp http.ResponseWr
 
 // loadImage loads an os image from the blobstore,
 // downloading and caching it if necessary.
-func (h *imagesDownloadHandler) loadImage(st *state.State, envuuid, kind, series, arch string) (
+func (h *imagesDownloadHandler) loadImage(st state.State, envuuid, kind, series, arch string) (
 	*imagestorage.Metadata, io.ReadCloser, error,
 ) {
 	// We want to ensure that if an image needs to be downloaded and cached,

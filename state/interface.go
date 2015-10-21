@@ -6,6 +6,7 @@ package state
 import (
 	"io"
 
+	"gopkg.in/juju/charm.v6-unstable"
 	"gopkg.in/mgo.v2"
 
 	"github.com/juju/names"
@@ -14,7 +15,9 @@ import (
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/leadership"
+	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
+	"github.com/juju/juju/state/toolstorage"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
 )
@@ -22,22 +25,79 @@ import (
 type State interface {
 	io.Closer
 
+	ActionState
+	AnnotationState
 	BlockState
+	CharmState
 	EnvironmentState
+	EnvironmentUserState
 	LeadershipState
 	MachineState
 	MetricState
+	NetworkState
+	RelationState
+	RestoreState
 	ServerState
 	ServiceState
 	UnitState
+	UpgradeState
+
+	// Miscellaneous helpers.
 
 	EntityFinder
 
+	// Things that really shouldn't be on State.
+
+	MongoConnectionInfo() *mongo.MongoInfo
 	MongoSession() *mgo.Session
+	ToolsStorage() (toolstorage.StorageCloser, error)
+}
+
+type ActionState interface {
+	ActionByTag(names.ActionTag) (*Action, error)
+	FindActionTagsByPrefix(string) []names.ActionTag
+}
+
+type AnnotationState interface {
+	Annotation(GlobalEntity, string) (string, error)
+	Annotations(GlobalEntity) (map[string]string, error)
+	SetAnnotations(GlobalEntity, map[string]string) error
 }
 
 type BlockState interface {
+	AllBlocks() ([]Block, error)
 	GetBlockForType(BlockType) (Block, bool, error)
+	SwitchBlockOff(BlockType) error
+	SwitchBlockOn(BlockType, string) error
+}
+
+type CharmState interface {
+	AddStoreCharmPlaceholder(*charm.URL) error
+	AllCharms() ([]*Charm, error)
+	Charm(*charm.URL) (*Charm, error)
+	LatestPlaceholderCharm(*charm.URL) (*Charm, error)
+	PrepareStoreCharmUpload(*charm.URL) (*Charm, error)
+	UpdateUploadedCharm(charm.Charm, *charm.URL, string, string) (*Charm, error)
+}
+
+type EnvironmentState interface {
+	Environment() (*Environment, error)
+	EnvironConfig() (*config.Config, error)
+	EnvironConstraints() (constraints.Value, error)
+	EnvironTag() names.EnvironTag
+	EnvironUUID() string
+	ForEnviron(names.EnvironTag) (State, error)
+	SetEnvironAgentVersion(version.Number) error
+	SetEnvironConstraints(constraints.Value) error
+	// TODO(axw) rename
+	RemoveAllEnvironDocs() error
+	UpdateEnvironConfig(map[string]interface{}, []string, ValidateConfigFunc) error
+	Watch() *Multiwatcher
+}
+
+type EnvironmentUserState interface {
+	AddEnvironmentUser(names.UserTag, names.UserTag, string) (*EnvironmentUser, error)
+	RemoveEnvironmentUser(names.UserTag) error
 }
 
 type LeadershipState interface {
@@ -47,28 +107,10 @@ type LeadershipState interface {
 
 type MachineState interface {
 	AddOneMachine(MachineTemplate) (*Machine, error)
+	AddMachineInsideMachine(MachineTemplate, string, instance.ContainerType) (*Machine, error)
+	AddMachineInsideNewMachine(MachineTemplate, MachineTemplate, instance.ContainerType) (*Machine, error)
 	AllMachines() ([]*Machine, error)
 	Machine(name string) (*Machine, error)
-}
-
-type EnvironmentState interface {
-	Environment() (*Environment, error)
-	EnvironConfig() (*config.Config, error)
-	EnvironTag() names.EnvironTag
-	ForEnviron(names.EnvironTag) (State, error)
-	SetEnvironConstraints(constraints.Value) error
-	// TODO(axw) rename
-	RemoveAllEnvironDocs() error
-}
-
-type ServerState interface {
-	SetAPIHostPorts([][]network.HostPort) error
-	SetStateServingInfo(StateServingInfo) error
-	StateServingInfo() (StateServingInfo, error)
-}
-
-type ServiceState interface {
-	Service(name string) (*Service, error)
 }
 
 type MetricState interface {
@@ -79,8 +121,51 @@ type MetricState interface {
 	SetMetricBatchesSent([]string) error
 }
 
+type NetworkState interface {
+	AllNetworks() ([]*Network, error)
+	DeadIPAddresses() ([]*IPAddress, error)
+	IPAddress(string) (*IPAddress, error)
+	WatchIPAddresses() StringsWatcher
+}
+
+type RelationState interface {
+	AddRelation(...Endpoint) (*Relation, error)
+	AllRelations() ([]*Relation, error)
+	EndpointsRelation(...Endpoint) (*Relation, error)
+	InferEndpoints(...string) ([]Endpoint, error)
+}
+
+type RestoreState interface {
+	// TODO(axw) rename
+	RestoreInfoSetter() (*RestoreInfo, error)
+}
+
+type ServerState interface {
+	APIHostPorts() ([][]network.HostPort, error)
+	Cleanup() error
+	EnsureAvailability(int, constraints.Value, string, []string) (StateServersChanges, error)
+	IsStateServer() bool
+	SetAPIHostPorts([][]network.HostPort) error
+	SetStateServingInfo(StateServingInfo) error
+	StateServerInfo() (*StateServerInfo, error)
+	StateServingInfo() (StateServingInfo, error)
+	WatchCleanups() NotifyWatcher
+	WatchStateServerInfo() NotifyWatcher
+}
+
+type ServiceState interface {
+	AddService(string, string, *Charm, []string, map[string]StorageConstraints) (*Service, error)
+	AllServices() ([]*Service, error)
+	Service(name string) (*Service, error)
+}
+
 type UnitState interface {
+	AssignUnit(*Unit, AssignmentPolicy) error
 	Unit(name string) (*Unit, error)
+}
+
+type UpgradeState interface {
+	AbortCurrentUpgrade() error
 }
 
 // EntityFinder is implemented by *State. See State.FindEntity

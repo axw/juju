@@ -17,7 +17,7 @@ import (
 
 type watcherSuite struct {
 	testing.BaseSuite
-	st         *state.State
+	st         state.State
 	resources  *common.Resources
 	authorizer apiservertesting.FakeAuthorizer
 }

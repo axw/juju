@@ -36,7 +36,7 @@ type MetricsManager interface {
 // MetricsManagerAPI implements the metrics manager interface and is the concrete
 // implementation of the api end point.
 type MetricsManagerAPI struct {
-	state *state.State
+	state state.State
 
 	accessEnviron common.GetAuthFunc
 }
@@ -45,7 +45,7 @@ var _ MetricsManager = (*MetricsManagerAPI)(nil)
 
 // NewMetricsManagerAPI creates a new API endpoint for calling metrics manager functions.
 func NewMetricsManagerAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*MetricsManagerAPI, error) {

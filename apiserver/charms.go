@@ -190,7 +190,7 @@ func (h *charmsHandler) sendError(w http.ResponseWriter, statusCode int, message
 }
 
 // processPost handles a charm upload POST request after authentication.
-func (h *charmsHandler) processPost(r *http.Request, st *state.State) (*charm.URL, error) {
+func (h *charmsHandler) processPost(r *http.Request, st state.State) (*charm.URL, error) {
 	query := r.URL.Query()
 	series := query.Get("series")
 	if series == "" {
@@ -329,7 +329,7 @@ func (d byDepth) Less(i, j int) bool { return depth(d[i]) < depth(d[j]) }
 // repackageAndUploadCharm expands the given charm archive to a
 // temporary directoy, repackages it with the given curl's revision,
 // then uploads it to storage, and finally updates the state.
-func (h *charmsHandler) repackageAndUploadCharm(st *state.State, archive *charm.CharmArchive, curl *charm.URL) error {
+func (h *charmsHandler) repackageAndUploadCharm(st state.State, archive *charm.CharmArchive, curl *charm.URL) error {
 	// Create a temp dir to contain the extracted charm dir.
 	tempDir, err := ioutil.TempDir("", "charm-download")
 	if err != nil {
@@ -370,7 +370,7 @@ func (h *charmsHandler) repackageAndUploadCharm(st *state.State, archive *charm.
 
 // processGet handles a charm file GET request after authentication.
 // It returns the bundle path, the requested file path (if any) and an error.
-func (h *charmsHandler) processGet(r *http.Request, st *state.State) (string, string, error) {
+func (h *charmsHandler) processGet(r *http.Request, st state.State) (string, string, error) {
 	query := r.URL.Query()
 
 	// Retrieve and validate query parameters.
@@ -409,7 +409,7 @@ func (h *charmsHandler) processGet(r *http.Request, st *state.State) (string, st
 
 // downloadCharm downloads the given charm name from the provider storage and
 // saves the corresponding zip archive to the given charmArchivePath.
-func (h *charmsHandler) downloadCharm(st *state.State, curl *charm.URL, charmArchivePath string) error {
+func (h *charmsHandler) downloadCharm(st state.State, curl *charm.URL, charmArchivePath string) error {
 	storage := storage.NewStorage(st.EnvironUUID(), st.MongoSession())
 	ch, err := st.Charm(curl)
 	if err != nil {

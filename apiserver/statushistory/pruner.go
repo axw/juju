@@ -19,12 +19,12 @@ var logger = loggo.GetLogger("juju.apiserver.statushistory")
 
 // API is the concrete implementation of the Pruner endpoint..
 type API struct {
-	st         *state.State
+	st         state.State
 	authorizer common.Authorizer
 }
 
 // NewAPI returns an API Instance.
-func NewAPI(st *state.State, _ *common.Resources, auth common.Authorizer) (*API, error) {
+func NewAPI(st state.State, _ *common.Resources, auth common.Authorizer) (*API, error) {
 	return &API{
 		st:         st,
 		authorizer: auth,

@@ -38,7 +38,7 @@ type API struct {
 
 // NewAPI returns a new block API facade.
 func NewAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*API, error) {
@@ -52,7 +52,7 @@ func NewAPI(
 	}, nil
 }
 
-var getState = func(st *state.State) blockAccess {
+var getState = func(st state.State) blockAccess {
 	return stateShim{st}
 }
 

@@ -124,7 +124,7 @@ func (r *rootSuite) TestFindMethodUnknownVersion(c *gc.C) {
 	srvRoot := apiserver.TestingApiRoot(nil)
 	defer common.Facades.Discard("my-testing-facade", 0)
 	myGoodFacade := func(
-		*state.State, *common.Resources, common.Authorizer,
+		state.State, *common.Resources, common.Authorizer,
 	) (
 		*testingType, error,
 	) {
@@ -143,21 +143,21 @@ func (r *rootSuite) TestFindMethodEnsuresTypeMatch(c *gc.C) {
 	defer common.Facades.Discard("my-testing-facade", 1)
 	defer common.Facades.Discard("my-testing-facade", 2)
 	myBadFacade := func(
-		*state.State, *common.Resources, common.Authorizer, string,
+		state.State, *common.Resources, common.Authorizer, string,
 	) (
 		interface{}, error,
 	) {
 		return &badType{}, nil
 	}
 	myGoodFacade := func(
-		*state.State, *common.Resources, common.Authorizer, string,
+		state.State, *common.Resources, common.Authorizer, string,
 	) (
 		interface{}, error,
 	) {
 		return &testingType{}, nil
 	}
 	myErrFacade := func(
-		*state.State, *common.Resources, common.Authorizer, string,
+		state.State, *common.Resources, common.Authorizer, string,
 	) (
 		interface{}, error,
 	) {
@@ -218,7 +218,7 @@ func (r *rootSuite) TestFindMethodCachesFacades(c *gc.C) {
 	defer common.Facades.Discard("my-counting-facade", 1)
 	var count int64
 	newCounter := func(
-		*state.State, *common.Resources, common.Authorizer,
+		state.State, *common.Resources, common.Authorizer,
 	) (
 		*countingType, error,
 	) {
@@ -255,7 +255,7 @@ func (r *rootSuite) TestFindMethodCachesFacadesWithId(c *gc.C) {
 	// like newCounter, but also tracks the "id" that was requested for
 	// this counter
 	newIdCounter := func(
-		_ *state.State, _ *common.Resources, _ common.Authorizer, id string,
+		_ state.State, _ *common.Resources, _ common.Authorizer, id string,
 	) (interface{}, error) {
 		count += 1
 		return &countingType{count: count, id: id}, nil
@@ -287,7 +287,7 @@ func (r *rootSuite) TestFindMethodCacheRaceSafe(c *gc.C) {
 	defer common.Facades.Discard("my-counting-facade", 0)
 	var count int64
 	newIdCounter := func(
-		_ *state.State, _ *common.Resources, _ common.Authorizer, id string,
+		_ state.State, _ *common.Resources, _ common.Authorizer, id string,
 	) (interface{}, error) {
 		count += 1
 		return &countingType{count: count, id: id}, nil
@@ -340,14 +340,14 @@ func (r *rootSuite) TestFindMethodHandlesInterfaceTypes(c *gc.C) {
 	defer common.Facades.Discard("my-interface-facade", 0)
 	defer common.Facades.Discard("my-interface-facade", 1)
 	common.RegisterStandardFacade("my-interface-facade", 0, func(
-		*state.State, *common.Resources, common.Authorizer,
+		state.State, *common.Resources, common.Authorizer,
 	) (
 		smallInterface, error,
 	) {
 		return &firstImpl{}, nil
 	})
 	common.RegisterStandardFacade("my-interface-facade", 1, func(
-		*state.State, *common.Resources, common.Authorizer,
+		state.State, *common.Resources, common.Authorizer,
 	) (
 		smallInterface, error,
 	) {

@@ -34,7 +34,7 @@ var NewCharmStore = charmrepo.NewCharmStore
 //
 // The authorization macaroon, args.CharmStoreMacaroon, may be
 // omitted, in which case this call is equivalent to AddCharm.
-func AddCharmWithAuthorization(st *state.State, args params.AddCharmWithAuthorization) error {
+func AddCharmWithAuthorization(st state.State, args params.AddCharmWithAuthorization) error {
 	charmURL, err := charm.ParseURL(args.URL)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func AddCharmWithAuthorization(st *state.State, args params.AddCharmWithAuthoriz
 }
 
 // StoreCharmArchive stores a charm archive in environment storage.
-func StoreCharmArchive(st *state.State, curl *charm.URL, ch charm.Charm, r io.Reader, size int64, sha256 string) error {
+func StoreCharmArchive(st state.State, curl *charm.URL, ch charm.Charm, r io.Reader, size int64, sha256 string) error {
 	storage := newStateStorage(st.EnvironUUID(), st.MongoSession())
 	storagePath, err := charmArchiveStoragePath(curl)
 	if err != nil {
@@ -164,7 +164,7 @@ func charmArchiveStoragePath(curl *charm.URL) (string, error) {
 
 // ResolveCharm resolves the best available charm URLs with series, for charm
 // locations without a series specified.
-func ResolveCharms(st *state.State, args params.ResolveCharms) (params.ResolveCharmResults, error) {
+func ResolveCharms(st state.State, args params.ResolveCharms) (params.ResolveCharmResults, error) {
 	var results params.ResolveCharmResults
 
 	envConfig, err := st.EnvironConfig()

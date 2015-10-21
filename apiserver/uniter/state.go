@@ -32,10 +32,10 @@ type storageStateInterface interface {
 }
 
 type storageStateShim struct {
-	*state.State
+	state.State
 }
 
-var getStorageState = func(st *state.State) storageStateInterface {
+var getStorageState = func(st state.State) storageStateInterface {
 	return storageStateShim{st}
 }
 

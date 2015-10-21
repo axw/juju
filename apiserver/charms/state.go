@@ -15,7 +15,7 @@ type charmsAccess interface {
 }
 
 type stateShim struct {
-	state *state.State
+	state state.State
 }
 
 func (s stateShim) Charm(curl *charm.URL) (*state.Charm, error) {

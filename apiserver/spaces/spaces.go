@@ -49,7 +49,7 @@ type spacesAPI struct {
 
 // NewAPI creates a new Space API server-side facade with a
 // state.State backing.
-func NewAPI(st *state.State, res *common.Resources, auth common.Authorizer) (API, error) {
+func NewAPI(st state.State, res *common.Resources, auth common.Authorizer) (API, error) {
 	return newAPIWithBacking(&stateShim{st: st}, res, auth)
 }
 

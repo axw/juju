@@ -43,7 +43,7 @@ type StateInterface interface {
 }
 
 type stateShim struct {
-	*state.State
+	state.State
 }
 
 func (s stateShim) DeadIPAddresses() ([]StateIPAddress, error) {
@@ -64,6 +64,6 @@ func (s stateShim) IPAddress(value string) (StateIPAddress, error) {
 	return s.State.IPAddress(value)
 }
 
-var getState = func(st *state.State) StateInterface {
+var getState = func(st state.State) StateInterface {
 	return stateShim{st}
 }

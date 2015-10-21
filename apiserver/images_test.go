@@ -243,7 +243,7 @@ func (s *imageSuite) downloadRequest(c *gc.C, url *url.URL) (*http.Response, err
 	return s.sendRequest(c, "", "", "GET", url.String(), "", nil)
 }
 
-func (s *imageSuite) storeFakeImage(c *gc.C, st *state.State, kind, series, arch string) {
+func (s *imageSuite) storeFakeImage(c *gc.C, st state.State, kind, series, arch string) {
 	storage := st.ImageStorage()
 	metadata := &imagestorage.Metadata{
 		EnvUUID:   st.EnvironUUID(),
@@ -258,7 +258,7 @@ func (s *imageSuite) storeFakeImage(c *gc.C, st *state.State, kind, series, arch
 	c.Assert(err, gc.IsNil)
 }
 
-func (s *imageSuite) getImageFromStorage(c *gc.C, st *state.State, kind, series, arch string) (*imagestorage.Metadata, []byte) {
+func (s *imageSuite) getImageFromStorage(c *gc.C, st state.State, kind, series, arch string) (*imagestorage.Metadata, []byte) {
 	storage := st.ImageStorage()
 	metadata, r, err := storage.Image(kind, series, arch)
 	c.Assert(err, gc.IsNil)

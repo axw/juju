@@ -37,7 +37,7 @@ type KeyManager interface {
 // KeyUpdaterAPI implements the KeyUpdater interface and is the concrete
 // implementation of the api end point.
 type KeyManagerAPI struct {
-	state      *state.State
+	state      state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 	canRead    func(string) bool
@@ -48,7 +48,7 @@ type KeyManagerAPI struct {
 var _ KeyManager = (*KeyManagerAPI)(nil)
 
 // NewKeyManagerAPI creates a new server-side keyupdater API end point.
-func NewKeyManagerAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*KeyManagerAPI, error) {
+func NewKeyManagerAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*KeyManagerAPI, error) {
 	// Only clients and environment managers can access the key manager service.
 	if !authorizer.AuthClient() && !authorizer.AuthEnvironManager() {
 		return nil, common.ErrPerm

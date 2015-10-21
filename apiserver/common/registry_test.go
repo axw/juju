@@ -24,7 +24,7 @@ type facadeRegistrySuite struct {
 var _ = gc.Suite(&facadeRegistrySuite{})
 
 func testFacade(
-	st *state.State, resources *common.Resources,
+	st state.State, resources *common.Resources,
 	authorizer common.Authorizer, id string,
 ) (interface{}, error) {
 	return "myobject", nil
@@ -104,11 +104,11 @@ func wrongIn(a, b, c string) (*int, error) {
 	return nil, nil
 }
 
-func wrongOut(*state.State, *common.Resources, common.Authorizer) (error, *int) {
+func wrongOut(state.State, *common.Resources, common.Authorizer) (error, *int) {
 	return nil, nil
 }
 
-func validFactory(*state.State, *common.Resources, common.Authorizer) (*int, error) {
+func validFactory(state.State, *common.Resources, common.Authorizer) (*int, error) {
 	var i = 100
 	return &i, nil
 }
@@ -125,9 +125,9 @@ func (*facadeRegistrySuite) TestValidateNewFacade(c *gc.C) {
 	checkValidateNewFacadeFailsWith(c, badCountOut,
 		`function ".*badCountOut" does not take 3 parameters and return 2`)
 	checkValidateNewFacadeFailsWith(c, wrongIn,
-		`function ".*wrongIn" does not have the signature func \(\*state.State, \*common.Resources, common.Authorizer\) \(\*Type, error\)`)
+		`function ".*wrongIn" does not have the signature func \(\state.State, \*common.Resources, common.Authorizer\) \(\*Type, error\)`)
 	checkValidateNewFacadeFailsWith(c, wrongOut,
-		`function ".*wrongOut" does not have the signature func \(\*state.State, \*common.Resources, common.Authorizer\) \(\*Type, error\)`)
+		`function ".*wrongOut" does not have the signature func \(\state.State, \*common.Resources, common.Authorizer\) \(\*Type, error\)`)
 	err := common.ValidateNewFacade(reflect.ValueOf(validFactory))
 	c.Assert(err, jc.ErrorIsNil)
 }
@@ -154,7 +154,7 @@ func (*facadeRegistrySuite) TestWrapNewFacadeCallsFunc(c *gc.C) {
 }
 
 type myResult struct {
-	st        *state.State
+	st        state.State
 	resources *common.Resources
 	auth      common.Authorizer
 }
@@ -163,7 +163,7 @@ func (*facadeRegistrySuite) TestWrapNewFacadeCallsWithRightParams(c *gc.C) {
 	authorizer := apiservertesting.FakeAuthorizer{}
 	resources := common.NewResources()
 	testFunc := func(
-		st *state.State, resources *common.Resources,
+		st state.State, resources *common.Resources,
 		authorizer common.Authorizer,
 	) (*myResult, error) {
 		return &myResult{st, resources, authorizer}, nil
@@ -218,7 +218,7 @@ func (*facadeRegistrySuite) TestDiscardedAPIMethods(c *gc.C) {
 	}
 }
 
-func validIdFactory(*state.State, *common.Resources, common.Authorizer, string) (interface{}, error) {
+func validIdFactory(state.State, *common.Resources, common.Authorizer, string) (interface{}, error) {
 	var i = 100
 	return &i, nil
 }
@@ -299,7 +299,7 @@ func (*facadeRegistrySuite) TestRegisterAlreadyPresent(c *gc.C) {
 	r := &common.FacadeRegistry{}
 	err := r.Register("name", 0, validIdFactory, intPtrType, "")
 	c.Assert(err, jc.ErrorIsNil)
-	secondIdFactory := func(*state.State, *common.Resources, common.Authorizer, string) (interface{}, error) {
+	secondIdFactory := func(state.State, *common.Resources, common.Authorizer, string) (interface{}, error) {
 		var i = 200
 		return &i, nil
 	}

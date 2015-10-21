@@ -62,14 +62,14 @@ type ProvisionerAPI struct {
 	*common.ToolsFinder
 	*common.ToolsGetter
 
-	st          *state.State
+	st          state.State
 	resources   *common.Resources
 	authorizer  common.Authorizer
 	getAuthFunc common.GetAuthFunc
 }
 
 // NewProvisionerAPI creates a new server-side ProvisionerAPI facade.
-func NewProvisionerAPI(st *state.State, resources *common.Resources, authorizer common.Authorizer) (*ProvisionerAPI, error) {
+func NewProvisionerAPI(st state.State, resources *common.Resources, authorizer common.Authorizer) (*ProvisionerAPI, error) {
 	if !authorizer.AuthMachineAgent() && !authorizer.AuthEnvironManager() {
 		return nil, common.ErrPerm
 	}
@@ -480,7 +480,7 @@ func (p *ProvisionerAPI) DistributionGroup(args params.Entities) (params.Distrib
 }
 
 // environManagerInstances returns all environ manager instances.
-func environManagerInstances(st *state.State) ([]instance.Id, error) {
+func environManagerInstances(st state.State) ([]instance.Id, error) {
 	info, err := st.StateServerInfo()
 	if err != nil {
 		return nil, err
@@ -503,7 +503,7 @@ func environManagerInstances(st *state.State) ([]instance.Id, error) {
 
 // commonServiceInstances returns instances with
 // services in common with the specified machine.
-func commonServiceInstances(st *state.State, m *state.Machine) ([]instance.Id, error) {
+func commonServiceInstances(st state.State, m *state.Machine) ([]instance.Id, error) {
 	units, err := m.Units()
 	if err != nil {
 		return nil, err
@@ -624,7 +624,7 @@ func (p *ProvisionerAPI) machineVolumeParams(m *state.Machine) ([]params.VolumeP
 // storageConfig returns the provider type and config attributes for the
 // specified poolName. If no such pool exists, we check to see if poolName is
 // actually a provider type, in which case config will be empty.
-func storageConfig(st *state.State, poolName string) (storage.ProviderType, map[string]interface{}, error) {
+func storageConfig(st state.State, poolName string) (storage.ProviderType, map[string]interface{}, error) {
 	pm := poolmanager.New(state.NewStateSettings(st))
 	p, err := pm.Get(poolName)
 	// If not a storage pool, then maybe a provider type.

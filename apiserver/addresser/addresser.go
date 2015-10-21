@@ -31,7 +31,7 @@ type AddresserAPI struct {
 
 // NewAddresserAPI creates a new server-side Addresser API facade.
 func NewAddresserAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*AddresserAPI, error) {

@@ -42,7 +42,7 @@ type objectKey struct {
 // after it has logged in. It contains an rpc.MethodFinder which it
 // uses to dispatch Api calls appropriately.
 type apiHandler struct {
-	state            *state.State
+	state            state.State
 	rpcConn          *rpc.Conn
 	resources        *common.Resources
 	entity           state.Entity
@@ -57,7 +57,7 @@ type apiHandler struct {
 var _ = (*apiHandler)(nil)
 
 // newApiHandler returns a new apiHandler.
-func newApiHandler(srv *Server, st *state.State, rpcConn *rpc.Conn, reqNotifier *requestNotifier, envUUID string) (*apiHandler, error) {
+func newApiHandler(srv *Server, st state.State, rpcConn *rpc.Conn, reqNotifier *requestNotifier, envUUID string) (*apiHandler, error) {
 	r := &apiHandler{
 		state:            st,
 		resources:        common.NewResources(),
@@ -125,7 +125,7 @@ func (s *srvCaller) Call(objId string, arg reflect.Value) (reflect.Value, error)
 
 // apiRoot implements basic method dispatching to the facade registry.
 type apiRoot struct {
-	state       *state.State
+	state       state.State
 	resources   *common.Resources
 	authorizer  common.Authorizer
 	objectMutex sync.RWMutex
@@ -133,7 +133,7 @@ type apiRoot struct {
 }
 
 // newApiRoot returns a new apiRoot.
-func newApiRoot(st *state.State, resources *common.Resources, authorizer common.Authorizer) *apiRoot {
+func newApiRoot(st state.State, resources *common.Resources, authorizer common.Authorizer) *apiRoot {
 	r := &apiRoot{
 		state:       st,
 		resources:   resources,

@@ -325,7 +325,7 @@ func (s *toolsSuite) TestDownloadFetchesAndVerifiesHash(c *gc.C) {
 	s.assertToolsNotStored(c, tools.Version)
 }
 
-func (s *toolsSuite) storeFakeTools(c *gc.C, st *state.State, content string, metadata toolstorage.Metadata) *coretools.Tools {
+func (s *toolsSuite) storeFakeTools(c *gc.C, st state.State, content string, metadata toolstorage.Metadata) *coretools.Tools {
 	storage, err := st.ToolsStorage()
 	c.Assert(err, jc.ErrorIsNil)
 	defer storage.Close()
@@ -338,7 +338,7 @@ func (s *toolsSuite) storeFakeTools(c *gc.C, st *state.State, content string, me
 	}
 }
 
-func (s *toolsSuite) getToolsFromStorage(c *gc.C, st *state.State, vers version.Binary) (toolstorage.Metadata, []byte) {
+func (s *toolsSuite) getToolsFromStorage(c *gc.C, st state.State, vers version.Binary) (toolstorage.Metadata, []byte) {
 	storage, err := st.ToolsStorage()
 	c.Assert(err, jc.ErrorIsNil)
 	defer storage.Close()

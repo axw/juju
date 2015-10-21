@@ -51,7 +51,7 @@ func createAPI(
 
 // NewAPI returns a new cloud image metadata API facade.
 func NewAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*API, error) {

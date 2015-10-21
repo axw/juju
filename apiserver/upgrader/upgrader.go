@@ -27,7 +27,7 @@ func init() {
 // returned depends on who is calling.
 // Both of them conform to the exact Upgrader API, so the actual calls that are
 // available do not depend on who is currently connected.
-func upgraderFacade(st *state.State, resources *common.Resources, auth common.Authorizer) (Upgrader, error) {
+func upgraderFacade(st state.State, resources *common.Resources, auth common.Authorizer) (Upgrader, error) {
 	// The type of upgrader we return depends on who is asking.
 	// Machines get an UpgraderAPI, units get a UnitUpgraderAPI.
 	// This is tested in the api/upgrader package since there
@@ -59,14 +59,14 @@ type UpgraderAPI struct {
 	*common.ToolsGetter
 	*common.ToolsSetter
 
-	st         *state.State
+	st         state.State
 	resources  *common.Resources
 	authorizer common.Authorizer
 }
 
 // NewUpgraderAPI creates a new server-side UpgraderAPI facade.
 func NewUpgraderAPI(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	authorizer common.Authorizer,
 ) (*UpgraderAPI, error) {

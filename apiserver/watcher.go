@@ -55,7 +55,7 @@ func init() {
 
 // NewAllEnvWatcher returns a new API server endpoint for interacting
 // with a watcher created by the WatchAll and WatchAllEnvs API calls.
-func NewAllWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
+func NewAllWatcher(st state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
 	if !auth.AuthClient() {
 		return nil, common.ErrPerm
 	}
@@ -104,7 +104,7 @@ func isAgent(auth common.Authorizer) bool {
 	return auth.AuthMachineAgent() || auth.AuthUnitAgent()
 }
 
-func newNotifyWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
+func newNotifyWatcher(st state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
 	if !isAgent(auth) {
 		return nil, common.ErrPerm
 	}
@@ -148,7 +148,7 @@ type srvStringsWatcher struct {
 	resources *common.Resources
 }
 
-func newStringsWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
+func newStringsWatcher(st state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
 	if !isAgent(auth) {
 		return nil, common.ErrPerm
 	}
@@ -193,7 +193,7 @@ type srvRelationUnitsWatcher struct {
 	resources *common.Resources
 }
 
-func newRelationUnitsWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
+func newRelationUnitsWatcher(st state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
 	if !isAgent(auth) {
 		return nil, common.ErrPerm
 	}
@@ -244,7 +244,7 @@ type srvMachineStorageIdsWatcher struct {
 }
 
 func newVolumeAttachmentsWatcher(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	auth common.Authorizer,
 	id string,
@@ -255,7 +255,7 @@ func newVolumeAttachmentsWatcher(
 }
 
 func newFilesystemAttachmentsWatcher(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	auth common.Authorizer,
 	id string,
@@ -266,7 +266,7 @@ func newFilesystemAttachmentsWatcher(
 }
 
 func newMachineStorageIdsWatcher(
-	st *state.State,
+	st state.State,
 	resources *common.Resources,
 	auth common.Authorizer,
 	id string,
@@ -325,13 +325,13 @@ type EntityWatcher interface {
 // sending the changes as a list of strings, which could be transformed
 // from state entity ids to their corresponding entity tags.
 type srvEntityWatcher struct {
-	st        *state.State
+	st        state.State
 	resources *common.Resources
 	id        string
 	watcher   EntityWatcher
 }
 
-func newEntityWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
+func newEntityWatcher(st state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
 	if !isAgent(auth) {
 		return nil, common.ErrPerm
 	}

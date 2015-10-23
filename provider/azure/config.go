@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/azure"
+	"github.com/Azure/azure-sdk-for-go/arm/storage"
 	"github.com/juju/errors"
 	"github.com/juju/schema"
 
@@ -14,33 +15,41 @@ import (
 )
 
 const (
-	configAttrClientId       = "client-id"
-	configAttrSubscriptionId = "subscription-id"
-	configAttrTenantId       = "tenant-id"
-	configAttrClientKey      = "client-key"
-	configAttrLocation       = "location"
-	configAttrStorageAccount = "storage-account"
+	configAttrClientId           = "client-id"
+	configAttrSubscriptionId     = "subscription-id"
+	configAttrTenantId           = "tenant-id"
+	configAttrClientKey          = "client-key"
+	configAttrLocation           = "location"
+	configAttrStorageAccount     = "storage-account"
+	configAttrStorageAccountType = "storage-account-type"
 )
 
 var configFields = schema.Fields{
-	configAttrLocation:       schema.String(),
-	configAttrClientId:       schema.String(),
-	configAttrSubscriptionId: schema.String(),
-	configAttrTenantId:       schema.String(),
-	configAttrClientKey:      schema.String(),
-	configAttrStorageAccount: schema.String(),
+	configAttrLocation:           schema.String(),
+	configAttrClientId:           schema.String(),
+	configAttrSubscriptionId:     schema.String(),
+	configAttrTenantId:           schema.String(),
+	configAttrClientKey:          schema.String(),
+	configAttrStorageAccount:     schema.String(),
+	configAttrStorageAccountType: schema.String(),
 }
 
 var configDefaults = schema.Defaults{
-	configAttrStorageAccount: schema.Omit,
+	configAttrStorageAccount:     schema.Omit,
+	configAttrStorageAccountType: string(storage.StandardLRS),
 }
 
 type azureEnvironConfig struct {
 	*config.Config
-	token          *azure.ServicePrincipalToken
-	subscriptionId string
-	location       string // canonicalized
-	storageAccount string
+	token              *azure.ServicePrincipalToken
+	subscriptionId     string
+	location           string // canonicalized
+	storageAccount     string
+	storageAccountType storage.AccountType
+}
+
+var knownStorageAccountTypes = []string{
+	"Standard_LRS", "Standard_GRS", "Standard_RAGRS", "Standard_ZRS", "Premium_LRS",
 }
 
 func (prov azureEnvironProvider) newConfig(cfg *config.Config) (*azureEnvironConfig, error) {
@@ -79,6 +88,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 	tenantId := validated[configAttrTenantId].(string)
 	clientKey := validated[configAttrClientKey].(string)
 	storageAccount, haveStorageAccount := validated[configAttrStorageAccount].(string)
+	storageAccountType := validated[configAttrStorageAccountType].(string)
 
 	if oldCfg != nil {
 		oldUnknownAttrs := oldCfg.UnknownAttrs()
@@ -89,8 +99,21 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 			}
 		}
 		// TODO(axw) ensure location doesn't change
+		// TODO(axw) ensure storage account type doesn't change
 		// TODO(axw) figure out how we intend to handle
 		//           changing secrets, such as client key
+	}
+
+	if newCfg.FirewallMode() == config.FwGlobal {
+		// We do not currently support the "global" firewall mode.
+		return nil, errNoFwGlobal
+	}
+
+	if !isKnownStorageAccountType(storageAccountType) {
+		return nil, errors.Errorf(
+			"invalid storage account type %q, expected one of: %q",
+			storageAccountType, knownStorageAccountTypes,
+		)
 	}
 
 	token, err := azure.NewServicePrincipalToken(
@@ -109,9 +132,21 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		subscriptionId,
 		location,
 		storageAccount,
+		storage.AccountType(storageAccountType),
 	}
 
 	return azureConfig, nil
+}
+
+// isKnownStorageAccountType reports whether or not the given string identifies
+// a known storage account type.
+func isKnownStorageAccountType(t string) bool {
+	for _, knownStorageAccountType := range knownStorageAccountTypes {
+		if t == knownStorageAccountType {
+			return true
+		}
+	}
+	return false
 }
 
 // canonicalLocation returns the canonicalized location string. This involves
@@ -135,6 +170,9 @@ azure:
     client-key: XXX
 
     subscription-id: 00000000-0000-0000-0000-000000000000
+
+    # 
+    storage-account-type: Standard_LRS
 
     # location specifies the place where instances will be started,
     # for example: West US, North Europe.

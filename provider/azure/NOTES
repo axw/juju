@@ -1,22 +1,12 @@
-- in models, struct types are given "omitempty", but this is
-  ineffective. must use pointer-to-struct.
-- it would be helpful to have godoc on model struct fields,
-  if it's available in swagger
-- enum type names (e.g. VirtualMachineSizeTypes) should be made singular
-- having to make multiple queries to get the state of a machine is not
-  great. VM first, then network addresses. possible to include more
-  information in the compute model?
-- I would prefer model struct fields were not anonymous types; this
-  makes using struct literals impossible, which in turn makes code
-  a bit more verbose.
+- Would be nice if network security rule priorities didn't have to
+  be unique. We will be managing a single NSG for all machines within
+  an environment due to NSG limits (100 per subscription), and so
+  we create a new rule whenever a port is opened on a machine; they
+  all effectively have the same priority, but we're forced to query
+  the group and find the next availabile priority when allocating.
+
 - Location seems to need spaces stripped: "WestUS" works, but "West US"
   does not. Could be an encoding issue in the Go SDK?
-- Deleting resource groups takes a very long time, regardless of
-  how many resources are within them. Is there some guarantee that
-  once a request to delete has been received, it will eventually be
-  completed successfully? We don't want to return to the user unless
-  it has been successfully deleted, but we also don't want to keep
-  them waiting such a long time if unnecessary.
 - It appears that the Go SDK does not automatically set the correct
   base URI for China locations. It would be nice not to impose on
   users the need to set the URI for standard Azure locations.
@@ -27,28 +17,6 @@
   the image name; it does not contain the other information necessary
   to populate ImageReference. I can hard-code some of that for now,
   but it would be great if the image-name could be specified.
-- Having methods return "autorest.Error" makes the use of the API
-  inline a bit cumbersome. Example:
-      account, err := storageAccountsClient.Create(...)
-      ...
-      foo, err := bar() // "func bar() (fooType, error)"
-           ^^^ cannot assign error to err (type autorest.Error)
-  IMO, it would be better to just return type "error" and have
-  users convert to autorest.Error if they need to inspect it.
-- On the topic of errors, it would be helpful if responses contained
-  some hints on how a request is malformed. "400 Bad Request" is all
-  you get at the moment, which isn't all that helpful.
-- Inconsistent naming for clients: network.NetworkResourceProviderClient,
-  whereas others I've come across are all FooManagementClient
-- autorest sometimes fails on valid status codes, e.g. "201 Created"
-  when creating a resource group. only sometimes though. maybe
-  related to polling?
-
-POSSIBLE BUGS
-- response to storage account creation does not include account name,
-  endpoints, etc. only location and account-type (both of which are
-  specified in params!)
-- azure-sdk-for-go doesn't seem to respect "nextLink" in responses
 
 QUESTION FOR CANONICAL
 - Is there any benefit to using simplestreams in the azure provider?

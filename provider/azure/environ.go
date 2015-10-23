@@ -5,6 +5,7 @@ package azure
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/arm/network"
 	"github.com/Azure/azure-sdk-for-go/arm/resources"
 	"github.com/Azure/azure-sdk-for-go/arm/storage"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
@@ -33,8 +35,10 @@ import (
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/instance"
 	jujunetwork "github.com/juju/juju/network"
+	"github.com/juju/juju/provider/azure/internal/azureutils"
 	"github.com/juju/juju/provider/common"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/state/multiwatcher"
 )
 
 const (
@@ -42,10 +46,42 @@ const (
 	flatVirtualNetworkPrefix       = "10.0.0.0/8"
 	flatVirtualNetworkSubnetName   = "vnet-flat-subnet"
 	flatVirtualNetworkSubnetPrefix = flatVirtualNetworkPrefix
+	environmentSecurityGroupName   = flatVirtualNetworkSubnetName + "-nsg"
 )
+
+const (
+	// securityRuleInternalMin is the beginning of the range of
+	// internal security group rules defined by Juju.
+	securityRuleInternalMin = 100
+
+	// securityRuleInternalMax is the end of the range of internal
+	// security group rules defined by Juju.
+	securityRuleInternalMax = 199
+
+	// securityRuleInternalSSHInbound is the priority of the
+	// security rule that allows inbound SSH access to all
+	// machines.
+	securityRuleInternalSSHInbound = securityRuleInternalMin + iota
+)
+
+var sshSecurityRule = network.SecurityRule{
+	Name: to.StringPtr("SSHInbound"),
+	Properties: &network.SecurityRulePropertiesFormat{
+		Description:              to.StringPtr("Allow SSH access to all machines"),
+		Protocol:                 network.SecurityRuleProtocolTCP,
+		SourceAddressPrefix:      to.StringPtr("*"),
+		SourcePortRange:          to.StringPtr("*"),
+		DestinationAddressPrefix: to.StringPtr("*"),
+		DestinationPortRange:     to.StringPtr("22"),
+		Access:                   network.Allow,
+		Priority:                 to.IntPtr(securityRuleInternalSSHInbound),
+		Direction:                network.Inbound,
+	},
+}
 
 type azureEnviron struct {
 	resourceGroup string
+	envName       string
 
 	mu             sync.Mutex
 	config         *azureEnvironConfig
@@ -72,6 +108,7 @@ func NewEnviron(cfg *config.Config) (*azureEnviron, error) {
 		return nil, err
 	}
 	env.resourceGroup = resourceGroupName(cfg)
+	env.envName = cfg.Name()
 	env.subnets = make(map[string]*network.Subnet)
 	return &env, nil
 }
@@ -113,17 +150,16 @@ func (env *azureEnviron) bootstrapResourceGroup(
 	// Create a storage account.
 	storageAccountsClient := storage.AccountsClient{env.storage}
 	storageAccountName, err := createStorageAccount(
-		storageAccountsClient, env.resourceGroup, location, tags,
+		storageAccountsClient, env.config.storageAccountType,
+		env.resourceGroup, location, tags,
 	)
 	if err != nil {
 		return "", "", nil, errors.Annotate(err, "creating storage account")
 	}
 
 	// Create a flat virtual network for all VMs to connect to.
-	virtualNetworksClient := network.VirtualNetworksClient{env.network}
-	subnetsClient := network.SubnetsClient{env.network}
 	vnet, subnet, err := createFlatVirtualNetwork(
-		virtualNetworksClient, subnetsClient, env.resourceGroup, location, tags,
+		env.network, env.resourceGroup, location, tags,
 	)
 	if err != nil {
 		return "", "", nil, errors.Annotate(err, "creating virtual network")
@@ -142,12 +178,12 @@ func (env *azureEnviron) bootstrapResourceGroup(
 		return "", "", nil, errors.Trace(err)
 	}
 
-	// TODO(axw) create default availability set?
 	return common.Bootstrap(ctx, env, args)
 }
 
 func createStorageAccount(
 	client storage.AccountsClient,
+	accountType storage.AccountType,
 	resourceGroup string,
 	location string,
 	tags map[string]string,
@@ -162,7 +198,8 @@ func createStorageAccount(
 		result, err := client.CheckNameAvailability(
 			storage.AccountCheckNameAvailabilityParameters{
 				Name: to.StringPtr(accountName),
-				// TODO(axw) do we need this?
+				// Azure is a little inconsistent with when Type is
+				// required. It's required here.
 				Type: to.StringPtr("Microsoft.Storage/storageAccounts"),
 			},
 		)
@@ -180,11 +217,10 @@ func createStorageAccount(
 			Location: to.StringPtr(location),
 			Tags:     toTagsPtr(tags),
 			Properties: &storage.AccountPropertiesCreateParameters{
-				// TODO(axw) make storage account type configurable?
-				AccountType: storage.StandardLRS,
+				AccountType: accountType,
 			},
 		}
-		logger.Debugf("creating storage account %q", accountName)
+		logger.Debugf("- creating %q storage account %q", accountType, accountName)
 		if _, err := client.Create(resourceGroup, accountName, createParams); err != nil {
 			return "", errors.Trace(err)
 		}
@@ -194,8 +230,7 @@ func createStorageAccount(
 }
 
 func createFlatVirtualNetwork(
-	vnetClient network.VirtualNetworksClient,
-	subnetClient network.SubnetsClient,
+	client network.ManagementClient,
 	resourceGroup string,
 	location string,
 	tags map[string]string,
@@ -211,6 +246,7 @@ func createFlatVirtualNetwork(
 		},
 	}
 	logger.Debugf("creating virtual network %q", flatVirtualNetworkName)
+	vnetClient := network.VirtualNetworksClient{client}
 	vnet, err := vnetClient.CreateOrUpdate(
 		resourceGroup, flatVirtualNetworkName, virtualNetworkParams,
 	)
@@ -218,14 +254,37 @@ func createFlatVirtualNetwork(
 		return nil, nil, errors.Annotatef(err, "creating virtual network %q", flatVirtualNetworkName)
 	}
 
+	// Create a network security group for the environment. There is only
+	// one NSG per environment (there's a limit of 100 per subscription),
+	// in which we manage rules for each machine.
+	securityRules := []network.SecurityRule{sshSecurityRule}
+	securityGroupParams := network.SecurityGroup{
+		Location: to.StringPtr(location),
+		Tags:     toTagsPtr(tags),
+		Properties: &network.SecurityGroupPropertiesFormat{
+			SecurityRules: &securityRules,
+		},
+	}
+	logger.Debugf("creating security group %q", environmentSecurityGroupName)
+	securityGroupClient := network.SecurityGroupsClient{client}
+	securityGroup, err := securityGroupClient.CreateOrUpdate(
+		resourceGroup, environmentSecurityGroupName, securityGroupParams,
+	)
+	if err != nil {
+		return nil, nil, errors.Annotatef(err, "creating security group %q", environmentSecurityGroupName)
+	}
+
+	// TODO(axw) wait for vnet and NSG to be created
+
 	// Now create a subnet with the same address prefix.
 	subnetParams := network.Subnet{
 		Properties: &network.SubnetPropertiesFormat{
-			AddressPrefix: to.StringPtr(flatVirtualNetworkSubnetPrefix),
+			AddressPrefix:        to.StringPtr(flatVirtualNetworkSubnetPrefix),
+			NetworkSecurityGroup: &network.SubResource{ID: securityGroup.ID},
 		},
 	}
-	// TODO(axw) security group?
 	logger.Debugf("creating subnet %q", flatVirtualNetworkSubnetName)
+	subnetClient := network.SubnetsClient{client}
 	subnet, err := subnetClient.CreateOrUpdate(
 		resourceGroup, flatVirtualNetworkName, flatVirtualNetworkSubnetName, subnetParams,
 	)
@@ -409,8 +468,10 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	// ensure we obtain all information based on the same configuration.
 	env.mu.Lock()
 	location := env.config.location
-	envName := env.config.Name()
+	envTags, _ := env.config.ResourceTags()
+	apiPort := env.config.APIPort()
 	vmClient := compute.VirtualMachinesClient{env.compute}
+	availabilitySetClient := compute.AvailabilitySetsClient{env.compute}
 	networkClient := env.network
 	instanceTypes, err := env.getInstanceTypesLocked()
 	if err != nil {
@@ -443,7 +504,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	}
 
 	machineTag := names.NewMachineTag(args.InstanceConfig.MachineId)
-	vmName := resourceName(machineTag, envName)
+	vmName := resourceName(machineTag, env.envName)
 	vmTags := make(map[string]string)
 	for k, v := range args.InstanceConfig.Tags {
 		vmTags[k] = v
@@ -454,11 +515,22 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	jujuMachineNameTag := tags.JujuTagPrefix + "machine-name"
 	vmTags[jujuMachineNameTag] = vmName
 
+	// If the machine will run a state server, then we need to open the
+	// API port for it.
+	var apiPortPtr *int
+	if multiwatcher.AnyJobNeedsState(args.InstanceConfig.Jobs...) {
+		apiPortPtr = &apiPort
+	}
+
 	vm, err := createVirtualMachine(
-		env.resourceGroup, location, vmName, vmTags,
+		env.resourceGroup, location, vmName,
+		vmTags, envTags,
 		instanceSpec, args.InstanceConfig,
-		flatVirtualNetworkSubnet.ID,
-		storageAccount, networkClient, vmClient,
+		args.DistributionGroup,
+		env.Instances,
+		apiPortPtr, flatVirtualNetworkSubnet.ID,
+		storageAccount, networkClient,
+		vmClient, availabilitySetClient,
 	)
 	if err != nil {
 		// TODO(axw) delete resources
@@ -488,13 +560,17 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 // this function fails then all resources can be deleted by tag.
 func createVirtualMachine(
 	resourceGroup, location, vmName string,
-	vmTags map[string]string,
+	vmTags, envTags map[string]string,
 	instanceSpec *instances.InstanceSpec,
 	instanceConfig *instancecfg.InstanceConfig,
+	distributionGroupFunc func() ([]instance.Id, error),
+	instancesFunc func([]instance.Id) ([]instance.Instance, error),
+	apiPort *int,
 	flatVirtualNetworkSubnetID *string,
 	storageAccount *storage.Account,
 	networkClient network.ManagementClient,
 	vmClient compute.VirtualMachinesClient,
+	availabilitySetClient compute.AvailabilitySetsClient,
 ) (compute.VirtualMachine, error) {
 
 	storageProfile, err := newStorageProfile(
@@ -511,12 +587,22 @@ func createVirtualMachine(
 	}
 
 	networkProfile, err := newNetworkProfile(
-		networkClient, vmName,
+		networkClient, vmName, apiPort,
 		flatVirtualNetworkSubnetID,
 		resourceGroup, location, vmTags,
 	)
 	if err != nil {
 		return compute.VirtualMachine{}, errors.Annotate(err, "creating network profile")
+	}
+
+	availabilitySetId, err := createAvailabilitySet(
+		availabilitySetClient,
+		vmName, resourceGroup, location,
+		vmTags, envTags,
+		distributionGroupFunc, instancesFunc,
+	)
+	if err != nil {
+		return compute.VirtualMachine{}, errors.Annotate(err, "creating availability set")
 	}
 
 	vmArgs := compute.VirtualMachine{
@@ -532,10 +618,111 @@ func createVirtualMachine(
 			StorageProfile: storageProfile,
 			OsProfile:      osProfile,
 			NetworkProfile: networkProfile,
-			// TODO availability set
+			AvailabilitySet: &compute.SubResource{
+				ID: to.StringPtr(availabilitySetId),
+			},
 		},
 	}
-	return vmClient.CreateOrUpdate(resourceGroup, vmName, vmArgs)
+	vm, err := vmClient.CreateOrUpdate(resourceGroup, vmName, vmArgs)
+	if err != nil {
+		return compute.VirtualMachine{}, errors.Annotate(err, "creating virtual machine")
+	}
+
+	// Creating network security rules.
+
+	return vm, nil
+}
+
+// createAvailabilitySet creates the availability set for a machine to use
+// if it doesn't already exist, and returns the availability set's ID. The
+// algorithm used for choosing the availability set is:
+//  - if there is a distribution group, use the same availability set as
+//    the instances in that group. Instances in the group may be in
+//    different availability sets (when multiple services colocated on a
+//    machine), so we pick one arbitrarily
+//  - if there is no distribution group, create an availability name with
+//    a name based on the value of the tags.JujuUnitsDeployed tag in vmTags,
+//    if it exists
+//  - if there are no units assigned to the machine, then use the "juju"
+//    availability set
+func createAvailabilitySet(
+	client compute.AvailabilitySetsClient,
+	vmName, resourceGroup, location string,
+	vmTags, envTags map[string]string,
+	distributionGroupFunc func() ([]instance.Id, error),
+	instancesFunc func([]instance.Id) ([]instance.Instance, error),
+) (string, error) {
+	logger.Debugf("selecting availability set for %q", vmName)
+
+	// First we check if there's a distribution group, and if so,
+	// use the availability set of the first instance we find in it.
+	var instanceIds []instance.Id
+	if distributionGroupFunc != nil {
+		var err error
+		instanceIds, err = distributionGroupFunc()
+		if err != nil {
+			return "", errors.Annotate(
+				err, "querying distribution group",
+			)
+		}
+	}
+	instances, err := instancesFunc(instanceIds)
+	switch err {
+	case nil, environs.ErrPartialInstances, environs.ErrNoInstances:
+	default:
+		return "", errors.Annotate(
+			err, "querying distribution group instances",
+		)
+	}
+	for _, instance := range instances {
+		if instance == nil {
+			continue
+		}
+		instance := instance.(*azureInstance)
+		availabilitySetSubResource := instance.Properties.AvailabilitySet
+		if availabilitySetSubResource == nil || availabilitySetSubResource.ID == nil {
+			continue
+		}
+		logger.Debugf("- selecting availability set of %q", instance.Name)
+		return to.String(availabilitySetSubResource.ID), nil
+	}
+
+	// We'll have to create an availability set. Use the name of one of the
+	// services assigned to the machine.
+	availabilitySetName := "juju"
+	if unitNames, ok := vmTags[tags.JujuUnitsDeployed]; ok {
+		for _, unitName := range strings.Fields(unitNames) {
+			if !names.IsValidUnit(unitName) {
+				continue
+			}
+			serviceName, err := names.UnitService(unitName)
+			if err != nil {
+				return "", errors.Annotate(
+					err, "getting service name",
+				)
+			}
+			availabilitySetName = serviceName
+			break
+		}
+	}
+
+	// TODO(axw) pick name based on principal unit's service.
+	logger.Debugf("- creating availability set %q", availabilitySetName)
+	availabilitySet, err := client.CreateOrUpdate(
+		resourceGroup, availabilitySetName, compute.AvailabilitySet{
+			Name:     to.StringPtr(availabilitySetName),
+			Location: to.StringPtr(location),
+			// NOTE(axw) we do *not* want to use vmTags here,
+			// because an availability set is shared by machines.
+			Tags: toTagsPtr(envTags),
+		},
+	)
+	if err != nil {
+		return "", errors.Annotatef(
+			err, "creating availability set %q", availabilitySetName,
+		)
+	}
+	return to.String(availabilitySet.ID), nil
 }
 
 // newStorageProfile creates the storage profile for a virtual machine,
@@ -546,6 +733,7 @@ func newStorageProfile(
 	instanceSpec *instances.InstanceSpec,
 	storageAccount *storage.Account,
 ) (*compute.StorageProfile, error) {
+	logger.Debugf("creating storage profile for %q", vmName)
 
 	// TODO(axw) We should be using the image name from instanceSpec.
 	// There is currently no way to specify the image name in VirtualMachine.
@@ -587,6 +775,8 @@ func newStorageProfile(
 }
 
 func newOSProfile(vmName string, instanceConfig *instancecfg.InstanceConfig) (*compute.OSProfile, error) {
+	logger.Debugf("creating OS profile for %q", vmName)
+
 	customData, err := providerinit.ComposeUserData(instanceConfig, nil, AzureRenderer{})
 	if err != nil {
 		return nil, errors.Annotate(err, "composing user data")
@@ -624,12 +814,16 @@ func newOSProfile(vmName string, instanceConfig *instancecfg.InstanceConfig) (*c
 func newNetworkProfile(
 	client network.ManagementClient,
 	vmName string,
+	apiPort *int,
 	primarySubnetId *string,
 	resourceGroup string,
 	location string,
 	tags map[string]string,
 ) (*compute.NetworkProfile, error) {
-	// Create a public IP for the NIC.
+	logger.Debugf("creating network profile for %q", vmName)
+
+	// Create a public IP for the NIC. Public IP addresses are dynamic.
+	logger.Debugf("- allocating public IP address")
 	pipClient := network.PublicIPAddressesClient{client}
 	publicIPAddressParams := network.PublicIPAddress{
 		Location: to.StringPtr(location),
@@ -638,17 +832,27 @@ func newNetworkProfile(
 			PublicIPAllocationMethod: network.Dynamic,
 		},
 	}
-	publicIPAddress, err := pipClient.CreateOrUpdate(resourceGroup, vmName+"-public-ip", publicIPAddressParams)
+	publicIPAddressName := vmName + "-public-ip"
+	publicIPAddress, err := pipClient.CreateOrUpdate(resourceGroup, publicIPAddressName, publicIPAddressParams)
 	if err != nil {
 		return nil, errors.Annotatef(err, "creating public IP address for %q", vmName)
 	}
 
-	// Create a primary NIC for the machine.
+	// Determine the next available private IP address.
 	nicClient := network.InterfacesClient{client}
+	privateIPAddress, err := nextPrivateIPAddress(nicClient, resourceGroup, *primarySubnetId)
+	if err != nil {
+		return nil, errors.Annotatef(err, "querying private IP addresses")
+	}
+
+	// Create a primary NIC for the machine. This needs to be static, so
+	// that we can create security rules that don't become invalid.
+	logger.Debugf("- creating primary NIC")
 	ipConfigurations := []network.InterfaceIPConfiguration{{
 		Name: to.StringPtr("primary"),
 		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
-			PrivateIPAllocationMethod: network.Dynamic,
+			PrivateIPAddress:          to.StringPtr(privateIPAddress),
+			PrivateIPAllocationMethod: network.Static,
 			Subnet:          &network.SubResource{ID: primarySubnetId},
 			PublicIPAddress: &network.SubResource{publicIPAddress.ID},
 		},
@@ -666,6 +870,57 @@ func newNetworkProfile(
 		return nil, errors.Annotatef(err, "creating network interface for %q", vmName)
 	}
 
+	// Create a network security rule for the machine if we need to open
+	// the API server port.
+	if apiPort != nil {
+		logger.Debugf("- querying network security group")
+		securityGroupClient := network.SecurityGroupsClient{client}
+		securityGroup, err := securityGroupClient.Get(resourceGroup, environmentSecurityGroupName)
+		if err != nil {
+			return nil, errors.Annotate(err, "querying network security group")
+		}
+
+		// NOTE(axw) this looks like TOCTTOU race territory, but it's
+		// safe because we only allocate/deallocate rules in this
+		// range during machine (de)provisioning, which is managed by
+		// a single goroutine. Non-internal ports are managed by the
+		// firewaller exclusively.
+		nextPriority, err := nextSecurityRulePriority(
+			securityGroup,
+			securityRuleInternalSSHInbound+1,
+			securityRuleInternalMax,
+		)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		apiSecurityRuleName := fmt.Sprintf("%s-api", vmName)
+		apiSecurityRule := network.SecurityRule{
+			Name: to.StringPtr(apiSecurityRuleName),
+			Properties: &network.SecurityRulePropertiesFormat{
+				Description:              to.StringPtr("Allow API access to server machines"),
+				Protocol:                 network.SecurityRuleProtocolTCP,
+				SourceAddressPrefix:      to.StringPtr("*"),
+				SourcePortRange:          to.StringPtr("*"),
+				DestinationAddressPrefix: publicIPAddress.Properties.IPAddress,
+				DestinationPortRange:     to.StringPtr(fmt.Sprint(*apiPort)),
+				Access:                   network.Allow,
+				Priority:                 to.IntPtr(nextPriority),
+				Direction:                network.Inbound,
+			},
+		}
+		logger.Debugf("%v", spew.Sdump(apiSecurityRule))
+		logger.Debugf("- creating API network security rule")
+		securityRuleClient := network.SecurityRulesClient{client}
+		_, err = securityRuleClient.CreateOrUpdate(
+			resourceGroup, environmentSecurityGroupName,
+			apiSecurityRuleName, apiSecurityRule,
+		)
+		if err != nil {
+			return nil, errors.Annotate(err, "creating API network security rule")
+		}
+	}
+
 	// For now we only attach a single, flat network to each machine.
 	networkInterfaces := []compute.NetworkInterfaceReference{{
 		ID: primaryNic.ID,
@@ -673,7 +928,6 @@ func newNetworkProfile(
 			Primary: to.BoolPtr(true),
 		},
 	}}
-	// TODO firewall?
 	return &compute.NetworkProfile{&networkInterfaces}, nil
 }
 
@@ -693,6 +947,9 @@ func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 
 // Instances is specified in the Environ interface.
 func (env *azureEnviron) Instances(ids []instance.Id) ([]instance.Instance, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
 	// TODO(axw) optimise the len(1) case.
 	all, err := env.AllInstances()
 	if err != nil {
@@ -733,7 +990,6 @@ func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
 	if result.Value == nil || len(*result.Value) == 0 {
 		return nil, environs.ErrNoInstances
 	}
-	// TODO(axw) how to continue with result.NextLink?
 	instances := make([]instance.Instance, len(*result.Value))
 	for i, vm := range *result.Value {
 		inst := &azureInstance{vm, nil, nil, env}
@@ -747,7 +1003,7 @@ func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
 
 // Destroy is specified in the Environ interface.
 func (env *azureEnviron) Destroy() error {
-	logger.Debugf("destroying environment %q", env.Config().Name())
+	logger.Debugf("destroying environment %q", env.envName)
 	client := resources.GroupsClient{env.resources}
 	if _, err := client.Delete(env.resourceGroup); err != nil {
 		return errors.Annotatef(err, "deleting resource group %q", env.resourceGroup)
@@ -755,31 +1011,29 @@ func (env *azureEnviron) Destroy() error {
 	return nil
 }
 
+var errNoFwGlobal = errors.New("global firewall mode is not supported")
+
 // OpenPorts is specified in the Environ interface. However, Azure does not
 // support the global firewall mode.
 func (env *azureEnviron) OpenPorts(ports []jujunetwork.PortRange) error {
-	return nil
+	return errNoFwGlobal
 }
 
 // ClosePorts is specified in the Environ interface. However, Azure does not
 // support the global firewall mode.
 func (env *azureEnviron) ClosePorts(ports []jujunetwork.PortRange) error {
-	return nil
+	return errNoFwGlobal
 }
 
 // Ports is specified in the Environ interface.
 func (env *azureEnviron) Ports() ([]jujunetwork.PortRange, error) {
-	// TODO: implement this.
-	return []jujunetwork.PortRange{}, nil
+	return nil, errNoFwGlobal
 }
 
 // Provider is specified in the Environ interface.
 func (env *azureEnviron) Provider() environs.EnvironProvider {
 	return azureEnvironProvider{}
 }
-
-// TODO(ericsnow) lp-1398055
-// Implement the ZonedEnviron interface.
 
 // Region is specified in the HasRegion interface.
 func (env *azureEnviron) Region() (simplestreams.CloudSpec, error) {
@@ -887,4 +1141,69 @@ func (env *azureEnviron) getVirtualNetworkSubnetLocked(vnetName, subnetName stri
 
 	env.subnets[subnetKey] = &subnet
 	return &subnet, nil
+}
+
+// nextSecurityRulePriority returns the next available priority in the given
+// security group within a specified range.
+func nextSecurityRulePriority(group network.SecurityGroup, min, max int) (int, error) {
+	if group.Properties.SecurityRules == nil {
+		return min, nil
+	}
+	for p := min; p <= min; p++ {
+		var found bool
+		for _, rule := range *group.Properties.SecurityRules {
+			if to.Int(rule.Properties.Priority) == p {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return p, nil
+		}
+	}
+	return -1, errors.Errorf(
+		"no priorities available in the range [%d, %d]",
+		securityRuleInternalMin,
+		securityRuleInternalMax,
+	)
+}
+
+// nextPrivateIPAddress returns the next available IP address in
+// the private (flat) virtual network/subnet.
+func nextPrivateIPAddress(
+	nicClient network.InterfacesClient,
+	resourceGroup string,
+	subnetID string,
+) (string, error) {
+	_, ipnet, err := net.ParseCIDR(flatVirtualNetworkSubnetPrefix)
+	if err != nil {
+		return "", errors.Annotate(err, "parsing subnet prefix")
+	}
+	results, err := nicClient.List(resourceGroup)
+	if err != nil {
+		return "", errors.Annotate(err, "listing NICs")
+	}
+	if results.Value == nil {
+		return "", nil
+	}
+	ipsInUse := make([]net.IP, 0, len(*results.Value))
+	for _, item := range *results.Value {
+		if item.Properties.IPConfigurations == nil {
+			continue
+		}
+		for _, ipConfiguration := range *item.Properties.IPConfigurations {
+			if to.String(ipConfiguration.Properties.Subnet.ID) != subnetID {
+				continue
+			}
+			ip := net.ParseIP(to.String(ipConfiguration.Properties.PrivateIPAddress))
+			if ip != nil {
+				ipsInUse = append(ipsInUse, ip)
+			}
+		}
+	}
+	ip, err := azureutils.NextGlobalUnicastIPAddress(ipnet, ipsInUse)
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+	return ip.String(), nil
 }

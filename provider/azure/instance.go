@@ -4,10 +4,11 @@
 package azure
 
 import (
+	"strings"
+
+	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/Azure/azure-sdk-for-go/arm/network"
-	"github.com/Azure/go-autorest/autorest/to"
-	"github.com/davecgh/go-spew/spew"
 
 	"github.com/juju/errors"
 	"github.com/juju/juju/instance"
@@ -124,14 +125,16 @@ func (inst *azureInstance) Addresses() ([]jujunetwork.Address, error) {
 }
 
 // OpenPorts is specified in the Instance interface.
-func (inst *azureInstance) OpenPorts(machineId string, portRange []jujunetwork.PortRange) error {
+func (inst *azureInstance) OpenPorts(machineId string, ports []jujunetwork.PortRange) error {
 	// TODO(axw)
+	logger.Debugf("OpenPorts(%v, %+v)", machineId, ports)
 	return nil
 }
 
 // ClosePorts is specified in the Instance interface.
 func (inst *azureInstance) ClosePorts(machineId string, ports []jujunetwork.PortRange) error {
 	// TODO(axw)
+	logger.Debugf("ClosePorts(%v, %+v)", machineId, ports)
 	return nil
 }
 
@@ -142,16 +145,57 @@ func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRang
 	resourceGroup := inst.env.resourceGroup
 	inst.env.mu.Unlock()
 
-	nsg, err := nsgClient.Get(resourceGroup, machineSecurityGroupName(machineId))
+	nsg, err := nsgClient.Get(resourceGroup, environmentSecurityGroupName)
 	if err != nil {
-		return nil, errors.Annotate(err, "getting network security group")
+		return nil, errors.Annotate(err, "querying network security group")
 	}
-	logger.Debugf("%v", spew.Sdump(nsg.Properties))
+	if nsg.Properties.SecurityRules == nil {
+		return nil, nil
+	}
 
-	// TODO(axw)
-	return nil, nil
-}
+	vmName := resourceName(names.NewMachineTag(machineId), inst.env.envName)
+	prefix := vmName + "-"
+	for _, rule := range *nsg.Properties.SecurityRules {
+		if rule.Properties.Direction != network.Inbound {
+			continue
+		}
+		if to.Int(rule.Properties.Priority) <= securityRuleInternalMax {
+			continue
+		}
+		if !strings.HasPrefix(to.String(rule.Name), prefix) {
+			continue
+		}
 
-func machineSecurityGroupName(machineId string) string {
-	return names.NewMachineTag(machineId).String()
+		var portRange jujunetwork.PortRange
+		if *rule.Properties.DestinationPortRange == "*" {
+			portRange.FromPort = 0
+			portRange.ToPort = 65535
+		} else {
+			portRange, err = jujunetwork.ParsePortRange(
+				*rule.Properties.DestinationPortRange,
+			)
+			if err != nil {
+				return nil, errors.Annotatef(
+					err, "parsing port range for security rule %q",
+					to.String(rule.Name),
+				)
+			}
+		}
+
+		var protocols []string
+		switch rule.Properties.Protocol {
+		case network.SecurityRuleProtocolTCP:
+			protocols = []string{"tcp"}
+		case network.SecurityRuleProtocolUDP:
+			protocols = []string{"udp"}
+		default:
+			protocols = []string{"tcp", "udp"}
+		}
+		for _, protocol := range protocols {
+			portRange.Protocol = protocol
+			ports = append(ports, portRange)
+		}
+	}
+
+	return ports, nil
 }

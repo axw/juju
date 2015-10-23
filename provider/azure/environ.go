@@ -501,7 +501,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	}
 
 	machineTag := names.NewMachineTag(args.InstanceConfig.MachineId)
-	vmName := resourceName(machineTag, env.envName)
+	vmName := resourceName(machineTag)
 	vmTags := make(map[string]string)
 	for k, v := range args.InstanceConfig.Tags {
 		vmTags[k] = v
@@ -1053,13 +1053,13 @@ func resourceGroupName(cfg *config.Config) string {
 	// UUID is always available for azure environments, since the (new)
 	// provider was introduced after environment UUIDs.
 	envTag := names.NewEnvironTag(uuid)
-	return resourceName(envTag, cfg.Name())
+	return resourceName(envTag)
 }
 
 // resourceName returns the string to use for a resource's Name tag,
 // to help users identify Juju-managed resources in the AWS console.
-func resourceName(tag names.Tag, envName string) string {
-	return fmt.Sprintf("juju-%s-%s", envName, tag)
+func resourceName(tag names.Tag) string {
+	return fmt.Sprintf("juju-%s", tag)
 }
 
 // getInstanceTypes gets the instance types available for the configured

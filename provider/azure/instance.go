@@ -153,7 +153,7 @@ func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRang
 		return nil, nil
 	}
 
-	vmName := resourceName(names.NewMachineTag(machineId), inst.env.envName)
+	vmName := resourceName(names.NewMachineTag(machineId))
 	prefix := vmName + "-"
 	for _, rule := range *nsg.Properties.SecurityRules {
 		if rule.Properties.Direction != network.Inbound {
@@ -196,6 +196,5 @@ func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRang
 			ports = append(ports, portRange)
 		}
 	}
-
 	return ports, nil
 }

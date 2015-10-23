@@ -16,7 +16,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/arm/network"
 	"github.com/Azure/azure-sdk-for-go/arm/resources"
 	"github.com/Azure/azure-sdk-for-go/arm/storage"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
@@ -274,8 +273,6 @@ func createFlatVirtualNetwork(
 		return nil, nil, errors.Annotatef(err, "creating security group %q", environmentSecurityGroupName)
 	}
 
-	// TODO(axw) wait for vnet and NSG to be created
-
 	// Now create a subnet with the same address prefix.
 	subnetParams := network.Subnet{
 		Properties: &network.SubnetPropertiesFormat{
@@ -356,7 +353,7 @@ func (env *azureEnviron) SetConfig(cfg *config.Config) error {
 	// Initialise clients.
 	//
 	// TODO(axw) we need to set the URI in each of the
-	// SDK packages for the China locations.
+	// clients for the China locations.
 	env.compute = compute.New(env.config.subscriptionId)
 	env.resources = resources.New(env.config.subscriptionId)
 	env.storage = storage.New(env.config.subscriptionId)
@@ -706,7 +703,6 @@ func createAvailabilitySet(
 		}
 	}
 
-	// TODO(axw) pick name based on principal unit's service.
 	logger.Debugf("- creating availability set %q", availabilitySetName)
 	availabilitySet, err := client.CreateOrUpdate(
 		resourceGroup, availabilitySetName, compute.AvailabilitySet{
@@ -902,14 +898,13 @@ func newNetworkProfile(
 				Protocol:                 network.SecurityRuleProtocolTCP,
 				SourceAddressPrefix:      to.StringPtr("*"),
 				SourcePortRange:          to.StringPtr("*"),
-				DestinationAddressPrefix: publicIPAddress.Properties.IPAddress,
+				DestinationAddressPrefix: to.StringPtr(privateIPAddress),
 				DestinationPortRange:     to.StringPtr(fmt.Sprint(*apiPort)),
 				Access:                   network.Allow,
 				Priority:                 to.IntPtr(nextPriority),
 				Direction:                network.Inbound,
 			},
 		}
-		logger.Debugf("%v", spew.Sdump(apiSecurityRule))
 		logger.Debugf("- creating API network security rule")
 		securityRuleClient := network.SecurityRulesClient{client}
 		_, err = securityRuleClient.CreateOrUpdate(
@@ -935,8 +930,9 @@ func newNetworkProfile(
 func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 	vmClient := compute.VirtualMachinesClient{env.compute}
 	for _, id := range ids {
-		// TODO(axw) delete VMs in parallel.
-		// TODO(axw) delete associated resources, e.g. NICs.
+		// TODO(axw) delete VMs in parallel?
+		// TODO(axw) delete associated resources, e.g. NICs, network
+		// security rules. This must be done before deleting machine.
 		_, err := vmClient.Delete(env.resourceGroup, string(id))
 		if err != nil {
 			return errors.Trace(err)
@@ -1183,25 +1179,26 @@ func nextPrivateIPAddress(
 	if err != nil {
 		return "", errors.Annotate(err, "listing NICs")
 	}
-	if results.Value == nil {
-		return "", nil
-	}
-	ipsInUse := make([]net.IP, 0, len(*results.Value))
-	for _, item := range *results.Value {
-		if item.Properties.IPConfigurations == nil {
-			continue
-		}
-		for _, ipConfiguration := range *item.Properties.IPConfigurations {
-			if to.String(ipConfiguration.Properties.Subnet.ID) != subnetID {
+	// Azure reserves the first 4 addresses in the subnet.
+	var ipsInUse []net.IP
+	if results.Value != nil {
+		ipsInUse = make([]net.IP, 0, len(*results.Value))
+		for _, item := range *results.Value {
+			if item.Properties.IPConfigurations == nil {
 				continue
 			}
-			ip := net.ParseIP(to.String(ipConfiguration.Properties.PrivateIPAddress))
-			if ip != nil {
-				ipsInUse = append(ipsInUse, ip)
+			for _, ipConfiguration := range *item.Properties.IPConfigurations {
+				if to.String(ipConfiguration.Properties.Subnet.ID) != subnetID {
+					continue
+				}
+				ip := net.ParseIP(to.String(ipConfiguration.Properties.PrivateIPAddress))
+				if ip != nil {
+					ipsInUse = append(ipsInUse, ip)
+				}
 			}
 		}
 	}
-	ip, err := azureutils.NextGlobalUnicastIPAddress(ipnet, ipsInUse)
+	ip, err := azureutils.NextSubnetIP(ipnet, ipsInUse)
 	if err != nil {
 		return "", errors.Trace(err)
 	}

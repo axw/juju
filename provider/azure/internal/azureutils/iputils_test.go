@@ -4,6 +4,7 @@
 package azureutils_test
 
 import (
+	"fmt"
 	"net"
 
 	jc "github.com/juju/testing/checkers"
@@ -19,20 +20,46 @@ type iputilsSuite struct {
 
 var _ = gc.Suite(&iputilsSuite{})
 
-func (*iputilsSuite) TestNextGlobalUnicastIPAddress(c *gc.C) {
-	assertNextGlobalUnicastAddress(c, "10.0.0.0/8", nil, "10.0.0.0")
-	assertNextGlobalUnicastAddress(c, "10.0.0.0/8", []string{"10.0.0.0"}, "10.0.0.1")
-	assertNextGlobalUnicastAddress(c, "10.0.0.0/8", []string{"10.0.0.0", "10.0.0.1", "10.0.0.3"}, "10.0.0.2")
-	assertNextGlobalUnicastAddress(c, "10.1.2.0/31", nil, "10.1.2.0")
-	assertNextGlobalUnicastAddress(c, "10.1.2.0/31", []string{"10.1.2.0"}, "10.1.2.1")
+func (*iputilsSuite) TestNextSubnetIP(c *gc.C) {
+	assertNextSubnetIP(c, "10.0.0.0/8", nil, "10.0.0.4")
+	assertNextSubnetIP(c, "10.0.0.0/8", []string{"10.0.0.1"}, "10.0.0.4")
+	assertNextSubnetIP(c, "10.0.0.0/8", []string{"10.0.0.1", "10.0.0.4"}, "10.0.0.5")
 }
 
-func assertNextGlobalUnicastAddress(c *gc.C, ipnetString string, inuseStrings []string, expectedString string) {
+func (*iputilsSuite) TestNextSubnetIPErrors(c *gc.C) {
+	// The subnet is too small to have any non-reserved addresses.
+	assertNextSubnetIPError(
+		c,
+		"10.1.2.0/30",
+		nil,
+		"no addresses available in 10.1.2.0/30",
+	)
+
+	// All addresses in use.
+	var addresses []string
+	for i := 1; i < 255; i++ {
+		addr := fmt.Sprintf("10.0.0.%d", i)
+		addresses = append(addresses, addr)
+	}
+	assertNextSubnetIPError(
+		c, "10.0.0.0/24", addresses,
+		"no addresses available in 10.0.0.0/24",
+	)
+}
+
+func assertNextSubnetIP(c *gc.C, ipnetString string, inuseStrings []string, expectedString string) {
 	ipnet := parseIPNet(c, ipnetString)
 	inuse := parseIPs(c, inuseStrings...)
-	next, err := azureutils.NextGlobalUnicastIPAddress(ipnet, inuse)
+	next, err := azureutils.NextSubnetIP(ipnet, inuse)
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(next.String(), gc.Equals, expectedString)
+}
+
+func assertNextSubnetIPError(c *gc.C, ipnetString string, inuseStrings []string, expect string) {
+	ipnet := parseIPNet(c, ipnetString)
+	inuse := parseIPs(c, inuseStrings...)
+	_, err := azureutils.NextSubnetIP(ipnet, inuse)
+	c.Assert(err, gc.ErrorMatches, expect)
 }
 
 func parseIPs(c *gc.C, ipStrings ...string) []net.IP {

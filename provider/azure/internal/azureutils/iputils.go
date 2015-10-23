@@ -10,9 +10,12 @@ import (
 	"github.com/juju/errors"
 )
 
-// NextGlobalUnicastIPAddress returns the next available
-// global unicast IP address in a given subnet.
-func NextGlobalUnicastIPAddress(subnet *net.IPNet, ipsInUse []net.IP) (net.IP, error) {
+// Azure reserves the first four addresses in each subnet
+// (or so it seems -- it's not clearly documented).
+const reservedAddressRangeEnd = 3
+
+// NextSubnetIP returns the next available IP address in a given subnet.
+func NextSubnetIP(subnet *net.IPNet, ipsInUse []net.IP) (net.IP, error) {
 	ones, bits := subnet.Mask.Size()
 	subnetMaskUint32 := ipUint32(net.IP(subnet.Mask))
 
@@ -26,9 +29,12 @@ func NextGlobalUnicastIPAddress(subnet *net.IPNet, ipsInUse []net.IP) (net.IP, e
 	}
 
 	// Now iterate through all addresses in the subnet and return the
-	// first global-unicast address that is not in use.
+	// first address that is not in use. We start at the first non-
+	// reserved address, and stop short of the last address in the
+	// subnet (i.e. all non-mask bits set), which is the broadcast
+	// address for the subnet.
 	n := ipUint32(subnet.IP)
-	for i := 0; i < (1 << uint64(bits-ones)); i++ {
+	for i := reservedAddressRangeEnd + 1; i < (1<<uint64(bits-ones) - 1); i++ {
 		ip := uint32IP(n + uint32(i))
 		if !ip.IsGlobalUnicast() {
 			continue
@@ -38,10 +44,7 @@ func NextGlobalUnicastIPAddress(subnet *net.IPNet, ipsInUse []net.IP) (net.IP, e
 			return ip, nil
 		}
 	}
-	return nil, errors.Errorf(
-		"no global unicast IP addresses available in %s",
-		subnet,
-	)
+	return nil, errors.Errorf("no addresses available in %s", subnet)
 }
 
 // ipIndex calculates the index of the IP in the subnet.

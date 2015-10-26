@@ -11,4 +11,7 @@ const (
 
 func init() {
 	environs.RegisterProvider(providerType, azureEnvironProvider{})
+
+	// TODO(axw) register an image metadata data source that queries
+	// the Azure image registry.
 }

@@ -4,61 +4,17 @@
 package azure
 
 import (
-	"fmt"
-	"strings"
-
+	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
-	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/juju/errors"
 	"github.com/juju/utils/arch"
 
 	"github.com/juju/juju/constraints"
-	"github.com/juju/juju/environs"
-	"github.com/juju/juju/environs/imagemetadata"
 	"github.com/juju/juju/environs/instances"
-	"github.com/juju/juju/environs/simplestreams"
+	"github.com/juju/juju/provider/azure/internal/imageutils"
 )
 
 const defaultMem = 1024 // 1GiB
-
-// As long as this code only supports the default simplestreams
-// database, which is always signed, there is no point in accepting
-// unsigned metadata.
-const signedImageDataOnly = true
-
-// findMatchingImages queries simplestreams for OS images that match the given
-// requirements.
-//
-// If it finds no matching images, that's an error.
-func findMatchingImages(env environs.Environ, region, series string, arches []string) ([]*imagemetadata.ImageMetadata, error) {
-	endpoint := getEndpoint(region)
-	constraint := imagemetadata.NewImageConstraint(simplestreams.LookupParams{
-		CloudSpec: simplestreams.CloudSpec{region, endpoint},
-		Series:    []string{series},
-		Arches:    arches,
-		Stream:    env.Config().ImageStream(),
-	})
-	sources, err := environs.ImageMetadataSources(env)
-	if err != nil {
-		return nil, err
-	}
-	images, _, err := imagemetadata.Fetch(sources, constraint, signedImageDataOnly)
-	if len(images) == 0 || errors.IsNotFound(err) {
-		return nil, fmt.Errorf("no OS images found for region %q, series %q, architectures %q (and endpoint: %q)", region, series, arches, endpoint)
-	} else if err != nil {
-		return nil, err
-	}
-	return images, nil
-}
-
-// getEndpoint returns the simplestreams endpoint to use for the given Azure
-// region (e.g. West Europe or China North).
-func getEndpoint(region string) string {
-	if strings.HasPrefix(region, "China") {
-		return "https://management.core.chinacloudapi.cn/"
-	}
-	return "https://management.core.windows.net/"
-}
 
 // newInstanceType creates an InstanceType based on a VirtualMachineSize.
 func newInstanceType(size compute.VirtualMachineSize) instances.InstanceType {
@@ -151,30 +107,42 @@ func newInstanceType(size compute.VirtualMachineSize) instances.InstanceType {
 
 // findInstanceSpec returns the InstanceSpec that best satisfies the supplied
 // InstanceConstraint.
+//
+// NOTE(axw) for now we ignore simplestreams altogether, and go straight to
+// Azure's image registry.
 func findInstanceSpec(
-	env environs.Environ,
+	client compute.VirtualMachineImagesClient,
 	instanceTypesMap map[string]instances.InstanceType,
 	constraint *instances.InstanceConstraint,
+	imageStream string,
 ) (*instances.InstanceSpec, error) {
-	constraint.Constraints = defaultToBaselineSpec(constraint.Constraints)
-	/*
-		imageData, err := findMatchingImages(env, constraint.Region, constraint.Series, constraint.Arches)
-		if err != nil {
-			return nil, err
-		}
-		images := instances.ImageMetadataToImages(imageData)
-	*/
-	// TODO(axw) hack, don't use simplestreams.
-	images := []instances.Image{{
-		Id:       "juju",
-		Arch:     arch.AMD64,
-		VirtType: "Hyper-V",
-	}}
+
+	if !constraintHasArch(constraint, arch.AMD64) {
+		// Azure only supports AMD64.
+		return nil, errors.NotFoundf("%s in arch constraints", arch.AMD64)
+	}
+
+	image, err := imageutils.SeriesImage(constraint.Series, imageStream, constraint.Region, client)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	images := []instances.Image{*image}
+
 	instanceTypes := make([]instances.InstanceType, 0, len(instanceTypesMap))
 	for _, instanceType := range instanceTypesMap {
 		instanceTypes = append(instanceTypes, instanceType)
 	}
+	constraint.Constraints = defaultToBaselineSpec(constraint.Constraints)
 	return instances.FindInstanceSpec(images, constraint, instanceTypes)
+}
+
+func constraintHasArch(constraint *instances.InstanceConstraint, arch string) bool {
+	for _, constraintArch := range constraint.Arches {
+		if constraintArch == arch {
+			return true
+		}
+	}
+	return false
 }
 
 // If you specify no constraints at all, you're going to get the smallest

@@ -6,6 +6,7 @@ package imageutils
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
@@ -71,7 +72,7 @@ func SeriesImage(
 	}
 
 	return &instances.Image{
-		Id:       fmt.Sprintf("%s:%s:%s:current", publisher, offering, sku),
+		Id:       fmt.Sprintf("%s:%s:%s:latest", publisher, offering, sku),
 		Arch:     arch.AMD64,
 		VirtType: "Hyper-V",
 	}, nil
@@ -84,6 +85,7 @@ func ubuntuSKU(series, stream, location string, client compute.VirtualMachineIma
 	if err != nil {
 		return "", errors.Trace(err)
 	}
+	logger.Debugf("listing SKUs: Location=%s, Publisher=%s, Offer=%s", location, ubuntuPublisher, ubuntuOffering)
 	result, err := client.ListSkus(location, ubuntuPublisher, ubuntuOffering)
 	if err != nil {
 		return "", errors.Annotate(err, "listing Ubuntu SKUs")
@@ -137,13 +139,25 @@ type ubuntuVersion struct {
 func parseUbuntuSKU(sku string) (ubuntuVersion, string, error) {
 	var version ubuntuVersion
 	var tag string
+	var err error
 	parts := strings.Split(sku, "-")
 	if len(parts) > 1 {
 		tag = parts[1]
 	}
-	_, err := fmt.Sscanf(parts[0], "%d.%d.%d", &version.Year, &version.Month, &version.Point)
+	parts = strings.SplitN(parts[0], ".", 3)
+	version.Year, err = strconv.Atoi(parts[0])
 	if err != nil {
-		return ubuntuVersion{}, "", errors.Annotate(err, "parsing version")
+		return ubuntuVersion{}, "", errors.Trace(err)
+	}
+	version.Month, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return ubuntuVersion{}, "", errors.Trace(err)
+	}
+	if len(parts) > 2 {
+		version.Point, err = strconv.Atoi(parts[2])
+		if err != nil {
+			return ubuntuVersion{}, "", errors.Trace(err)
+		}
 	}
 	return version, tag, nil
 }

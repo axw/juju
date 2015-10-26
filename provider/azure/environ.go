@@ -30,7 +30,6 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/instances"
-	"github.com/juju/juju/environs/simplestreams"
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/instance"
 	jujunetwork "github.com/juju/juju/network"
@@ -94,9 +93,7 @@ type azureEnviron struct {
 	network   network.ManagementClient
 }
 
-// azureEnviron implements Environ and HasRegion.
 var _ environs.Environ = (*azureEnviron)(nil)
-var _ simplestreams.HasRegion = (*azureEnviron)(nil)
 var _ state.Prechecker = (*azureEnviron)(nil)
 
 // NewEnviron creates a new azureEnviron.
@@ -470,6 +467,8 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	vmClient := compute.VirtualMachinesClient{env.compute}
 	availabilitySetClient := compute.AvailabilitySetsClient{env.compute}
 	networkClient := env.network
+	vmImagesClient := compute.VirtualMachineImagesClient{env.compute}
+	imageStream := env.config.ImageStream()
 	instanceTypes, err := env.getInstanceTypesLocked()
 	if err != nil {
 		env.mu.Unlock()
@@ -490,12 +489,17 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	env.mu.Unlock()
 
 	// Identify the instance type and image to provision.
-	instanceSpec, err := findInstanceSpec(env, instanceTypes, &instances.InstanceConstraint{
-		Region:      regionFromLocation(location),
-		Series:      args.Tools.OneSeries(),
-		Arches:      args.Tools.Arches(),
-		Constraints: args.Constraints,
-	})
+	instanceSpec, err := findInstanceSpec(
+		vmImagesClient,
+		instanceTypes,
+		&instances.InstanceConstraint{
+			Region:      location,
+			Series:      args.Tools.OneSeries(),
+			Arches:      args.Tools.Arches(),
+			Constraints: args.Constraints,
+		},
+		imageStream,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -731,26 +735,14 @@ func newStorageProfile(
 ) (*compute.StorageProfile, error) {
 	logger.Debugf("creating storage profile for %q", vmName)
 
-	// TODO(axw) We should be using the image name from instanceSpec.
-	// There is currently no way to specify the image name in VirtualMachine.
-	seriesOS, err := jujuseries.GetOSFromSeries(series)
-	if err != nil {
-		return nil, errors.Trace(err)
+	urnParts := strings.SplitN(instanceSpec.Image.Id, ":", 4)
+	if len(urnParts) != 4 {
+		return nil, errors.Errorf("invalid image ID %q", instanceSpec.Image.Id)
 	}
-
-	var imageReference *compute.ImageReference
-	switch seriesOS {
-	case os.Ubuntu:
-		imageReference = &compute.ImageReference{
-			Publisher: to.StringPtr("Canonical"),
-			Offer:     to.StringPtr("UbuntuServer"),
-			Sku:       to.StringPtr("14.04.3-LTS"),
-			Version:   to.StringPtr("latest"),
-		}
-	default:
-		// TODO(axw) Windows, CentOS
-		return nil, errors.NotSupportedf("%s", seriesOS)
-	}
+	publisher := urnParts[0]
+	offer := urnParts[1]
+	sku := urnParts[2]
+	version := urnParts[3]
 
 	vhdsRoot := to.String(storageAccount.Properties.PrimaryEndpoints.Blob) + "vhds/"
 	osDiskName := vmName + "-osdisk"
@@ -765,8 +757,13 @@ func newStorageProfile(
 		},
 	}
 	return &compute.StorageProfile{
-		ImageReference: imageReference,
-		OsDisk:         osDisk,
+		ImageReference: &compute.ImageReference{
+			Publisher: to.StringPtr(publisher),
+			Offer:     to.StringPtr(offer),
+			Sku:       to.StringPtr(sku),
+			Version:   to.StringPtr(version),
+		},
+		OsDisk: osDisk,
 	}, nil
 }
 
@@ -1029,17 +1026,6 @@ func (env *azureEnviron) Ports() ([]jujunetwork.PortRange, error) {
 // Provider is specified in the Environ interface.
 func (env *azureEnviron) Provider() environs.EnvironProvider {
 	return azureEnvironProvider{}
-}
-
-// Region is specified in the HasRegion interface.
-func (env *azureEnviron) Region() (simplestreams.CloudSpec, error) {
-	env.mu.Lock()
-	location := env.config.location
-	env.mu.Unlock()
-	return simplestreams.CloudSpec{
-		Region:   regionFromLocation(location),
-		Endpoint: getEndpoint(location),
-	}, nil
 }
 
 // SupportsUnitPlacement is specified in the state.EnvironCapability interface.

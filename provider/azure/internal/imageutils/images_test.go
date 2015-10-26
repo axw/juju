@@ -38,7 +38,7 @@ func (s *imageutilsSuite) TestSeriesImage(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(image, gc.NotNil)
 	c.Assert(image, jc.DeepEquals, &instances.Image{
-		Id:       "Canonical:UbuntuServer:14.04.3:current",
+		Id:       "Canonical:UbuntuServer:14.04.3:latest",
 		Arch:     arch.AMD64,
 		VirtType: "Hyper-V",
 	})
@@ -52,15 +52,15 @@ func (s *imageutilsSuite) TestSeriesImageInvalidSKU(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(image, gc.NotNil)
 	c.Assert(image, jc.DeepEquals, &instances.Image{
-		Id:       "Canonical:UbuntuServer:12.04.5-LTS:current",
+		Id:       "Canonical:UbuntuServer:12.04.5-LTS:latest",
 		Arch:     arch.AMD64,
 		VirtType: "Hyper-V",
 	})
 }
 
 func (s *imageutilsSuite) TestSeriesImageWindows(c *gc.C) {
-	s.assertImageId(c, "win2012r2", "daily", "MicrosoftWindowsServer:WindowsServer:2012-R2-Datacenter:current")
-	s.assertImageId(c, "win2012", "daily", "MicrosoftWindowsServer:WindowsServer:2012-Datacenter:current")
+	s.assertImageId(c, "win2012r2", "daily", "MicrosoftWindowsServer:WindowsServer:2012-R2-Datacenter:latest")
+	s.assertImageId(c, "win2012", "daily", "MicrosoftWindowsServer:WindowsServer:2012-Datacenter:latest")
 }
 
 func (s *imageutilsSuite) TestSeriesImageCentOS(c *gc.C) {
@@ -70,8 +70,8 @@ func (s *imageutilsSuite) TestSeriesImageCentOS(c *gc.C) {
 
 func (s *imageutilsSuite) TestSeriesImageStream(c *gc.C) {
 	s.mockSender.EmitContent(`[{"name": "14.04.2"}, {"name": "14.04.3-DAILY"}, {"name": "14.04.1-LTS"}]`)
-	s.assertImageId(c, "trusty", "daily", "Canonical:UbuntuServer:14.04.3-DAILY:current")
-	s.assertImageId(c, "trusty", "released", "Canonical:UbuntuServer:14.04.2:current")
+	s.assertImageId(c, "trusty", "daily", "Canonical:UbuntuServer:14.04.3-DAILY:latest")
+	s.assertImageId(c, "trusty", "released", "Canonical:UbuntuServer:14.04.2:latest")
 }
 
 func (s *imageutilsSuite) TestSeriesImageNotFound(c *gc.C) {
@@ -82,7 +82,7 @@ func (s *imageutilsSuite) TestSeriesImageNotFound(c *gc.C) {
 }
 
 func (s *imageutilsSuite) TestSeriesImageStreamNotFound(c *gc.C) {
-	s.mockSender.EmitContent(`[{"name": "14.04.3-beta1"}]`)
+	s.mockSender.EmitContent(`[{"name": "14.04-beta1"}]`)
 	_, err := imageutils.SeriesImage("trusty", "whatever", "westus", s.client)
 	c.Assert(err, gc.ErrorMatches, "selecting SKU for trusty: Ubuntu SKUs for whatever stream not found")
 }

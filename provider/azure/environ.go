@@ -468,6 +468,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	availabilitySetClient := compute.AvailabilitySetsClient{env.compute}
 	networkClient := env.network
 	vmImagesClient := compute.VirtualMachineImagesClient{env.compute}
+	vmExtensionClient := compute.VirtualMachineExtensionsClient{env.compute}
 	imageStream := env.config.ImageStream()
 	instanceTypes, err := env.getInstanceTypesLocked()
 	if err != nil {
@@ -532,6 +533,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		apiPortPtr, flatVirtualNetworkSubnet.ID,
 		storageAccount, networkClient,
 		vmClient, availabilitySetClient,
+		vmExtensionClient,
 	)
 	if err != nil {
 		// TODO(axw) delete resources
@@ -572,6 +574,7 @@ func createVirtualMachine(
 	networkClient network.ManagementClient,
 	vmClient compute.VirtualMachinesClient,
 	availabilitySetClient compute.AvailabilitySetsClient,
+	vmExtensionClient compute.VirtualMachineExtensionsClient,
 ) (compute.VirtualMachine, error) {
 
 	storageProfile, err := newStorageProfile(
@@ -629,7 +632,36 @@ func createVirtualMachine(
 		return compute.VirtualMachine{}, errors.Annotate(err, "creating virtual machine")
 	}
 
-	// Creating network security rules.
+	// On Windows, we must add the CustomScriptExtension VM extension
+	// to run the CustomData script.
+	if osProfile.WindowsConfiguration != nil {
+		const extensionName = "JujuCustomScriptExtension"
+		extensionSettings := map[string]*string{
+			"commandToExecute": to.StringPtr(
+				"powershell.exe -ExecutionPolicy Unrestricted -File C:\\AzureData\\CustomData.bin",
+			),
+		}
+		_, err := vmExtensionClient.CreateOrUpdate(
+			resourceGroup, vmName, extensionName,
+			compute.VirtualMachineExtension{
+				Name:     to.StringPtr(extensionName),
+				Location: to.StringPtr(location),
+				Tags:     toTagsPtr(vmTags),
+				Properties: &compute.VirtualMachineExtensionProperties{
+					Publisher:               to.StringPtr("Microsoft.Compute"),
+					Type:                    to.StringPtr("CustomScriptExtension"),
+					TypeHandlerVersion:      to.StringPtr("1.4"),
+					AutoUpgradeMinorVersion: to.BoolPtr(true),
+					Settings:                &extensionSettings,
+				},
+			},
+		)
+		if err != nil {
+			return compute.VirtualMachine{}, errors.Annotate(
+				err, "creating CustomScript extension",
+			)
+		}
+	}
 
 	return vm, nil
 }

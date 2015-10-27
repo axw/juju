@@ -796,9 +796,17 @@ func newOSProfile(vmName string, instanceConfig *instancecfg.InstanceConfig) (*c
 		osProfile.AdminUsername = to.StringPtr("ubuntu")
 		osProfile.LinuxConfiguration = &compute.LinuxConfiguration{
 			DisablePasswordAuthentication: to.BoolPtr(true),
-			SSH: &compute.SSHConfiguration{PublicKeys: &publicKeys}}
+			SSH: &compute.SSHConfiguration{PublicKeys: &publicKeys},
+		}
+	case os.Windows:
+		// Later we will add WinRM configuration here
+		// Windows does not accept hostnames over 15 characters.
+		osProfile.AdminUsername = to.StringPtr("JujuAdministrator")
+		osProfile.WindowsConfiguration = &compute.WindowsConfiguration{
+			ProvisionVMAgent:       to.BoolPtr(true),
+			EnableAutomaticUpdates: to.BoolPtr(true),
+		}
 	default:
-		// TODO(axw) support Windows
 		return nil, errors.NotSupportedf("%s", seriesOS)
 	}
 	return osProfile, nil

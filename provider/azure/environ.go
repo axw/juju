@@ -78,6 +78,7 @@ var sshSecurityRule = network.SecurityRule{
 }
 
 type azureEnviron struct {
+	provider      *azureEnvironProvider
 	resourceGroup string
 	envName       string
 
@@ -96,9 +97,9 @@ type azureEnviron struct {
 var _ environs.Environ = (*azureEnviron)(nil)
 var _ state.Prechecker = (*azureEnviron)(nil)
 
-// NewEnviron creates a new azureEnviron.
-func NewEnviron(cfg *config.Config) (*azureEnviron, error) {
-	var env azureEnviron
+// newEnviron creates a new azureEnviron.
+func newEnviron(provider *azureEnvironProvider, cfg *config.Config) (*azureEnviron, error) {
+	env := azureEnviron{provider: provider}
 	err := env.SetConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -110,7 +111,10 @@ func NewEnviron(cfg *config.Config) (*azureEnviron, error) {
 }
 
 // Bootstrap is specified in the Environ interface.
-func (env *azureEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.BootstrapParams) (arch, series string, _ environs.BootstrapFinalizer, _ error) {
+func (env *azureEnviron) Bootstrap(
+	ctx environs.BootstrapContext,
+	args environs.BootstrapParams,
+) (arch, series string, _ environs.BootstrapFinalizer, _ error) {
 
 	location := env.config.location
 	tags, _ := env.config.ResourceTags()
@@ -361,9 +365,11 @@ func (env *azureEnviron) SetConfig(cfg *config.Config) error {
 		"azure.storage":   &env.storage.Client,
 		"azure.network":   &env.network.Client,
 	}
+	env.config.token.SetSender(env.provider.config.Sender)
 	for id, client := range clients {
 		client.Authorizer = env.config.token
 		logger := loggo.GetLogger(id)
+		client.Sender = env.provider.config.Sender
 		client.RequestInspector = tracingPrepareDecorator(logger)
 		client.ResponseInspector = tracingRespondDecorator(logger)
 	}
@@ -635,6 +641,7 @@ func createVirtualMachine(
 	// On Windows, we must add the CustomScriptExtension VM extension
 	// to run the CustomData script.
 	if osProfile.WindowsConfiguration != nil {
+		// TODO(axw) see if we can just put this straight in vmArgs.Resources.
 		const extensionName = "JujuCustomScriptExtension"
 		extensionSettings := map[string]*string{
 			"commandToExecute": to.StringPtr(
@@ -1069,7 +1076,7 @@ func (env *azureEnviron) Ports() ([]jujunetwork.PortRange, error) {
 
 // Provider is specified in the Environ interface.
 func (env *azureEnviron) Provider() environs.EnvironProvider {
-	return azureEnvironProvider{}
+	return env.provider
 }
 
 // SupportsUnitPlacement is specified in the state.EnvironCapability interface.

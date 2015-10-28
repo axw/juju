@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 
@@ -14,15 +15,35 @@ import (
 // Logger for the Azure provider.
 var logger = loggo.GetLogger("juju.provider.azure")
 
-type azureEnvironProvider struct{}
+// EnvironProviderConfig contains configuration for the Azure provider.
+type EnvironProviderConfig struct {
+	// Sender is the autorest.Sender that will be used by Azure
+	// clients. If sender is nil, the default HTTP client sender
+	// will be used.
+	Sender autorest.Sender
+}
 
-// azureEnvironProvider implements EnvironProvider.
-var _ environs.EnvironProvider = (*azureEnvironProvider)(nil)
+// Validate validates the Azure environ provider configuration.
+func (EnvironProviderConfig) Validate() error {
+	return nil
+}
+
+type azureEnvironProvider struct {
+	config EnvironProviderConfig
+}
+
+// NewEnvironProvider returns a new EnvironProvider for Azure.
+func NewEnvironProvider(config EnvironProviderConfig) (environs.EnvironProvider, error) {
+	if err := config.Validate(); err != nil {
+		return nil, errors.Annotate(err, "validating environ provider configuration")
+	}
+	return &azureEnvironProvider{config}, nil
+}
 
 // Open is specified in the EnvironProvider interface.
-func (prov azureEnvironProvider) Open(cfg *config.Config) (environs.Environ, error) {
+func (prov *azureEnvironProvider) Open(cfg *config.Config) (environs.Environ, error) {
 	logger.Debugf("opening environment %q", cfg.Name())
-	environ, err := NewEnviron(cfg)
+	environ, err := newEnviron(prov, cfg)
 	if err != nil {
 		return nil, errors.Annotate(err, "opening environment")
 	}
@@ -30,7 +51,7 @@ func (prov azureEnvironProvider) Open(cfg *config.Config) (environs.Environ, err
 }
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.
-func (prov azureEnvironProvider) RestrictedConfigAttributes() []string {
+func (prov *azureEnvironProvider) RestrictedConfigAttributes() []string {
 	return []string{
 		configAttrClientId,
 		configAttrSubscriptionId,
@@ -41,12 +62,12 @@ func (prov azureEnvironProvider) RestrictedConfigAttributes() []string {
 }
 
 // PrepareForCreateEnvironment is specified in the EnvironProvider interface.
-func (p azureEnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.Config, error) {
+func (p *azureEnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.Config, error) {
 	return cfg, nil
 }
 
 // PrepareForBootstrap is specified in the EnvironProvider interface.
-func (prov azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, cfg *config.Config) (environs.Environ, error) {
+func (prov *azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, cfg *config.Config) (environs.Environ, error) {
 	cfg, err := prov.PrepareForCreateEnvironment(cfg)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -64,12 +85,12 @@ func (prov azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapConte
 }
 
 // BoilerplateProvider is specified in the EnvironProvider interface.
-func (prov azureEnvironProvider) BoilerplateConfig() string {
+func (prov *azureEnvironProvider) BoilerplateConfig() string {
 	return boilerplateYAML
 }
 
 // SecretAttrs is specified in the EnvironProvider interface.
-func (prov azureEnvironProvider) SecretAttrs(cfg *config.Config) (map[string]string, error) {
+func (prov *azureEnvironProvider) SecretAttrs(cfg *config.Config) (map[string]string, error) {
 	secretAttrs := map[string]string{
 		configAttrClientKey: cfg.UnknownAttrs()[configAttrClientKey].(string),
 	}

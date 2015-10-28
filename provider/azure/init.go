@@ -10,8 +10,12 @@ const (
 )
 
 func init() {
-	environs.RegisterProvider(providerType, azureEnvironProvider{})
-
+	provider, err := NewEnvironProvider(EnvironProviderConfig{})
+	if err != nil {
+		panic(err)
+	}
+	environs.RegisterProvider(providerType, provider)
 	// TODO(axw) register an image metadata data source that queries
-	// the Azure image registry.
+	// the Azure image registry, and introduce a way to disable the
+	// common simplestreams source.
 }

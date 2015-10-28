@@ -1,0 +1,107 @@
+// Copyright 2015 Canonical Ltd.
+// Licensed under the AGPLv3, see LICENCE file for details.
+
+package azure_test
+
+import (
+	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/mocks"
+	jc "github.com/juju/testing/checkers"
+	gc "gopkg.in/check.v1"
+
+	"github.com/juju/juju/environs"
+	"github.com/juju/juju/environs/config"
+	"github.com/juju/juju/testing"
+)
+
+const (
+	fakeClientId       = "00000000-0000-0000-0000-000000000000"
+	fakeTenantId       = "11111111-1111-1111-1111-111111111111"
+	fakeSubscriptionId = "22222222-2222-2222-2222-222222222222"
+)
+
+type configSuite struct {
+	testing.BaseSuite
+
+	provider environs.EnvironProvider
+	sender   *mocks.Sender
+}
+
+var _ = gc.Suite(&configSuite{})
+
+func (s *configSuite) SetUpTest(c *gc.C) {
+	s.BaseSuite.SetUpTest(c)
+	s.provider, s.sender = newEnvironProvider(c)
+}
+
+func (s *configSuite) TestValidateNew(c *gc.C) {
+	s.assertConfigValid(c, nil)
+}
+
+func (s *configSuite) TestValidateInvalidStorageAccountType(c *gc.C) {
+	s.assertConfigInvalid(
+		c, testing.Attrs{"storage-account-type": "savings"},
+		`invalid storage account type "savings", expected one of: \["Standard_LRS" "Standard_GRS" "Standard_RAGRS" "Standard_ZRS" "Premium_LRS"\]`,
+	)
+}
+
+func (s *configSuite) TestValidateInvalidFirewallMode(c *gc.C) {
+	s.assertConfigInvalid(
+		c, testing.Attrs{"firewall-mode": "global"},
+		"global firewall mode is not supported",
+	)
+}
+
+func (s *configSuite) TestValidateLocation(c *gc.C) {
+	s.assertConfigInvalid(c, testing.Attrs{"location": ""}, "location not specified")
+	// We don't validate locations, because new locations may be added.
+	// Azure will complain if the location is invalid anyway.
+	s.assertConfigValid(c, testing.Attrs{"location": "eurasia"})
+}
+
+func (s *configSuite) TestValidateInvalidCredentials(c *gc.C) {
+	s.assertConfigInvalid(c, testing.Attrs{"client-id": ""}, "client-id not specified")
+	s.assertConfigInvalid(c, testing.Attrs{"client-key": ""}, "client-key not specified")
+	s.assertConfigInvalid(c, testing.Attrs{"tenant-id": ""}, "tenant-id not specified")
+	s.assertConfigInvalid(c, testing.Attrs{"subscription-id": ""}, "subscription-id not specified")
+}
+
+func (s *configSuite) TestValidateStorageAccountCantChange(c *gc.C) {
+	cfgOld := makeTestEnvironConfig(c, testing.Attrs{"storage-account": "abc"})
+	_, err := s.provider.Validate(cfgOld, cfgOld)
+	c.Assert(err, jc.ErrorIsNil)
+
+	cfgNew := makeTestEnvironConfig(c) // no storage-account attribute
+	_, err = s.provider.Validate(cfgNew, cfgOld)
+	c.Assert(err, gc.ErrorMatches, "cannot remove storage account")
+
+	cfgNew = makeTestEnvironConfig(c, testing.Attrs{"storage-account": "def"})
+	_, err = s.provider.Validate(cfgNew, cfgOld)
+	c.Assert(err, gc.ErrorMatches, "cannot change storage account")
+}
+
+func (s *configSuite) assertConfigValid(c *gc.C, attrs testing.Attrs) {
+	cfg := makeTestEnvironConfig(c, attrs)
+	_, err := s.provider.Validate(cfg, nil)
+	c.Assert(err, jc.ErrorIsNil)
+}
+
+func (s *configSuite) assertConfigInvalid(c *gc.C, attrs testing.Attrs, expect string) {
+	cfg := makeTestEnvironConfig(c, attrs)
+	_, err := s.provider.Validate(cfg, nil)
+	c.Assert(err, gc.ErrorMatches, expect)
+}
+
+func makeTestEnvironConfig(c *gc.C, extra ...testing.Attrs) *config.Config {
+	attrs := testing.Attrs{
+		"type":            "azure",
+		"client-id":       fakeClientId,
+		"tenant-id":       fakeTenantId,
+		"client-key":      "opensezme",
+		"subscription-id": fakeSubscriptionId,
+		"location":        "westus",
+	}
+	for _, extra := range extra {
+		attrs = attrs.Merge(extra)
+	}
+	return testing.CustomEnvironConfig(c, attrs)
+}

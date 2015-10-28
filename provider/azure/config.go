@@ -52,7 +52,7 @@ var knownStorageAccountTypes = []string{
 	"Standard_LRS", "Standard_GRS", "Standard_RAGRS", "Standard_ZRS", "Premium_LRS",
 }
 
-func (prov azureEnvironProvider) newConfig(cfg *config.Config) (*azureEnvironConfig, error) {
+func (prov *azureEnvironProvider) newConfig(cfg *config.Config) (*azureEnvironConfig, error) {
 	azureConfig, err := validateConfig(cfg, nil)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -63,7 +63,7 @@ func (prov azureEnvironProvider) newConfig(cfg *config.Config) (*azureEnvironCon
 // Validate ensures that the provided configuration is valid for this
 // provider, and that changes between the old (if provided) and new
 // configurations are valid.
-func (azureEnvironProvider) Validate(newCfg, oldCfg *config.Config) (*config.Config, error) {
+func (*azureEnvironProvider) Validate(newCfg, oldCfg *config.Config) (*config.Config, error) {
 	_, err := validateConfig(newCfg, oldCfg)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -90,11 +90,28 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 	storageAccount, haveStorageAccount := validated[configAttrStorageAccount].(string)
 	storageAccountType := validated[configAttrStorageAccountType].(string)
 
+	// Ensure required configuration is provided.
+	switch {
+	case clientId == "":
+		return nil, errors.New("client-id not specified")
+	case clientKey == "":
+		return nil, errors.New("client-key not specified")
+	case subscriptionId == "":
+		return nil, errors.New("subscription-id not specified")
+	case tenantId == "":
+		return nil, errors.New("tenant-id not specified")
+	case location == "":
+		return nil, errors.New("location not specified")
+	}
+
 	if oldCfg != nil {
 		oldUnknownAttrs := oldCfg.UnknownAttrs()
-		if haveStorageAccount {
-			oldStorageAccount, ok := oldUnknownAttrs[configAttrStorageAccount]
-			if ok && storageAccount != oldStorageAccount {
+		oldStorageAccount, hadStorageAccount := oldUnknownAttrs[configAttrStorageAccount]
+		if hadStorageAccount {
+			if !haveStorageAccount {
+				return nil, errors.Errorf("cannot remove storage account")
+			}
+			if storageAccount != oldStorageAccount {
 				return nil, errors.Errorf("cannot change storage account")
 			}
 		}
@@ -169,9 +186,12 @@ azure:
     tenant-id: 00000000-0000-0000-0000-000000000000
     client-key: XXX
 
+    # subscription-id defines the Azure account subscription ID.
     subscription-id: 00000000-0000-0000-0000-000000000000
 
-    # 
+    # storage-account-type specifies the type of the storage account,
+    # which defines the replication strategy and support for different
+    # disk types.
     storage-account-type: Standard_LRS
 
     # location specifies the place where instances will be started,
@@ -179,9 +199,8 @@ azure:
     #
     location: West US
 
-    # image-stream chooses a simplestreams stream from which to select
-    # OS images, for example daily or released images (or any other stream
-    # available on simplestreams).
+    # image-stream chooses an stream from which to select OS images. This
+    # can be "released" (default), or "daily".
     #
     # image-stream: "released"
 

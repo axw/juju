@@ -116,6 +116,9 @@ func (inst *azureInstance) Addresses() ([]jujunetwork.Address, error) {
 		}
 	}
 	for _, pip := range inst.publicIPAddresses {
+		if pip.Properties.IPAddress == nil {
+			continue
+		}
 		addresses = append(addresses, jujunetwork.NewScopedAddress(
 			to.String(pip.Properties.IPAddress),
 			jujunetwork.ScopePublic,

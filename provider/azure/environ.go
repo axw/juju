@@ -128,8 +128,8 @@ func (env *azureEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.
 
 	arch, series, finalizer, err := env.bootstrapResourceGroup(ctx, args, location, tags)
 	if err != nil {
-		if _, err := resourceGroupsClient.Delete(env.resourceGroup); err != nil {
-			logger.Errorf("failed to delete resource group %q: %v", env.resourceGroup, err)
+		if err := env.Destroy(); err != nil {
+			logger.Errorf("failed to destroy environment: %v", env.resourceGroup, err)
 		}
 		return "", "", nil, errors.Trace(err)
 	}
@@ -1038,7 +1038,11 @@ func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
 func (env *azureEnviron) Destroy() error {
 	logger.Debugf("destroying environment %q", env.envName)
 	client := resources.GroupsClient{env.resources}
-	if _, err := client.Delete(env.resourceGroup); err != nil {
+	result, err := client.Delete(env.resourceGroup)
+	if err != nil {
+		if result.Response.StatusCode == http.StatusNotFound {
+			return nil
+		}
 		return errors.Annotatef(err, "deleting resource group %q", env.resourceGroup)
 	}
 	return nil

@@ -21,6 +21,10 @@ type EnvironProviderConfig struct {
 	// clients. If sender is nil, the default HTTP client sender
 	// will be used.
 	Sender autorest.Sender
+
+	// RequestInspector will be used to inspect Azure requests
+	// if it is non-nil.
+	RequestInspector autorest.PrepareDecorator
 }
 
 // Validate validates the Azure environ provider configuration.

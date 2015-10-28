@@ -4,7 +4,10 @@
 package azure_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"time"
 
 	autorestazure "github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/azure"
@@ -21,6 +24,7 @@ import (
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/imagemetadata"
+	"github.com/juju/juju/instance"
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/provider/azure"
 	"github.com/juju/juju/provider/azure/internal/azuretesting"
@@ -33,7 +37,10 @@ type environSuite struct {
 	testing.BaseSuite
 
 	provider environs.EnvironProvider
+	requests []*http.Request
+	sender   azuretesting.Senders
 
+	tags                 map[string]*string
 	vmSizes              *compute.VirtualMachineSizeListResult
 	storageAccount       *storage.Account
 	flatSubnet           *network.Subnet
@@ -43,16 +50,18 @@ type environSuite struct {
 	newNetworkInterface  *network.Interface
 	jujuAvailabilitySet  *compute.AvailabilitySet
 	virtualMachine       *compute.VirtualMachine
-
-	sender azuretesting.Senders
 }
 
 var _ = gc.Suite(&environSuite{})
 
 func (s *environSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.provider = newEnvironProviderWithSender(c, &s.sender)
+	s.provider = newEnvironProvider(c, &s.sender, &s.requests)
 	s.sender = nil
+
+	s.tags = map[string]*string{
+		"juju-machine-name": to.StringPtr("juju-machine-1"),
+	}
 
 	vmSizes := []compute.VirtualMachineSize{{
 		Name:                 to.StringPtr("Standard_D1"),
@@ -91,8 +100,10 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 	}
 
 	s.publicIPAddress = &network.PublicIPAddress{
-		ID:   to.StringPtr("public-ip-id"),
-		Name: to.StringPtr("juju-machine-1-public-ip"),
+		ID:       to.StringPtr("public-ip-id"),
+		Name:     to.StringPtr("juju-machine-1-public-ip"),
+		Location: to.StringPtr("westus"),
+		Tags:     &s.tags,
 		Properties: &network.PublicIPAddressPropertiesFormat{
 			PublicIPAllocationMethod: network.Dynamic,
 			IPAddress:                to.StringPtr("1.2.3.4"),
@@ -125,7 +136,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 	// The newly created IP/NIC.
 	newIPConfigurations := []network.InterfaceIPConfiguration{{
 		ID:   to.StringPtr("ip-configuration-1-id"),
-		Name: to.StringPtr("ip-configuration-1"),
+		Name: to.StringPtr("primary"),
 		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
 			PrivateIPAddress:          to.StringPtr("10.0.0.5"),
 			PrivateIPAllocationMethod: network.Static,
@@ -134,17 +145,21 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		},
 	}}
 	s.newNetworkInterface = &network.Interface{
-		ID:   to.StringPtr("network-interface-1-id"),
-		Name: to.StringPtr("network-interface-1"),
+		ID:       to.StringPtr("network-interface-1-id"),
+		Name:     to.StringPtr("network-interface-1"),
+		Location: to.StringPtr("westus"),
+		Tags:     &s.tags,
 		Properties: &network.InterfacePropertiesFormat{
 			IPConfigurations: &newIPConfigurations,
-			Primary:          to.BoolPtr(true),
 		},
 	}
 
+	emptyTags := make(map[string]*string)
 	s.jujuAvailabilitySet = &compute.AvailabilitySet{
-		ID:   to.StringPtr("juju-availability-set-id"),
-		Name: to.StringPtr("juju"),
+		ID:       to.StringPtr("juju-availability-set-id"),
+		Name:     to.StringPtr("juju"),
+		Location: to.StringPtr("westus"),
+		Tags:     &emptyTags,
 	}
 
 	s.virtualMachine = &compute.VirtualMachine{
@@ -227,24 +242,6 @@ func (s *environSuite) startInstanceSenders() azuretesting.Senders {
 	}
 }
 
-func (s *environSuite) TestOpen(c *gc.C) {
-	cfg := makeTestEnvironConfig(c)
-	env, err := s.provider.Open(cfg)
-	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(env, gc.NotNil)
-}
-
-func (s *environSuite) TestStartInstance(c *gc.C) {
-	env := s.openEnviron(c)
-	s.sender = s.startInstanceSenders()
-	result, err := env.StartInstance(makeStartInstanceParams(c, "quantal"))
-	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(result, gc.NotNil)
-
-	// TODO(axw) validate result
-	// TODO(axw) validate HTTP requests
-}
-
 func makeStartInstanceParams(c *gc.C, series string) environs.StartInstanceParams {
 	machineTag := names.NewMachineTag("1")
 	stateInfo := &mongo.MongoInfo{
@@ -285,4 +282,78 @@ func makeStartInstanceParams(c *gc.C, series string) environs.StartInstanceParam
 		}},
 		InstanceConfig: icfg,
 	}
+}
+
+func assertRequestBody(c *gc.C, req *http.Request, expect interface{}) {
+	m := make(map[string]interface{})
+	expectM, ok := expect.(map[string]interface{})
+	if !ok {
+		bytes, err := json.Marshal(expect)
+		c.Assert(err, jc.ErrorIsNil)
+		expectM = make(map[string]interface{})
+		err = json.Unmarshal(bytes, &expectM)
+		c.Assert(err, jc.ErrorIsNil)
+	}
+	bytes, err := ioutil.ReadAll(req.Body)
+	c.Assert(err, jc.ErrorIsNil)
+	err = json.Unmarshal(bytes, &m)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(m, jc.DeepEquals, expectM)
+}
+
+func (s *environSuite) TestOpen(c *gc.C) {
+	cfg := makeTestEnvironConfig(c)
+	env, err := s.provider.Open(cfg)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(env, gc.NotNil)
+}
+
+func (s *environSuite) TestStartInstance(c *gc.C) {
+	env := s.openEnviron(c)
+	s.sender = s.startInstanceSenders()
+	result, err := env.StartInstance(makeStartInstanceParams(c, "quantal"))
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(result, gc.NotNil)
+	c.Assert(result.Instance, gc.NotNil)
+	c.Assert(result.NetworkInfo, gc.HasLen, 0)
+	c.Assert(result.Volumes, gc.HasLen, 0)
+	c.Assert(result.VolumeAttachments, gc.HasLen, 0)
+
+	arch := "amd64"
+	mem := uint64(3584)
+	rootDisk := uint64(29495) // ~30 GB
+	cpuCores := uint64(1)
+	c.Assert(result.Hardware, jc.DeepEquals, &instance.HardwareCharacteristics{
+		Arch:     &arch,
+		Mem:      &mem,
+		RootDisk: &rootDisk,
+		CpuCores: &cpuCores,
+	})
+
+	// Clear the fields that don't get sent in the request.
+	s.publicIPAddress.ID = nil
+	s.publicIPAddress.Name = nil
+	s.publicIPAddress.Properties.IPAddress = nil
+	s.newNetworkInterface.ID = nil
+	s.newNetworkInterface.Name = nil
+	(*s.newNetworkInterface.Properties.IPConfigurations)[0].ID = nil
+	s.jujuAvailabilitySet.ID = nil
+	s.jujuAvailabilitySet.Name = nil
+
+	// Validate HTTP request bodies.
+	c.Assert(s.requests, gc.HasLen, 9)
+	c.Assert(s.requests[0].Method, gc.Equals, "GET") // vmSizes
+	c.Assert(s.requests[1].Method, gc.Equals, "GET") // storageAccounts
+	c.Assert(s.requests[2].Method, gc.Equals, "GET") // vnet-flat-subnet
+	c.Assert(s.requests[3].Method, gc.Equals, "GET") // skus
+	c.Assert(s.requests[4].Method, gc.Equals, "PUT")
+	assertRequestBody(c, s.requests[4], s.publicIPAddress)
+	c.Assert(s.requests[5].Method, gc.Equals, "GET") // NICs
+	c.Assert(s.requests[6].Method, gc.Equals, "PUT")
+	assertRequestBody(c, s.requests[6], s.newNetworkInterface)
+	c.Assert(s.requests[7].Method, gc.Equals, "PUT")
+	assertRequestBody(c, s.requests[7], s.jujuAvailabilitySet)
+
+	//		sender(".*/availabilitySets/juju", s.jujuAvailabilitySet),
+	//		sender(".*/virtualMachines/juju-machine-1", s.virtualMachine),
 }

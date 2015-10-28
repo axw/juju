@@ -23,14 +23,13 @@ type configSuite struct {
 	testing.BaseSuite
 
 	provider environs.EnvironProvider
-	sender   *mocks.Sender
 }
 
 var _ = gc.Suite(&configSuite{})
 
 func (s *configSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.provider, s.sender = newEnvironProvider(c)
+	s.provider = newEnvironProvider(c, mocks.NewSender(), nil)
 }
 
 func (s *configSuite) TestValidateNew(c *gc.C) {

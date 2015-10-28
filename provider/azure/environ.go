@@ -365,13 +365,26 @@ func (env *azureEnviron) SetConfig(cfg *config.Config) error {
 		"azure.storage":   &env.storage.Client,
 		"azure.network":   &env.network.Client,
 	}
-	env.config.token.SetSender(env.provider.config.Sender)
+	if env.provider.config.Sender != nil {
+		env.config.token.SetSender(env.provider.config.Sender)
+	}
 	for id, client := range clients {
 		client.Authorizer = env.config.token
 		logger := loggo.GetLogger(id)
-		client.Sender = env.provider.config.Sender
-		client.RequestInspector = tracingPrepareDecorator(logger)
+		if env.provider.config.Sender != nil {
+			client.Sender = env.provider.config.Sender
+		}
 		client.ResponseInspector = tracingRespondDecorator(logger)
+		client.RequestInspector = tracingPrepareDecorator(logger)
+		if env.provider.config.RequestInspector != nil {
+			tracer := client.RequestInspector
+			inspector := env.provider.config.RequestInspector
+			client.RequestInspector = func(p autorest.Preparer) autorest.Preparer {
+				p = tracer(p)
+				p = inspector(p)
+				return p
+			}
+		}
 	}
 
 	// Invalidate instance types when the location changes.
@@ -749,7 +762,8 @@ func createAvailabilitySet(
 	logger.Debugf("- creating availability set %q", availabilitySetName)
 	availabilitySet, err := client.CreateOrUpdate(
 		resourceGroup, availabilitySetName, compute.AvailabilitySet{
-			Name:     to.StringPtr(availabilitySetName),
+			// TODO(axw) is Name necessary?
+			//Name:     to.StringPtr(availabilitySetName),
 			Location: to.StringPtr(location),
 			// NOTE(axw) we do *not* want to use vmTags here,
 			// because an availability set is shared by machines.

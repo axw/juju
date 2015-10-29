@@ -36,7 +36,7 @@ func (s *environProviderSuite) SetUpTest(c *gc.C) {
 }
 
 func (s *environProviderSuite) TestPrepareForBootstrapWithInternalConfig(c *gc.C) {
-	s.testPrepareForBootstrapWithInternalConfig(c, "controller-uuid")
+	s.testPrepareForBootstrapWithInternalConfig(c, "controller-resource-group")
 	s.testPrepareForBootstrapWithInternalConfig(c, "storage-account")
 }
 
@@ -51,13 +51,20 @@ func (s *environProviderSuite) testPrepareForBootstrapWithInternalConfig(c *gc.C
 func (s *environProviderSuite) TestPrepareForBootstrap(c *gc.C) {
 	ctx := envtesting.BootstrapContext(c)
 	cfg := makeTestEnvironConfig(c)
-	cfg, err := cfg.Remove([]string{"controller-uuid"})
+	cfg, err := cfg.Remove([]string{"controller-resource-group"})
 	c.Assert(err, jc.ErrorIsNil)
 
 	s.sender = azuretesting.Senders{tokenRefreshSender()}
 	env, err := s.provider.PrepareForBootstrap(ctx, cfg)
 	c.Check(err, jc.ErrorIsNil)
 	c.Check(env, gc.NotNil)
+
+	cfg = env.Config()
+	c.Assert(
+		cfg.UnknownAttrs()["controller-resource-group"],
+		gc.Equals,
+		"juju-testenv-environment-"+testing.EnvironmentTag.Id(),
+	)
 }
 
 func newEnvironProvider(c *gc.C, sender autorest.Sender, requests *[]*http.Request) environs.EnvironProvider {

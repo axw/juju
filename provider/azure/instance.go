@@ -148,7 +148,7 @@ func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRang
 	resourceGroup := inst.env.resourceGroup
 	inst.env.mu.Unlock()
 
-	nsg, err := nsgClient.Get(resourceGroup, environmentSecurityGroupName)
+	nsg, err := nsgClient.Get(resourceGroup, internalSecurityGroupName)
 	if err != nil {
 		return nil, errors.Annotate(err, "querying network security group")
 	}

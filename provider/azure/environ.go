@@ -23,6 +23,7 @@ import (
 	"github.com/juju/utils/arch"
 	"github.com/juju/utils/os"
 	jujuseries "github.com/juju/utils/series"
+	"github.com/juju/utils/set"
 
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/cloudconfig/providerinit"
@@ -40,13 +41,21 @@ import (
 )
 
 const (
-	resourceNamePrefix = "juju-"
+	// We create a single virtual network which all Juju machines are
+	// connected to, so that they can communicate with the controllers.
+	//
+	// Each resource group is given its own subnet and network security
+	// group to manage. The first resource group will be assigned the
+	// subnet address prefix 10.0.0.0/16, the second 10.1.0.0/16, etc.,
+	// which allows for up to 256 enviroments/resource groups. Azure
+	// only supports 100, but this can be extended by contacting support;
+	// we can make the address prefixes configurable if necessary.
+	internalNetworkName = "juju-internal"
 
-	flatVirtualNetworkName         = "vnet-flat"
-	flatVirtualNetworkPrefix       = "10.0.0.0/8"
-	flatVirtualNetworkSubnetName   = "vnet-flat-subnet"
-	flatVirtualNetworkSubnetPrefix = flatVirtualNetworkPrefix
-	environmentSecurityGroupName   = flatVirtualNetworkSubnetName + "-nsg"
+	// internalSecurityGroupName is the name of the network security
+	// group in each resource group, which all NICs in that resource
+	// group will be associated with.
+	internalSecurityGroupName = "juju-internal"
 )
 
 const (
@@ -80,14 +89,14 @@ var sshSecurityRule = network.SecurityRule{
 }
 
 type azureEnviron struct {
-	provider      *azureEnvironProvider
-	resourceGroup string
-	envName       string
+	provider                *azureEnvironProvider
+	resourceGroup           string
+	controllerResourceGroup string
+	envName                 string
 
 	mu             sync.Mutex
 	config         *azureEnvironConfig
 	instanceTypes  map[string]instances.InstanceType
-	subnets        map[string]*network.Subnet
 	storageAccount *storage.Account
 	// azure management clients
 	compute   compute.ManagementClient
@@ -107,8 +116,8 @@ func newEnviron(provider *azureEnvironProvider, cfg *config.Config) (*azureEnvir
 		return nil, err
 	}
 	env.resourceGroup = resourceGroupName(cfg)
+	env.controllerResourceGroup = env.config.controllerResourceGroup
 	env.envName = cfg.Name()
-	env.subnets = make(map[string]*network.Subnet)
 	return &env, nil
 }
 
@@ -123,8 +132,8 @@ func (env *azureEnviron) Bootstrap(
 
 	var err error
 	resourceGroupsClient := resources.GroupsClient{env.resources}
-	logger.Debugf("creating resource group %q", env.resourceGroup)
-	_, err = resourceGroupsClient.CreateOrUpdate(env.resourceGroup, resources.Group{
+	logger.Debugf("creating controller resource group %q", env.controllerResourceGroup)
+	_, err = resourceGroupsClient.CreateOrUpdate(env.controllerResourceGroup, resources.Group{
 		Location: to.StringPtr(location),
 		Tags:     toTagsPtr(tags),
 	})
@@ -132,19 +141,22 @@ func (env *azureEnviron) Bootstrap(
 		return "", "", nil, errors.Annotate(err, "creating resource group")
 	}
 
-	arch, series, finalizer, err := env.createControllerResourceGroup(ctx, args, location, tags)
+	arch, series, finalizer, err := env.bootstrap(ctx, args, location, tags)
 	if err != nil {
 		if err := env.Destroy(); err != nil {
-			logger.Errorf("failed to destroy environment: %v", env.resourceGroup, err)
+			logger.Errorf(
+				"failed to destroy environment: %v",
+				env.controllerResourceGroup, err,
+			)
 		}
 		return "", "", nil, errors.Trace(err)
 	}
 	return arch, series, finalizer, nil
 }
 
-// createControllerResourceGroup creates a resource group for the Juju
-// controller environment.
-func (env *azureEnviron) createControllerResourceGroup(
+// bootstrap creates the Juju controller environment in the controller
+// resource group.
+func (env *azureEnviron) bootstrap(
 	ctx environs.BootstrapContext,
 	args environs.BootstrapParams,
 	location string,
@@ -155,20 +167,28 @@ func (env *azureEnviron) createControllerResourceGroup(
 	storageAccountsClient := storage.AccountsClient{env.storage}
 	storageAccountName, err := createStorageAccount(
 		storageAccountsClient, env.config.storageAccountType,
-		env.resourceGroup, location, tags,
+		env.controllerResourceGroup, location, tags,
 	)
 	if err != nil {
 		return "", "", nil, errors.Annotate(err, "creating storage account")
 	}
 
-	// Create a flat virtual network for all VMs to connect to.
-	vnet, subnet, err := createFlatVirtualNetwork(
-		env.network, env.resourceGroup, location, tags,
+	// Create an internal network for all VMs to connect to.
+	vnet, err := createInternalVirtualNetwork(
+		env.network, env.controllerResourceGroup, location, tags,
 	)
 	if err != nil {
 		return "", "", nil, errors.Annotate(err, "creating virtual network")
 	}
-	env.subnets[to.String(vnet.Name)+":"+to.String(subnet.Name)] = subnet
+
+	// Create a subnet for the controller resource group.
+	_, err = createInternalSubnet(
+		env.network, env.resourceGroup, env.controllerResourceGroup,
+		vnet, location, tags,
+	)
+	if err != nil {
+		return "", "", nil, errors.Annotate(err, "creating subnet")
+	}
 
 	// Update the environment's config with generated config.
 	cfg, err := env.config.Config.Apply(map[string]interface{}{
@@ -232,34 +252,76 @@ func createStorageAccount(
 	return "", errors.New("could not find available storage account name")
 }
 
-func createFlatVirtualNetwork(
+func createInternalVirtualNetwork(
 	client network.ManagementClient,
-	resourceGroup string,
+	controllerResourceGroup string,
 	location string,
 	tags map[string]string,
-) (*network.VirtualNetwork, *network.Subnet, error) {
-	// Vnet and subnet must be created separately. Vnet first.
+) (*network.VirtualNetwork, error) {
+	addressPrefixes := make([]string, 256)
+	for i := range addressPrefixes {
+		addressPrefixes[i] = fmt.Sprintf("10.%d.0.0/16", i)
+	}
 	virtualNetworkParams := network.VirtualNetwork{
 		Location: to.StringPtr(location),
 		Tags:     toTagsPtr(tags),
 		Properties: &network.VirtualNetworkPropertiesFormat{
-			AddressSpace: &network.AddressSpace{
-				AddressPrefixes: toStringSlicePtr(flatVirtualNetworkPrefix),
-			},
+			AddressSpace: &network.AddressSpace{&addressPrefixes},
 		},
 	}
-	logger.Debugf("creating virtual network %q", flatVirtualNetworkName)
+	logger.Debugf("creating virtual network %q", internalNetworkName)
 	vnetClient := network.VirtualNetworksClient{client}
 	vnet, err := vnetClient.CreateOrUpdate(
-		resourceGroup, flatVirtualNetworkName, virtualNetworkParams,
+		controllerResourceGroup, internalNetworkName, virtualNetworkParams,
 	)
 	if err != nil {
-		return nil, nil, errors.Annotatef(err, "creating virtual network %q", flatVirtualNetworkName)
+		return nil, errors.Annotatef(err, "creating virtual network %q", internalNetworkName)
+	}
+	return &vnet, nil
+}
+
+// createInternalSubnet creates an internal subnet for the specified resource group,
+// within the specified virtual network.
+//
+// Subnets are tied to the resource group of the virtual network, so we must create
+// them all in the controller resource group. We create the network security group
+// for the subnet in the environment's resource group.
+//
+// NOTE(axw) this method expects an up-to-date VirtualNetwork, and expects that are
+// no concurrent subnet additions to the virtual network. At the moment we have only
+// three places where we modify subnets: at bootstrap, when a new environment is
+// created, and when an environment is destroyed.
+func createInternalSubnet(
+	client network.ManagementClient,
+	resourceGroup, controllerResourceGroup string,
+	vnet *network.VirtualNetwork,
+	location string,
+	tags map[string]string,
+) (*network.Subnet, error) {
+
+	nextAddressPrefix := (*vnet.Properties.AddressSpace.AddressPrefixes)[0]
+	if vnet.Properties.Subnets != nil {
+		if len(*vnet.Properties.Subnets) == len(*vnet.Properties.AddressSpace.AddressPrefixes) {
+			return nil, errors.Errorf(
+				"no available address prefixes in vnet %q",
+				to.String(vnet.Name),
+			)
+		}
+		addressPrefixesInUse := make(set.Strings)
+		for _, subnet := range *vnet.Properties.Subnets {
+			addressPrefixesInUse.Add(to.String(subnet.Properties.AddressPrefix))
+		}
+		for _, addressPrefix := range *vnet.Properties.AddressSpace.AddressPrefixes {
+			if !addressPrefixesInUse.Contains(addressPrefix) {
+				nextAddressPrefix = addressPrefix
+				break
+			}
+		}
 	}
 
 	// Create a network security group for the environment. There is only
 	// one NSG per environment (there's a limit of 100 per subscription),
-	// in which we manage rules for each machine.
+	// in which we manage rules for each exposed machine.
 	securityRules := []network.SecurityRule{sshSecurityRule}
 	securityGroupParams := network.SecurityGroup{
 		Location: to.StringPtr(location),
@@ -268,54 +330,42 @@ func createFlatVirtualNetwork(
 			SecurityRules: &securityRules,
 		},
 	}
-	logger.Debugf("creating security group %q", environmentSecurityGroupName)
+	logger.Debugf("creating security group %q", internalSecurityGroupName)
 	securityGroupClient := network.SecurityGroupsClient{client}
 	securityGroup, err := securityGroupClient.CreateOrUpdate(
-		resourceGroup, environmentSecurityGroupName, securityGroupParams,
+		resourceGroup, internalSecurityGroupName, securityGroupParams,
 	)
 	if err != nil {
-		return nil, nil, errors.Annotatef(err, "creating security group %q", environmentSecurityGroupName)
+		return nil, errors.Annotatef(err, "creating security group %q", internalSecurityGroupName)
 	}
 
-	// Now create a subnet with the same address prefix.
+	// Now create a subnet with the next available address prefix. The
+	// subnet must be created in the controller resource group, as it
+	// must be co-located with the vnet.
+	subnetName := resourceGroup
 	subnetParams := network.Subnet{
 		Properties: &network.SubnetPropertiesFormat{
-			AddressPrefix:        to.StringPtr(flatVirtualNetworkSubnetPrefix),
-			NetworkSecurityGroup: &network.SubResource{ID: securityGroup.ID},
+			AddressPrefix:        to.StringPtr(nextAddressPrefix),
+			NetworkSecurityGroup: &network.SubResource{securityGroup.ID},
 		},
 	}
-	logger.Debugf("creating subnet %q", flatVirtualNetworkSubnetName)
+	logger.Debugf("creating subnet %q (%s)", subnetName, nextAddressPrefix)
 	subnetClient := network.SubnetsClient{client}
 	subnet, err := subnetClient.CreateOrUpdate(
-		resourceGroup, flatVirtualNetworkName, flatVirtualNetworkSubnetName, subnetParams,
+		controllerResourceGroup, internalNetworkName, subnetName, subnetParams,
 	)
 	if err != nil {
-		return nil, nil, errors.Annotatef(err, "creating subnet %q", flatVirtualNetworkSubnetName)
+		return nil, errors.Annotatef(err, "creating subnet %q", subnetName)
 	}
-	return &vnet, &subnet, nil
+	return &subnet, nil
 }
 
 // StateServerInstances is specified in the Environ interface.
 func (env *azureEnviron) StateServerInstances() ([]instance.Id, error) {
-	// StateServerInstances may be called before bootstrapping, to
-	// determine whether or not the environment is already bootstrapped.
-	//
-	// First check whether the resource group exists. Ideally we could
-	// just call AllInstances and check the error, but the error from
-	// the Azure SDK isn't well structured enough to support it nicely.
-	env.mu.Lock()
-	resourceGroupsClient := resources.GroupsClient{env.resources}
-	env.mu.Unlock()
-	if result, err := resourceGroupsClient.Get(env.resourceGroup); err != nil {
-		if result.StatusCode == http.StatusNotFound {
-			return nil, environs.ErrNoInstances
-		}
-		return nil, errors.Annotate(err, "querying resource group")
-	}
-
 	// State servers are tagged with tags.JujuStateServer, so just
-	// list the instances and pick those ones out.
-	instances, err := env.AllInstances()
+	// list the instances in the controller resource group and pick
+	// those ones out.
+	instances, err := env.allInstances(env.controllerResourceGroup)
 	if err != nil {
 		return nil, err
 	}
@@ -503,9 +553,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		env.mu.Unlock()
 		return nil, errors.Trace(err)
 	}
-	flatVirtualNetworkSubnet, err := env.getVirtualNetworkSubnetLocked(
-		flatVirtualNetworkName, flatVirtualNetworkSubnetName,
-	)
+	internalNetworkSubnet, err := env.getInternalSubnetLocked()
 	if err != nil {
 		env.mu.Unlock()
 		return nil, errors.Trace(err)
@@ -553,7 +601,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		instanceSpec, args.InstanceConfig,
 		args.DistributionGroup,
 		env.Instances,
-		apiPortPtr, flatVirtualNetworkSubnet.ID,
+		apiPortPtr, internalNetworkSubnet,
 		storageAccount, networkClient,
 		vmClient, availabilitySetClient,
 		vmExtensionClient,
@@ -592,7 +640,7 @@ func createVirtualMachine(
 	distributionGroupFunc func() ([]instance.Id, error),
 	instancesFunc func([]instance.Id) ([]instance.Instance, error),
 	apiPort *int,
-	flatVirtualNetworkSubnetID *string,
+	internalNetworkSubnet *network.Subnet,
 	storageAccount *storage.Account,
 	networkClient network.ManagementClient,
 	vmClient compute.VirtualMachinesClient,
@@ -615,7 +663,7 @@ func createVirtualMachine(
 
 	networkProfile, err := newNetworkProfile(
 		networkClient, vmName, apiPort,
-		flatVirtualNetworkSubnetID,
+		internalNetworkSubnet,
 		resourceGroup, location, vmTags,
 	)
 	if err != nil {
@@ -869,7 +917,7 @@ func newNetworkProfile(
 	client network.ManagementClient,
 	vmName string,
 	apiPort *int,
-	primarySubnetId *string,
+	internalSubnet *network.Subnet,
 	resourceGroup string,
 	location string,
 	tags map[string]string,
@@ -894,7 +942,7 @@ func newNetworkProfile(
 
 	// Determine the next available private IP address.
 	nicClient := network.InterfacesClient{client}
-	privateIPAddress, err := nextPrivateIPAddress(nicClient, resourceGroup, *primarySubnetId)
+	privateIPAddress, err := nextSubnetIPAddress(nicClient, resourceGroup, internalSubnet)
 	if err != nil {
 		return nil, errors.Annotatef(err, "querying private IP addresses")
 	}
@@ -907,7 +955,7 @@ func newNetworkProfile(
 		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
 			PrivateIPAddress:          to.StringPtr(privateIPAddress),
 			PrivateIPAllocationMethod: network.Static,
-			Subnet:          &network.SubResource{ID: primarySubnetId},
+			Subnet:          &network.SubResource{internalSubnet.ID},
 			PublicIPAddress: &network.SubResource{publicIPAddress.ID},
 		},
 	}}
@@ -929,7 +977,7 @@ func newNetworkProfile(
 	if apiPort != nil {
 		logger.Debugf("- querying network security group")
 		securityGroupClient := network.SecurityGroupsClient{client}
-		securityGroup, err := securityGroupClient.Get(resourceGroup, environmentSecurityGroupName)
+		securityGroup, err := securityGroupClient.Get(resourceGroup, internalSecurityGroupName)
 		if err != nil {
 			return nil, errors.Annotate(err, "querying network security group")
 		}
@@ -966,7 +1014,7 @@ func newNetworkProfile(
 		logger.Debugf("- creating API network security rule")
 		securityRuleClient := network.SecurityRulesClient{client}
 		_, err = securityRuleClient.CreateOrUpdate(
-			resourceGroup, environmentSecurityGroupName,
+			resourceGroup, internalSecurityGroupName,
 			apiSecurityRuleName, apiSecurityRule,
 		)
 		if err != nil {
@@ -1032,11 +1080,16 @@ func (env *azureEnviron) Instances(ids []instance.Id) ([]instance.Instance, erro
 
 // AllInstances is specified in the InstanceBroker interface.
 func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
+	return env.allInstances(env.resourceGroup)
+}
+
+// allInstances returns all of the instances in the given resource group.
+func (env *azureEnviron) allInstances(resourceGroup string) ([]instance.Instance, error) {
 	env.mu.Lock()
 	vmClient := compute.VirtualMachinesClient{env.compute}
 	env.mu.Unlock()
 
-	result, err := vmClient.List(env.resourceGroup)
+	result, err := vmClient.List(resourceGroup)
 	if err != nil {
 		if result.StatusCode == http.StatusNotFound {
 			// This will occur if the resource group does not
@@ -1108,17 +1161,19 @@ func resourceGroupName(cfg *config.Config) string {
 	// UUID is always available for azure environments, since the (new)
 	// provider was introduced after environment UUIDs.
 	envTag := names.NewEnvironTag(uuid)
-	name := resourceName(envTag)
 	return fmt.Sprintf(
-		"%s%s-%s", resourceNamePrefix,
-		cfg.Name(), name[len(resourceNamePrefix):],
+		"juju-%s-%s", cfg.Name(),
+		resourceName(envTag),
 	)
 }
 
 // resourceName returns the string to use for a resource's Name tag,
-// to help users identify Juju-managed resources in the AWS console.
+// to help users identify Juju-managed resources in the Azure portal.
+//
+// Since resources are grouped under resource groups, we just use the
+// tag.
 func resourceName(tag names.Tag) string {
-	return fmt.Sprintf("%s%s", resourceNamePrefix, tag)
+	return tag.String()
 }
 
 // getInstanceTypes gets the instance types available for the configured
@@ -1166,7 +1221,7 @@ func (env *azureEnviron) getStorageAccountLocked() (*storage.Account, error) {
 	}
 
 	client := storage.AccountsClient{env.storage}
-	resourceGroup := env.resourceGroup
+	resourceGroup := env.controllerResourceGroup
 	accountName := env.config.storageAccount
 
 	account, err := client.GetProperties(resourceGroup, accountName)
@@ -1180,21 +1235,15 @@ func (env *azureEnviron) getStorageAccountLocked() (*storage.Account, error) {
 	return &account, nil
 }
 
-func (env *azureEnviron) getVirtualNetworkSubnetLocked(vnetName, subnetName string) (*network.Subnet, error) {
-	subnetKey := vnetName + ":" + subnetName
-	if subnet, ok := env.subnets[subnetKey]; ok {
-		return subnet, nil
-	}
-
+// getInternalSubnetLocked queries the internal subnet for the environment.
+func (env *azureEnviron) getInternalSubnetLocked() (*network.Subnet, error) {
 	client := network.SubnetsClient{env.network}
-	resourceGroup := env.resourceGroup
-
-	subnet, err := client.Get(resourceGroup, vnetName, subnetName)
+	vnetName := internalNetworkName
+	subnetName := env.resourceGroup
+	subnet, err := client.Get(env.controllerResourceGroup, vnetName, subnetName)
 	if err != nil {
-		return nil, errors.Annotate(err, "getting subnet")
+		return nil, errors.Annotate(err, "getting internal subnet")
 	}
-
-	env.subnets[subnetKey] = &subnet
 	return &subnet, nil
 }
 
@@ -1223,14 +1272,13 @@ func nextSecurityRulePriority(group network.SecurityGroup, min, max int) (int, e
 	)
 }
 
-// nextPrivateIPAddress returns the next available IP address in
-// the private (flat) virtual network/subnet.
-func nextPrivateIPAddress(
+// nextSubnetIPAddress returns the next available IP address in the given subnet.
+func nextSubnetIPAddress(
 	nicClient network.InterfacesClient,
 	resourceGroup string,
-	subnetID string,
+	subnet *network.Subnet,
 ) (string, error) {
-	_, ipnet, err := net.ParseCIDR(flatVirtualNetworkSubnetPrefix)
+	_, ipnet, err := net.ParseCIDR(to.String(subnet.Properties.AddressPrefix))
 	if err != nil {
 		return "", errors.Annotate(err, "parsing subnet prefix")
 	}
@@ -1247,7 +1295,7 @@ func nextPrivateIPAddress(
 				continue
 			}
 			for _, ipConfiguration := range *item.Properties.IPConfigurations {
-				if to.String(ipConfiguration.Properties.Subnet.ID) != subnetID {
+				if to.String(ipConfiguration.Properties.Subnet.ID) != to.String(subnet.ID) {
 					continue
 				}
 				ip := net.ParseIP(to.String(ipConfiguration.Properties.PrivateIPAddress))

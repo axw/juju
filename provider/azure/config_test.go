@@ -62,7 +62,7 @@ func (s *configSuite) TestValidateInvalidCredentials(c *gc.C) {
 	s.assertConfigInvalid(c, testing.Attrs{"client-key": ""}, `"client-key" config not specified`)
 	s.assertConfigInvalid(c, testing.Attrs{"tenant-id": ""}, `"tenant-id" config not specified`)
 	s.assertConfigInvalid(c, testing.Attrs{"subscription-id": ""}, `"subscription-id" config not specified`)
-	s.assertConfigInvalid(c, testing.Attrs{"controller-uuid": ""}, `"controller-uuid" config not specified`)
+	s.assertConfigInvalid(c, testing.Attrs{"controller-resource-group": ""}, `"controller-resource-group" config not specified`)
 }
 
 func (s *configSuite) TestValidateStorageAccountCantChange(c *gc.C) {
@@ -93,13 +93,13 @@ func (s *configSuite) assertConfigInvalid(c *gc.C, attrs testing.Attrs, expect s
 
 func makeTestEnvironConfig(c *gc.C, extra ...testing.Attrs) *config.Config {
 	attrs := testing.Attrs{
-		"type":            "azure",
-		"client-id":       fakeClientId,
-		"tenant-id":       fakeTenantId,
-		"client-key":      "opensezme",
-		"subscription-id": fakeSubscriptionId,
-		"location":        "westus",
-		"controller-uuid": testing.EnvironmentTag.Id(),
+		"type":                      "azure",
+		"client-id":                 fakeClientId,
+		"tenant-id":                 fakeTenantId,
+		"client-key":                "opensezme",
+		"subscription-id":           fakeSubscriptionId,
+		"location":                  "westus",
+		"controller-resource-group": "arbitrary",
 	}
 	for _, extra := range extra {
 		attrs = attrs.Merge(extra)

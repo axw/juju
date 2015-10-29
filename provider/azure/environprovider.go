@@ -63,7 +63,12 @@ func (prov *azureEnvironProvider) RestrictedConfigAttributes() []string {
 
 // PrepareForCreateEnvironment is specified in the EnvironProvider interface.
 func (p *azureEnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.Config, error) {
-	return p.Validate(cfg, nil)
+	cfg, err := p.Validate(cfg, nil)
+	if err != nil {
+		return nil, errors.Annotate(err, "validating config")
+	}
+	// TODO(axw) assign a new subnet for the environment.
+	return cfg, nil
 }
 
 // PrepareForBootstrap is specified in the EnvironProvider interface.
@@ -79,19 +84,13 @@ func (prov *azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapCont
 	}
 
 	// Record the UUID that will be used for the controller environment.
-	uuid, ok := cfg.UUID()
-	if !ok {
-		return nil, errors.Errorf("uuid not found in configuration")
-	}
-	cfg, err := cfg.Apply(map[string]interface{}{"controller-uuid": uuid})
+	cfg, err := cfg.Apply(map[string]interface{}{
+		"controller-resource-group": resourceGroupName(cfg),
+	})
 	if err != nil {
-		return nil, errors.Annotate(err, "recording controller-uuid")
+		return nil, errors.Annotate(err, "recording controller-resource-group")
 	}
 
-	cfg, err = prov.PrepareForCreateEnvironment(cfg)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
 	env, err := prov.Open(cfg)
 	if err != nil {
 		return nil, errors.Trace(err)

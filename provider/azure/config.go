@@ -31,25 +31,28 @@ const (
 	// has an associated public DNS entry.
 	configAttrStorageAccount = "storage-account"
 
-	// configAttrControllerUUID is the UUID of the controller environment.
-	// Each environment needs to know this because some resources are
-	// shared, and live in the controller environment's resource group.
-	configAttrControllerUUID = "controller-uuid"
+	// configAttrControllerResourceGroup is the resource group
+	// corresponding to the controller environment. Each environment needs
+	// to know this because some resources are shared, and live in the
+	// controller environment's resource group.
+	configAttrControllerResourceGroup = "controller-resource-group"
 )
 
 var configFields = schema.Fields{
-	configAttrLocation:           schema.String(),
-	configAttrClientId:           schema.String(),
-	configAttrSubscriptionId:     schema.String(),
-	configAttrTenantId:           schema.String(),
-	configAttrClientKey:          schema.String(),
-	configAttrStorageAccount:     schema.String(),
-	configAttrStorageAccountType: schema.String(),
+	configAttrLocation:                schema.String(),
+	configAttrClientId:                schema.String(),
+	configAttrSubscriptionId:          schema.String(),
+	configAttrTenantId:                schema.String(),
+	configAttrClientKey:               schema.String(),
+	configAttrStorageAccount:          schema.String(),
+	configAttrStorageAccountType:      schema.String(),
+	configAttrControllerResourceGroup: schema.String(),
 }
 
 var configDefaults = schema.Defaults{
-	configAttrStorageAccount:     schema.Omit,
-	configAttrStorageAccountType: string(storage.StandardLRS),
+	configAttrStorageAccount:          schema.Omit,
+	configAttrControllerResourceGroup: schema.Omit,
+	configAttrStorageAccountType:      string(storage.StandardLRS),
 }
 
 var requiredConfigAttributes = []string{
@@ -58,30 +61,30 @@ var requiredConfigAttributes = []string{
 	configAttrSubscriptionId,
 	configAttrTenantId,
 	configAttrLocation,
-	configAttrControllerUUID,
+	configAttrControllerResourceGroup,
 }
 
 var immutableConfigAttributes = []string{
 	configAttrSubscriptionId,
 	configAttrTenantId,
-	configAttrControllerUUID,
+	configAttrControllerResourceGroup,
 	configAttrStorageAccount,
 	configAttrStorageAccountType,
 }
 
 var internalConfigAttributes = []string{
 	configAttrStorageAccount,
-	configAttrControllerUUID,
+	configAttrControllerResourceGroup,
 }
 
 type azureEnvironConfig struct {
 	*config.Config
-	token              *azure.ServicePrincipalToken
-	subscriptionId     string
-	location           string // canonicalized
-	storageAccount     string
-	storageAccountType storage.AccountType
-	controllerUUID     string
+	token                   *azure.ServicePrincipalToken
+	subscriptionId          string
+	location                string // canonicalized
+	storageAccount          string
+	storageAccountType      storage.AccountType
+	controllerResourceGroup string
 }
 
 var knownStorageAccountTypes = []string{
@@ -156,7 +159,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 	clientKey := validated[configAttrClientKey].(string)
 	storageAccount, _ := validated[configAttrStorageAccount].(string)
 	storageAccountType := validated[configAttrStorageAccountType].(string)
-	controllerUUID := validated[configAttrControllerUUID].(string)
+	controllerResourceGroup := validated[configAttrControllerResourceGroup].(string)
 
 	if newCfg.FirewallMode() == config.FwGlobal {
 		// We do not currently support the "global" firewall mode.
@@ -187,7 +190,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		location,
 		storageAccount,
 		storage.AccountType(storageAccountType),
-		controllerUUID,
+		controllerResourceGroup,
 	}
 
 	return azureConfig, nil

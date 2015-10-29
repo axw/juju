@@ -44,7 +44,7 @@ type environSuite struct {
 	tags                 map[string]*string
 	vmSizes              *compute.VirtualMachineSizeListResult
 	storageAccount       *storage.Account
-	flatSubnet           *network.Subnet
+	subnet               *network.Subnet
 	ubuntuServerSKUs     []compute.VirtualMachineImageResource
 	publicIPAddress      *network.PublicIPAddress
 	oldNetworkInterfaces *network.InterfaceListResult
@@ -61,7 +61,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 	s.sender = nil
 
 	s.tags = map[string]*string{
-		"juju-machine-name": to.StringPtr("juju-machine-1"),
+		"juju-machine-name": to.StringPtr("machine-1"),
 	}
 
 	vmSizes := []compute.VirtualMachineSize{{
@@ -84,9 +84,9 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		},
 	}
 
-	s.flatSubnet = &network.Subnet{
+	s.subnet = &network.Subnet{
 		ID:   to.StringPtr("subnet-id"),
-		Name: to.StringPtr("vnet-flat-subnet"),
+		Name: to.StringPtr("juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d"),
 		Properties: &network.SubnetPropertiesFormat{
 			AddressPrefix: to.StringPtr("10.0.0.0/8"),
 		},
@@ -102,7 +102,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 
 	s.publicIPAddress = &network.PublicIPAddress{
 		ID:       to.StringPtr("public-ip-id"),
-		Name:     to.StringPtr("juju-machine-1-public-ip"),
+		Name:     to.StringPtr("machine-1-public-ip"),
 		Location: to.StringPtr("westus"),
 		Tags:     &s.tags,
 		Properties: &network.PublicIPAddressPropertiesFormat{
@@ -119,7 +119,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
 			PrivateIPAddress:          to.StringPtr("10.0.0.4"),
 			PrivateIPAllocationMethod: network.Static,
-			Subnet: &network.SubResource{ID: s.flatSubnet.ID},
+			Subnet: &network.SubResource{ID: s.subnet.ID},
 		},
 	}}
 	oldNetworkInterfaces := []network.Interface{{
@@ -141,7 +141,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
 			PrivateIPAddress:          to.StringPtr("10.0.0.5"),
 			PrivateIPAllocationMethod: network.Static,
-			Subnet:          &network.SubResource{ID: s.flatSubnet.ID},
+			Subnet:          &network.SubResource{ID: s.subnet.ID},
 			PublicIPAddress: &network.SubResource{ID: s.publicIPAddress.ID},
 		},
 	}}
@@ -174,8 +174,8 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		},
 	}}
 	s.virtualMachine = &compute.VirtualMachine{
-		ID:       to.StringPtr("juju-machine-1-id"),
-		Name:     to.StringPtr("juju-machine-1"),
+		ID:       to.StringPtr("machine-1-id"),
+		Name:     to.StringPtr("machine-1"),
 		Location: to.StringPtr("westus"),
 		Tags:     &s.tags,
 		Properties: &compute.VirtualMachineProperties{
@@ -190,18 +190,18 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 					Version:   to.StringPtr("latest"),
 				},
 				OsDisk: &compute.OSDisk{
-					Name:         to.StringPtr("juju-machine-1-osdisk"),
+					Name:         to.StringPtr("machine-1-osdisk"),
 					CreateOption: compute.FromImage,
 					Caching:      compute.ReadWrite,
 					Vhd: &compute.VirtualHardDisk{
 						URI: to.StringPtr(
-							"http://mrblobby.example.com/vhds/juju-machine-1-osdisk.vhd",
+							"http://mrblobby.example.com/vhds/machine-1-osdisk.vhd",
 						),
 					},
 				},
 			},
 			OsProfile: &compute.OSProfile{
-				ComputerName:  to.StringPtr("juju-machine-1"),
+				ComputerName:  to.StringPtr("machine-1"),
 				CustomData:    to.StringPtr("<juju-goes-here>"),
 				AdminUsername: to.StringPtr("ubuntu"),
 				LinuxConfiguration: &compute.LinuxConfiguration{
@@ -254,13 +254,13 @@ func (s *environSuite) startInstanceSenders() azuretesting.Senders {
 	return azuretesting.Senders{
 		sender(".*/vmSizes", s.vmSizes),
 		sender(".*/storageAccounts", s.storageAccount),
-		sender(".*/subnets/vnet-flat-subnet", s.flatSubnet),
+		sender(".*/subnets/juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d", s.subnet),
 		sender(".*/Canonical/.*/UbuntuServer/skus", s.ubuntuServerSKUs),
-		sender(".*/publicIPAddresses/juju-machine-1-public-ip", s.publicIPAddress),
+		sender(".*/publicIPAddresses/machine-1-public-ip", s.publicIPAddress),
 		sender(".*/networkInterfaces", s.oldNetworkInterfaces),
-		sender(".*/networkInterfaces/juju-machine-1-primary", s.newNetworkInterface),
+		sender(".*/networkInterfaces/machine-1-primary", s.newNetworkInterface),
 		sender(".*/availabilitySets/juju", s.jujuAvailabilitySet),
-		sender(".*/virtualMachines/juju-machine-1", s.virtualMachine),
+		sender(".*/virtualMachines/machine-1", s.virtualMachine),
 	}
 }
 
@@ -396,7 +396,7 @@ func (s *environSuite) TestStartInstance(c *gc.C) {
 	c.Assert(s.requests, gc.HasLen, 9)
 	c.Assert(s.requests[0].Method, gc.Equals, "GET") // vmSizes
 	c.Assert(s.requests[1].Method, gc.Equals, "GET") // storageAccounts
-	c.Assert(s.requests[2].Method, gc.Equals, "GET") // vnet-flat-subnet
+	c.Assert(s.requests[2].Method, gc.Equals, "GET") // juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d
 	c.Assert(s.requests[3].Method, gc.Equals, "GET") // skus
 	c.Assert(s.requests[4].Method, gc.Equals, "PUT")
 	assertRequestBody(c, s.requests[4], s.publicIPAddress)

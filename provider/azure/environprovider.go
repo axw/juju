@@ -56,22 +56,39 @@ func (prov *azureEnvironProvider) Open(cfg *config.Config) (environs.Environ, er
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.
 func (prov *azureEnvironProvider) RestrictedConfigAttributes() []string {
-	return []string{
-		configAttrClientId,
-		configAttrSubscriptionId,
-		configAttrTenantId,
-		configAttrClientKey,
-	}
+	restricted := append([]string{}, immutableConfigAttributes...)
+	restricted = append(restricted, internalConfigAttributes...)
+	return restricted
 }
 
 // PrepareForCreateEnvironment is specified in the EnvironProvider interface.
 func (p *azureEnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.Config, error) {
-	return cfg, nil
+	return p.Validate(cfg, nil)
 }
 
 // PrepareForBootstrap is specified in the EnvironProvider interface.
 func (prov *azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, cfg *config.Config) (environs.Environ, error) {
-	cfg, err := prov.PrepareForCreateEnvironment(cfg)
+	// Ensure that internal configuration is not specified, and then set
+	// what we can now. We only need to do this during bootstrap. Validate
+	// will check for changes later.
+	unknownAttrs := cfg.UnknownAttrs()
+	for _, key := range internalConfigAttributes {
+		if _, ok := unknownAttrs[key]; ok {
+			return nil, errors.Errorf(`internal config %q must not be specified`, key)
+		}
+	}
+
+	// Record the UUID that will be used for the controller environment.
+	uuid, ok := cfg.UUID()
+	if !ok {
+		return nil, errors.Errorf("uuid not found in configuration")
+	}
+	cfg, err := cfg.Apply(map[string]interface{}{"controller-uuid": uuid})
+	if err != nil {
+		return nil, errors.Annotate(err, "recording controller-uuid")
+	}
+
+	cfg, err = prov.PrepareForCreateEnvironment(cfg)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

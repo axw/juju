@@ -229,16 +229,20 @@ func (s *environSuite) openEnviron(c *gc.C, attrs ...testing.Attrs) environs.Env
 
 	// Force an explicit refresh of the access token, so it isn't done
 	// implicitly during the tests.
+	s.sender = azuretesting.Senders{tokenRefreshSender()}
+	err = azure.ForceTokenRefresh(env)
+	c.Assert(err, jc.ErrorIsNil)
+	return env
+}
+
+func tokenRefreshSender() *azuretesting.MockSender {
 	tokenRefreshSender := azuretesting.NewSenderWithValue(&autorestazure.Token{
 		AccessToken: "access-token",
 		ExpiresOn:   fmt.Sprint(time.Now().Add(time.Hour).Unix()),
 		Type:        "Bearer",
 	})
 	tokenRefreshSender.PathPattern = ".*/oauth2/token"
-	s.sender = azuretesting.Senders{tokenRefreshSender}
-	err = azure.ForceTokenRefresh(env)
-	c.Assert(err, jc.ErrorIsNil)
-	return env
+	return tokenRefreshSender
 }
 
 func (s *environSuite) startInstanceSenders() azuretesting.Senders {
@@ -410,4 +414,22 @@ func (s *environSuite) TestStartInstance(c *gc.C) {
 	c.Assert(to.String(virtualMachine.Properties.OsProfile.CustomData), gc.Not(gc.HasLen), 0)
 	virtualMachine.Properties.OsProfile.CustomData = to.StringPtr("<juju-goes-here>")
 	c.Assert(&virtualMachine, jc.DeepEquals, s.virtualMachine)
+}
+
+func (s *environSuite) TestAllInstancesResourceGroupNotFound(c *gc.C) {
+	env := s.openEnviron(c)
+	sender := mocks.NewSender()
+	sender.EmitStatus("resource group not found", http.StatusNotFound)
+	s.sender = azuretesting.Senders{sender}
+	_, err := env.AllInstances()
+	c.Assert(err, gc.Equals, environs.ErrNoInstances)
+}
+
+func (s *environSuite) TestStopInstancesNotFound(c *gc.C) {
+	env := s.openEnviron(c)
+	sender := mocks.NewSender()
+	sender.EmitStatus("vm not found", http.StatusNotFound)
+	s.sender = azuretesting.Senders{sender, sender}
+	err := env.StopInstances("a", "b")
+	c.Assert(err, jc.ErrorIsNil)
 }

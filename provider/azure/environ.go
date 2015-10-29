@@ -40,6 +40,8 @@ import (
 )
 
 const (
+	resourceNamePrefix = "juju-"
+
 	flatVirtualNetworkName         = "vnet-flat"
 	flatVirtualNetworkPrefix       = "10.0.0.0/8"
 	flatVirtualNetworkSubnetName   = "vnet-flat-subnet"
@@ -130,7 +132,7 @@ func (env *azureEnviron) Bootstrap(
 		return "", "", nil, errors.Annotate(err, "creating resource group")
 	}
 
-	arch, series, finalizer, err := env.bootstrapResourceGroup(ctx, args, location, tags)
+	arch, series, finalizer, err := env.createControllerResourceGroup(ctx, args, location, tags)
 	if err != nil {
 		if err := env.Destroy(); err != nil {
 			logger.Errorf("failed to destroy environment: %v", env.resourceGroup, err)
@@ -140,7 +142,9 @@ func (env *azureEnviron) Bootstrap(
 	return arch, series, finalizer, nil
 }
 
-func (env *azureEnviron) bootstrapResourceGroup(
+// createControllerResourceGroup creates a resource group for the Juju
+// controller environment.
+func (env *azureEnviron) createControllerResourceGroup(
 	ctx environs.BootstrapContext,
 	args environs.BootstrapParams,
 	location string,
@@ -166,7 +170,6 @@ func (env *azureEnviron) bootstrapResourceGroup(
 	}
 	env.subnets[to.String(vnet.Name)+":"+to.String(subnet.Name)] = subnet
 
-	// TODO(axw) ensure user doesn't specify storage-account.
 	// Update the environment's config with generated config.
 	cfg, err := env.config.Config.Apply(map[string]interface{}{
 		configAttrStorageAccount: storageAccountName,
@@ -985,11 +988,10 @@ func newNetworkProfile(
 func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 	vmClient := compute.VirtualMachinesClient{env.compute}
 	for _, id := range ids {
-		// TODO(axw) delete VMs in parallel?
 		// TODO(axw) delete associated resources, e.g. NICs, network
 		// security rules. This must be done before deleting machine.
-		_, err := vmClient.Delete(env.resourceGroup, string(id))
-		if err != nil {
+		result, err := vmClient.Delete(env.resourceGroup, string(id))
+		if err != nil && result.StatusCode != http.StatusNotFound {
 			return errors.Trace(err)
 		}
 	}
@@ -1036,6 +1038,11 @@ func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
 
 	result, err := vmClient.List(env.resourceGroup)
 	if err != nil {
+		if result.StatusCode == http.StatusNotFound {
+			// This will occur if the resource group does not
+			// exist, e.g. in a fresh hosted environment.
+			return nil, environs.ErrNoInstances
+		}
 		return nil, errors.Annotate(err, "listing virtual machines")
 	}
 	if result.Value == nil || len(*result.Value) == 0 {
@@ -1101,13 +1108,17 @@ func resourceGroupName(cfg *config.Config) string {
 	// UUID is always available for azure environments, since the (new)
 	// provider was introduced after environment UUIDs.
 	envTag := names.NewEnvironTag(uuid)
-	return resourceName(envTag)
+	name := resourceName(envTag)
+	return fmt.Sprintf(
+		"%s%s-%s", resourceNamePrefix,
+		cfg.Name(), name[len(resourceNamePrefix):],
+	)
 }
 
 // resourceName returns the string to use for a resource's Name tag,
 // to help users identify Juju-managed resources in the AWS console.
 func resourceName(tag names.Tag) string {
-	return fmt.Sprintf("juju-%s", tag)
+	return fmt.Sprintf("%s%s", resourceNamePrefix, tag)
 }
 
 // getInstanceTypes gets the instance types available for the configured

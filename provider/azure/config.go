@@ -20,8 +20,21 @@ const (
 	configAttrTenantId           = "tenant-id"
 	configAttrClientKey          = "client-key"
 	configAttrLocation           = "location"
-	configAttrStorageAccount     = "storage-account"
 	configAttrStorageAccountType = "storage-account-type"
+
+	// The below bits are internal book-keeping things, rather than
+	// configuration. Config is just what we have to work with.
+
+	// configAttrStorageAccount is the name of the storage account. We
+	// can't just use a well-defined name for the storage acocunt because
+	// storage account names must be globally unique; each storage account
+	// has an associated public DNS entry.
+	configAttrStorageAccount = "storage-account"
+
+	// configAttrControllerUUID is the UUID of the controller environment.
+	// Each environment needs to know this because some resources are
+	// shared, and live in the controller environment's resource group.
+	configAttrControllerUUID = "controller-uuid"
 )
 
 var configFields = schema.Fields{
@@ -39,6 +52,28 @@ var configDefaults = schema.Defaults{
 	configAttrStorageAccountType: string(storage.StandardLRS),
 }
 
+var requiredConfigAttributes = []string{
+	configAttrClientId,
+	configAttrClientKey,
+	configAttrSubscriptionId,
+	configAttrTenantId,
+	configAttrLocation,
+	configAttrControllerUUID,
+}
+
+var immutableConfigAttributes = []string{
+	configAttrSubscriptionId,
+	configAttrTenantId,
+	configAttrControllerUUID,
+	configAttrStorageAccount,
+	configAttrStorageAccountType,
+}
+
+var internalConfigAttributes = []string{
+	configAttrStorageAccount,
+	configAttrControllerUUID,
+}
+
 type azureEnvironConfig struct {
 	*config.Config
 	token              *azure.ServicePrincipalToken
@@ -46,6 +81,7 @@ type azureEnvironConfig struct {
 	location           string // canonicalized
 	storageAccount     string
 	storageAccountType storage.AccountType
+	controllerUUID     string
 }
 
 var knownStorageAccountTypes = []string{
@@ -82,44 +118,45 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		return nil, err
 	}
 
+	// Ensure required configuration is provided.
+	for _, key := range requiredConfigAttributes {
+		if value, ok := validated[key].(string); !ok || value == "" {
+			return nil, errors.Errorf("%q config not specified", key)
+		}
+	}
+	if oldCfg != nil {
+		// Ensure immutable configuration isn't changed.
+		oldUnknownAttrs := oldCfg.UnknownAttrs()
+		for _, key := range immutableConfigAttributes {
+			oldValue, hadValue := oldUnknownAttrs[key].(string)
+			if hadValue {
+				newValue, haveValue := validated[key].(string)
+				if !haveValue {
+					return nil, errors.Errorf(
+						"cannot remove immutable %q config", key,
+					)
+				}
+				if newValue != oldValue {
+					return nil, errors.Errorf(
+						"cannot change immutable %q config (%v -> %v)",
+						key, oldValue, newValue,
+					)
+				}
+			}
+			// It's valid to go from not having to having.
+		}
+		// TODO(axw) figure out how we intend to handle changing
+		// secrets, such as client key
+	}
+
 	location := canonicalLocation(validated[configAttrLocation].(string))
 	clientId := validated[configAttrClientId].(string)
 	subscriptionId := validated[configAttrSubscriptionId].(string)
 	tenantId := validated[configAttrTenantId].(string)
 	clientKey := validated[configAttrClientKey].(string)
-	storageAccount, haveStorageAccount := validated[configAttrStorageAccount].(string)
+	storageAccount, _ := validated[configAttrStorageAccount].(string)
 	storageAccountType := validated[configAttrStorageAccountType].(string)
-
-	// Ensure required configuration is provided.
-	switch {
-	case clientId == "":
-		return nil, errors.New("client-id not specified")
-	case clientKey == "":
-		return nil, errors.New("client-key not specified")
-	case subscriptionId == "":
-		return nil, errors.New("subscription-id not specified")
-	case tenantId == "":
-		return nil, errors.New("tenant-id not specified")
-	case location == "":
-		return nil, errors.New("location not specified")
-	}
-
-	if oldCfg != nil {
-		oldUnknownAttrs := oldCfg.UnknownAttrs()
-		oldStorageAccount, hadStorageAccount := oldUnknownAttrs[configAttrStorageAccount]
-		if hadStorageAccount {
-			if !haveStorageAccount {
-				return nil, errors.Errorf("cannot remove storage account")
-			}
-			if storageAccount != oldStorageAccount {
-				return nil, errors.Errorf("cannot change storage account")
-			}
-		}
-		// TODO(axw) ensure location doesn't change
-		// TODO(axw) ensure storage account type doesn't change
-		// TODO(axw) figure out how we intend to handle
-		//           changing secrets, such as client key
-	}
+	controllerUUID := validated[configAttrControllerUUID].(string)
 
 	if newCfg.FirewallMode() == config.FwGlobal {
 		// We do not currently support the "global" firewall mode.
@@ -150,6 +187,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		location,
 		storageAccount,
 		storage.AccountType(storageAccountType),
+		controllerUUID,
 	}
 
 	return azureConfig, nil

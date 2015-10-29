@@ -51,17 +51,18 @@ func (s *configSuite) TestValidateInvalidFirewallMode(c *gc.C) {
 }
 
 func (s *configSuite) TestValidateLocation(c *gc.C) {
-	s.assertConfigInvalid(c, testing.Attrs{"location": ""}, "location not specified")
+	s.assertConfigInvalid(c, testing.Attrs{"location": ""}, `"location" config not specified`)
 	// We don't validate locations, because new locations may be added.
 	// Azure will complain if the location is invalid anyway.
 	s.assertConfigValid(c, testing.Attrs{"location": "eurasia"})
 }
 
 func (s *configSuite) TestValidateInvalidCredentials(c *gc.C) {
-	s.assertConfigInvalid(c, testing.Attrs{"client-id": ""}, "client-id not specified")
-	s.assertConfigInvalid(c, testing.Attrs{"client-key": ""}, "client-key not specified")
-	s.assertConfigInvalid(c, testing.Attrs{"tenant-id": ""}, "tenant-id not specified")
-	s.assertConfigInvalid(c, testing.Attrs{"subscription-id": ""}, "subscription-id not specified")
+	s.assertConfigInvalid(c, testing.Attrs{"client-id": ""}, `"client-id" config not specified`)
+	s.assertConfigInvalid(c, testing.Attrs{"client-key": ""}, `"client-key" config not specified`)
+	s.assertConfigInvalid(c, testing.Attrs{"tenant-id": ""}, `"tenant-id" config not specified`)
+	s.assertConfigInvalid(c, testing.Attrs{"subscription-id": ""}, `"subscription-id" config not specified`)
+	s.assertConfigInvalid(c, testing.Attrs{"controller-uuid": ""}, `"controller-uuid" config not specified`)
 }
 
 func (s *configSuite) TestValidateStorageAccountCantChange(c *gc.C) {
@@ -71,11 +72,11 @@ func (s *configSuite) TestValidateStorageAccountCantChange(c *gc.C) {
 
 	cfgNew := makeTestEnvironConfig(c) // no storage-account attribute
 	_, err = s.provider.Validate(cfgNew, cfgOld)
-	c.Assert(err, gc.ErrorMatches, "cannot remove storage account")
+	c.Assert(err, gc.ErrorMatches, `cannot remove immutable "storage-account" config`)
 
 	cfgNew = makeTestEnvironConfig(c, testing.Attrs{"storage-account": "def"})
 	_, err = s.provider.Validate(cfgNew, cfgOld)
-	c.Assert(err, gc.ErrorMatches, "cannot change storage account")
+	c.Assert(err, gc.ErrorMatches, `cannot change immutable "storage-account" config \(abc -> def\)`)
 }
 
 func (s *configSuite) assertConfigValid(c *gc.C, attrs testing.Attrs) {
@@ -98,6 +99,7 @@ func makeTestEnvironConfig(c *gc.C, extra ...testing.Attrs) *config.Config {
 		"client-key":      "opensezme",
 		"subscription-id": fakeSubscriptionId,
 		"location":        "westus",
+		"controller-uuid": testing.EnvironmentTag.Id(),
 	}
 	for _, extra := range extra {
 		attrs = attrs.Merge(extra)

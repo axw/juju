@@ -47,30 +47,6 @@ func (*iputilsSuite) TestNextSubnetIPErrors(c *gc.C) {
 	)
 }
 
-func (*iputilsSuite) TestNextSubnet(c *gc.C) {
-	assertNextSubnet(c, "10.0.0.0/8", 16, nil, "10.0.0.0/16")
-	assertNextSubnet(c, "10.0.0.0/8", 16, []string{"10.0.0.0/16"}, "10.1.0.0/16")
-	assertNextSubnet(c, "10.0.0.0/8", 16, []string{"10.1.0.0/16", "10.0.0.0/16"}, "10.2.0.0/16")
-	assertNextSubnet(c, "10.0.0.0/8", 16, []string{"10.2.0.0/16", "10.0.0.0/16"}, "10.1.0.0/16")
-
-	// subnets with mismatched prefixes are ignored
-	assertNextSubnet(c, "10.0.0.0/8", 16, []string{"10.0.0.0/8"}, "10.0.0.0/16")
-	assertNextSubnet(c, "10.0.0.0/8", 16, []string{"11.0.0.0/16"}, "10.0.0.0/16")
-}
-
-func (*iputilsSuite) TestNextSubnetErrors(c *gc.C) {
-	// Subnet prefix is <= vnet prefix.
-	assertNextSubnetError(c, "10.0.0.0/8", 8, nil, "subnet prefix /8 >= vnet prefix /8")
-
-	// All subnets in use.
-	var assigned []string
-	for i := 0; i < 256; i++ {
-		subnet := fmt.Sprintf("10.%d.0.0/16", i)
-		assigned = append(assigned, subnet)
-	}
-	assertNextSubnetError(c, "10.0.0.0/8", 16, assigned, "no /16 subnets available in 10.0.0.0/8")
-}
-
 func assertNextSubnetIP(c *gc.C, ipnetString string, inuseStrings []string, expectedString string) {
 	ipnet := parseIPNet(c, ipnetString)
 	inuse := parseIPs(c, inuseStrings...)
@@ -83,27 +59,6 @@ func assertNextSubnetIPError(c *gc.C, ipnetString string, inuseStrings []string,
 	ipnet := parseIPNet(c, ipnetString)
 	inuse := parseIPs(c, inuseStrings...)
 	_, err := azureutils.NextSubnetIP(ipnet, inuse)
-	c.Assert(err, gc.ErrorMatches, expect)
-}
-
-func assertNextSubnet(c *gc.C, ipnetString string, subnetPrefix int, inuseSubnetStrings []string, expectedString string) {
-	ipnet := parseIPNet(c, ipnetString)
-	inuseSubnets := make([]*net.IPNet, len(inuseSubnetStrings))
-	for i, s := range inuseSubnetStrings {
-		inuseSubnets[i] = parseIPNet(c, s)
-	}
-	next, err := azureutils.NextSubnet(ipnet, subnetPrefix, inuseSubnets)
-	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(next.String(), gc.Equals, expectedString)
-}
-
-func assertNextSubnetError(c *gc.C, ipnetString string, subnetPrefix int, inuseSubnetStrings []string, expect string) {
-	ipnet := parseIPNet(c, ipnetString)
-	inuseSubnets := make([]*net.IPNet, len(inuseSubnetStrings))
-	for i, s := range inuseSubnetStrings {
-		inuseSubnets[i] = parseIPNet(c, s)
-	}
-	_, err := azureutils.NextSubnet(ipnet, subnetPrefix, inuseSubnets)
 	c.Assert(err, gc.ErrorMatches, expect)
 }
 

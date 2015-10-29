@@ -6,7 +6,6 @@ package azureutils
 import (
 	"math/big"
 	"net"
-	"sort"
 
 	"github.com/juju/errors"
 )
@@ -46,57 +45,6 @@ func NextSubnetIP(subnet *net.IPNet, ipsInUse []net.IP) (net.IP, error) {
 		}
 	}
 	return nil, errors.Errorf("no addresses available in %s", subnet)
-}
-
-// NextSubnet returns the next available subnet in the given vnet.
-func NextSubnet(vnet *net.IPNet, subnetPrefix int, subnetsInUse []*net.IPNet) (*net.IPNet, error) {
-	ones, bits := vnet.Mask.Size()
-	if subnetPrefix <= ones {
-		return nil, errors.Errorf("subnet prefix /%d >= vnet prefix /%d", subnetPrefix, ones)
-	}
-
-	// Create a bit-flipped copy of the vnet mask, which we'll use to
-	// remove the vnet prefix from subnet prefixes below.
-	subnetMask := make(net.IPMask, len(vnet.Mask))
-	for i, b := range vnet.Mask {
-		subnetMask[i] = ^b
-	}
-	var assignedSubnetPrefixes []int
-	for _, ipnetSubnet := range subnetsInUse {
-		ones, bits := ipnetSubnet.Mask.Size()
-		if ones != subnetPrefix || !vnet.Contains(ipnetSubnet.IP) {
-			continue
-		}
-		ipSubnet := ipnetSubnet.IP.To4().Mask(subnetMask)
-		ipSubnetUint32 := ipUint32(ipSubnet)
-		ipSubnetUint32 = ipSubnetUint32 >> uint32(bits-ones)
-		assignedSubnetPrefixes = append(assignedSubnetPrefixes, int(ipSubnetUint32))
-	}
-	sort.Ints(assignedSubnetPrefixes)
-
-	// Look for the first available subnet prefix.
-	if len(assignedSubnetPrefixes) == 1<<uint32(subnetPrefix-ones) {
-		// There are 2**N unique subnet prefixes, where N is the
-		// difference between the subnet prefix and the vnet prefix.
-		return nil, errors.Errorf("no /%d subnets available in %s", subnetPrefix, vnet)
-	}
-	var next int
-	if len(assignedSubnetPrefixes) > 0 {
-		next = -1
-		for i, assigned := range assignedSubnetPrefixes {
-			if i != assigned {
-				next = i
-				break
-			}
-		}
-		if next == -1 {
-			next = assignedSubnetPrefixes[len(assignedSubnetPrefixes)-1] + 1
-		}
-	}
-	ip := uint32IP(ipUint32(vnet.IP) + uint32(next)<<uint32(bits-subnetPrefix))
-	mask := net.CIDRMask(subnetPrefix, bits)
-	subnet := &net.IPNet{ip, mask}
-	return subnet, nil
 }
 
 // ipIndex calculates the index of the IP in the subnet.

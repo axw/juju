@@ -11,6 +11,7 @@ import (
 	"time"
 
 	autorestazure "github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/azure"
+	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/mocks"
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/Azure/azure-sdk-for-go/arm/network"
@@ -162,9 +163,21 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		Tags:     &emptyTags,
 	}
 
+	sshPublicKeys := []compute.SSHPublicKey{{
+		Path:    to.StringPtr("/home/ubuntu/.ssh/authorized_keys"),
+		KeyData: to.StringPtr(testing.FakeAuthKeys),
+	}}
+	networkInterfaceReferences := []compute.NetworkInterfaceReference{{
+		ID: s.newNetworkInterface.ID,
+		Properties: &compute.NetworkInterfaceReferenceProperties{
+			Primary: to.BoolPtr(true),
+		},
+	}}
 	s.virtualMachine = &compute.VirtualMachine{
-		ID:   to.StringPtr("juju-machine-1-id"),
-		Name: to.StringPtr("juju-machine-1"),
+		ID:       to.StringPtr("juju-machine-1-id"),
+		Name:     to.StringPtr("juju-machine-1"),
+		Location: to.StringPtr("westus"),
+		Tags:     &s.tags,
 		Properties: &compute.VirtualMachineProperties{
 			HardwareProfile: &compute.HardwareProfile{
 				VMSize: "Standard_D1",
@@ -193,9 +206,14 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 				AdminUsername: to.StringPtr("ubuntu"),
 				LinuxConfiguration: &compute.LinuxConfiguration{
 					DisablePasswordAuthentication: to.BoolPtr(true),
+					SSH: &compute.SSHConfiguration{
+						PublicKeys: &sshPublicKeys,
+					},
 				},
 			},
-			NetworkProfile:    &compute.NetworkProfile{},
+			NetworkProfile: &compute.NetworkProfile{
+				NetworkInterfaces: &networkInterfaceReferences,
+			},
 			AvailabilitySet:   &compute.SubResource{ID: s.jujuAvailabilitySet.ID},
 			ProvisioningState: to.StringPtr("Successful"),
 		},
@@ -284,6 +302,13 @@ func makeStartInstanceParams(c *gc.C, series string) environs.StartInstanceParam
 	}
 }
 
+func unmarshalRequestBody(c *gc.C, req *http.Request, out interface{}) {
+	bytes, err := ioutil.ReadAll(req.Body)
+	c.Assert(err, jc.ErrorIsNil)
+	err = json.Unmarshal(bytes, out)
+	c.Assert(err, jc.ErrorIsNil)
+}
+
 func assertRequestBody(c *gc.C, req *http.Request, expect interface{}) {
 	m := make(map[string]interface{})
 	expectM, ok := expect.(map[string]interface{})
@@ -294,10 +319,7 @@ func assertRequestBody(c *gc.C, req *http.Request, expect interface{}) {
 		err = json.Unmarshal(bytes, &expectM)
 		c.Assert(err, jc.ErrorIsNil)
 	}
-	bytes, err := ioutil.ReadAll(req.Body)
-	c.Assert(err, jc.ErrorIsNil)
-	err = json.Unmarshal(bytes, &m)
-	c.Assert(err, jc.ErrorIsNil)
+	unmarshalRequestBody(c, req, &m)
 	c.Assert(m, jc.DeepEquals, expectM)
 }
 
@@ -308,9 +330,32 @@ func (s *environSuite) TestOpen(c *gc.C) {
 	c.Assert(env, gc.NotNil)
 }
 
+func (s *environSuite) TestGlobalLocationManagementURI(c *gc.C) {
+	s.testLocationManagementURI(c, "West US", "management.azure.com")
+}
+
+func (s *environSuite) TestChinalLocationManagementURI(c *gc.C) {
+	s.testLocationManagementURI(c, "China North", "management.chinacloudapi.cn")
+	s.testLocationManagementURI(c, "chinaeast", "management.chinacloudapi.cn")
+}
+
+func (s *environSuite) testLocationManagementURI(c *gc.C, location, host string) {
+	env := s.openEnviron(c, testing.Attrs{"location": location})
+
+	sender := mocks.NewSender()
+	sender.EmitContent("{}")
+	s.sender = azuretesting.Senders{sender}
+	s.requests = nil
+	env.AllInstances() // trigger a query
+
+	c.Assert(s.requests, gc.HasLen, 1)
+	c.Assert(s.requests[0].URL.Host, gc.Equals, host)
+}
+
 func (s *environSuite) TestStartInstance(c *gc.C) {
 	env := s.openEnviron(c)
 	s.sender = s.startInstanceSenders()
+	s.requests = nil
 	result, err := env.StartInstance(makeStartInstanceParams(c, "quantal"))
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(result, gc.NotNil)
@@ -339,6 +384,9 @@ func (s *environSuite) TestStartInstance(c *gc.C) {
 	(*s.newNetworkInterface.Properties.IPConfigurations)[0].ID = nil
 	s.jujuAvailabilitySet.ID = nil
 	s.jujuAvailabilitySet.Name = nil
+	s.virtualMachine.ID = nil
+	s.virtualMachine.Name = nil
+	s.virtualMachine.Properties.ProvisioningState = nil
 
 	// Validate HTTP request bodies.
 	c.Assert(s.requests, gc.HasLen, 9)
@@ -353,7 +401,13 @@ func (s *environSuite) TestStartInstance(c *gc.C) {
 	assertRequestBody(c, s.requests[6], s.newNetworkInterface)
 	c.Assert(s.requests[7].Method, gc.Equals, "PUT")
 	assertRequestBody(c, s.requests[7], s.jujuAvailabilitySet)
+	c.Assert(s.requests[8].Method, gc.Equals, "PUT")
 
-	//		sender(".*/availabilitySets/juju", s.jujuAvailabilitySet),
-	//		sender(".*/virtualMachines/juju-machine-1", s.virtualMachine),
+	// CustomData is non-deterministic, so don't compare it.
+	// TODO(axw) shouldn't CustomData be deterministic? Look into this.
+	var virtualMachine compute.VirtualMachine
+	unmarshalRequestBody(c, s.requests[8], &virtualMachine)
+	c.Assert(to.String(virtualMachine.Properties.OsProfile.CustomData), gc.Not(gc.HasLen), 0)
+	virtualMachine.Properties.OsProfile.CustomData = to.StringPtr("<juju-goes-here>")
+	c.Assert(&virtualMachine, jc.DeepEquals, s.virtualMachine)
 }

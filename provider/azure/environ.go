@@ -352,13 +352,14 @@ func (env *azureEnviron) SetConfig(cfg *config.Config) error {
 	env.config = ecfg
 
 	// Initialise clients.
-	//
-	// TODO(axw) we need to set the URI in each of the
-	// clients for the China locations.
-	env.compute = compute.New(env.config.subscriptionId)
-	env.resources = resources.New(env.config.subscriptionId)
-	env.storage = storage.New(env.config.subscriptionId)
-	env.network = network.New(env.config.subscriptionId)
+	baseURI := "https://management.azure.com"
+	if strings.Contains(ecfg.location, "china") {
+		baseURI = "https://management.chinacloudapi.cn"
+	}
+	env.compute = compute.NewWithBaseURI(baseURI, env.config.subscriptionId)
+	env.resources = resources.NewWithBaseURI(baseURI, env.config.subscriptionId)
+	env.storage = storage.NewWithBaseURI(baseURI, env.config.subscriptionId)
+	env.network = network.NewWithBaseURI(baseURI, env.config.subscriptionId)
 	clients := map[string]*autorest.Client{
 		"azure.compute":   &env.compute.Client,
 		"azure.resources": &env.resources.Client,
@@ -629,7 +630,6 @@ func createVirtualMachine(
 	}
 
 	vmArgs := compute.VirtualMachine{
-		Name:     to.StringPtr(vmName),
 		Location: to.StringPtr(location),
 		Tags:     toTagsPtr(vmTags),
 		Properties: &compute.VirtualMachineProperties{
@@ -664,7 +664,6 @@ func createVirtualMachine(
 		_, err := vmExtensionClient.CreateOrUpdate(
 			resourceGroup, vmName, extensionName,
 			compute.VirtualMachineExtension{
-				Name:     to.StringPtr(extensionName),
 				Location: to.StringPtr(location),
 				Tags:     toTagsPtr(vmTags),
 				Properties: &compute.VirtualMachineExtensionProperties{
@@ -762,8 +761,6 @@ func createAvailabilitySet(
 	logger.Debugf("- creating availability set %q", availabilitySetName)
 	availabilitySet, err := client.CreateOrUpdate(
 		resourceGroup, availabilitySetName, compute.AvailabilitySet{
-			// TODO(axw) is Name necessary?
-			//Name:     to.StringPtr(availabilitySetName),
 			Location: to.StringPtr(location),
 			// NOTE(axw) we do *not* want to use vmTags here,
 			// because an availability set is shared by machines.

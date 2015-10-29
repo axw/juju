@@ -61,7 +61,6 @@ func (prov *azureEnvironProvider) RestrictedConfigAttributes() []string {
 		configAttrSubscriptionId,
 		configAttrTenantId,
 		configAttrClientKey,
-		configAttrLocation,
 	}
 }
 
@@ -106,6 +105,8 @@ func (prov *azureEnvironProvider) SecretAttrs(cfg *config.Config) (map[string]st
 // error will be returned, and the original error will be logged at debug
 // level.
 var verifyCredentials = func(e *azureEnviron) error {
-	// TODO(axw) verify credentials
-	return nil
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// TODO(axw) user-friendly error message
+	return e.config.token.EnsureFresh()
 }

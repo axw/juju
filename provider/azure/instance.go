@@ -145,10 +145,10 @@ func (inst *azureInstance) ClosePorts(machineId string, ports []jujunetwork.Port
 func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRange, err error) {
 	inst.env.mu.Lock()
 	nsgClient := network.SecurityGroupsClient{inst.env.network}
-	resourceGroup := inst.env.resourceGroup
 	inst.env.mu.Unlock()
 
-	nsg, err := nsgClient.Get(resourceGroup, internalSecurityGroupName)
+	securityGroupName := internalSecurityGroupName
+	nsg, err := nsgClient.Get(inst.env.resourceGroup, securityGroupName)
 	if err != nil {
 		return nil, errors.Annotate(err, "querying network security group")
 	}

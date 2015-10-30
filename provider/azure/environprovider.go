@@ -55,20 +55,34 @@ func (prov *azureEnvironProvider) Open(cfg *config.Config) (environs.Environ, er
 }
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.
+//
+// The result of RestrictedConfigAttributes is the names of attributes that
+// will be copied across to a hosted environment's initial configuration.
 func (prov *azureEnvironProvider) RestrictedConfigAttributes() []string {
-	restricted := append([]string{}, immutableConfigAttributes...)
-	restricted = append(restricted, internalConfigAttributes...)
-	return restricted
+	return []string{
+		configAttrSubscriptionId,
+		configAttrTenantId,
+		configAttrClientId,
+		configAttrClientKey,
+		configAttrLocation,
+		configAttrControllerResourceGroup,
+		configAttrStorageAccountType,
+	}
 }
 
 // PrepareForCreateEnvironment is specified in the EnvironProvider interface.
-func (p *azureEnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.Config, error) {
-	cfg, err := p.Validate(cfg, nil)
-	if err != nil {
-		return nil, errors.Annotate(err, "validating config")
+func (prov *azureEnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.Config, error) {
+	if _, ok := cfg.UUID(); !ok {
+		// TODO(axw) PrepareForCreateEnvironment is called twice; once before
+		// the UUID is set, and once after. It probably should just be called
+		// after?
+		return cfg, nil
 	}
-	// TODO(axw) assign a new subnet for the environment.
-	return cfg, nil
+	env, err := newEnviron(prov, cfg)
+	if err != nil {
+		return nil, errors.Annotate(err, "opening environment")
+	}
+	return env.initResourceGroup()
 }
 
 // PrepareForBootstrap is specified in the EnvironProvider interface.

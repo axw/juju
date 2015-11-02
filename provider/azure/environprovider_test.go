@@ -17,6 +17,7 @@ import (
 	envtesting "github.com/juju/juju/environs/testing"
 	"github.com/juju/juju/provider/azure"
 	"github.com/juju/juju/provider/azure/internal/azuretesting"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/testing"
 )
 
@@ -31,7 +32,7 @@ var _ = gc.Suite(&environProviderSuite{})
 
 func (s *environProviderSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.provider = newEnvironProvider(c, &s.sender, &s.requests)
+	s.provider, _ = newProviders(c, &s.sender, &s.requests)
 	s.sender = nil
 }
 
@@ -67,18 +68,20 @@ func (s *environProviderSuite) TestPrepareForBootstrap(c *gc.C) {
 	)
 }
 
-func newEnvironProvider(c *gc.C, sender autorest.Sender, requests *[]*http.Request) environs.EnvironProvider {
+func newProviders(
+	c *gc.C, sender autorest.Sender, requests *[]*http.Request,
+) (environs.EnvironProvider, storage.Provider) {
 	var requestInspector autorest.PrepareDecorator
 	if requests != nil {
 		requestInspector = requestRecorder(requests)
 	}
-	config := azure.EnvironProviderConfig{
+	config := azure.ProviderConfig{
 		Sender:           sender,
 		RequestInspector: requestInspector,
 	}
-	provider, err := azure.NewEnvironProvider(config)
+	environProvider, storageProvider, err := azure.NewProviders(config)
 	c.Assert(err, jc.ErrorIsNil)
-	return provider
+	return environProvider, storageProvider
 }
 
 func requestRecorder(requests *[]*http.Request) autorest.PrepareDecorator {

@@ -3,7 +3,14 @@
 
 package azure
 
-import "github.com/juju/juju/environs"
+import (
+	"github.com/juju/juju/environs"
+	"github.com/juju/juju/storage"
+)
+
+func ForceVolumeSourceTokenRefresh(vs storage.VolumeSource) error {
+	return ForceTokenRefresh(vs.(*azureVolumeSource).env)
+}
 
 func ForceTokenRefresh(env environs.Environ) error {
 	return env.(*azureEnviron).config.token.Refresh()

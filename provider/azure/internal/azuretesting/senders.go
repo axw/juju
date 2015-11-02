@@ -58,7 +58,8 @@ type Senders []autorest.Sender
 
 func (s *Senders) Do(req *http.Request) (*http.Response, error) {
 	if len(*s) == 0 {
-		return nil, fmt.Errorf("no sender for %q", req.URL)
+		response := mocks.NewResponseWithStatus("", http.StatusInternalServerError)
+		return response, fmt.Errorf("no sender for %q", req.URL)
 	}
 	sender := (*s)[0]
 	*s = (*s)[1:]

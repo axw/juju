@@ -15,8 +15,8 @@ import (
 // Logger for the Azure provider.
 var logger = loggo.GetLogger("juju.provider.azure")
 
-// EnvironProviderConfig contains configuration for the Azure provider.
-type EnvironProviderConfig struct {
+// ProviderConfig contains configuration for the Azure providers.
+type ProviderConfig struct {
 	// Sender is the autorest.Sender that will be used by Azure
 	// clients. If sender is nil, the default HTTP client sender
 	// will be used.
@@ -27,17 +27,17 @@ type EnvironProviderConfig struct {
 	RequestInspector autorest.PrepareDecorator
 }
 
-// Validate validates the Azure environ provider configuration.
-func (EnvironProviderConfig) Validate() error {
+// Validate validates the Azure provider configuration.
+func (ProviderConfig) Validate() error {
 	return nil
 }
 
 type azureEnvironProvider struct {
-	config EnvironProviderConfig
+	config ProviderConfig
 }
 
 // NewEnvironProvider returns a new EnvironProvider for Azure.
-func NewEnvironProvider(config EnvironProviderConfig) (*azureEnvironProvider, error) {
+func NewEnvironProvider(config ProviderConfig) (*azureEnvironProvider, error) {
 	if err := config.Validate(); err != nil {
 		return nil, errors.Annotate(err, "validating environ provider configuration")
 	}

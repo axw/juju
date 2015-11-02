@@ -17,6 +17,7 @@ const (
 	fakeClientId       = "00000000-0000-0000-0000-000000000000"
 	fakeTenantId       = "11111111-1111-1111-1111-111111111111"
 	fakeSubscriptionId = "22222222-2222-2222-2222-222222222222"
+	fakeStorageAccount = "mrblobby"
 )
 
 type configSuite struct {
@@ -29,7 +30,7 @@ var _ = gc.Suite(&configSuite{})
 
 func (s *configSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.provider = newEnvironProvider(c, mocks.NewSender(), nil)
+	s.provider, _ = newProviders(c, mocks.NewSender(), nil)
 }
 
 func (s *configSuite) TestValidateNew(c *gc.C) {

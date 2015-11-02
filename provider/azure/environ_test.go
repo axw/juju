@@ -59,7 +59,7 @@ var _ = gc.Suite(&environSuite{})
 
 func (s *environSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.provider = newEnvironProvider(c, &s.sender, &s.requests)
+	s.provider, _ = newProviders(c, &s.sender, &s.requests)
 	s.sender = nil
 
 	s.tags = map[string]*string{
@@ -81,7 +81,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		Type: to.StringPtr("Standard_LRS"),
 		Properties: &storage.AccountProperties{
 			PrimaryEndpoints: &storage.Endpoints{
-				Blob: to.StringPtr("https://mrblobby.blob.core.windows.net/"),
+				Blob: to.StringPtr(fmt.Sprintf("https://%s.blob.core.windows.net/", fakeStorageAccount)),
 			},
 		},
 	}
@@ -205,9 +205,10 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 					CreateOption: compute.FromImage,
 					Caching:      compute.ReadWrite,
 					Vhd: &compute.VirtualHardDisk{
-						URI: to.StringPtr(
-							"https://mrblobby.blob.core.windows.net/osvhds/machine-1.vhd",
-						),
+						URI: to.StringPtr(fmt.Sprintf(
+							"https://%s.blob.core.windows.net/osvhds/machine-1.vhd",
+							fakeStorageAccount,
+						)),
 					},
 				},
 			},
@@ -234,7 +235,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 func (s *environSuite) openEnviron(c *gc.C, attrs ...testing.Attrs) environs.Environ {
 	// Opening the environment should not incur network communication,
 	// so we don't set s.sender until after opening.
-	attrs = append([]testing.Attrs{{"storage-account": "mrblobby"}}, attrs...)
+	attrs = append([]testing.Attrs{{"storage-account": fakeStorageAccount}}, attrs...)
 	cfg := makeTestEnvironConfig(c, attrs...)
 	env, err := s.provider.Open(cfg)
 	c.Assert(err, jc.ErrorIsNil)

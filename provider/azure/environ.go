@@ -375,7 +375,7 @@ func (env *azureEnviron) StateServerInstances() ([]instance.Id, error) {
 	// State servers are tagged with tags.JujuStateServer, so just
 	// list the instances in the controller resource group and pick
 	// those ones out.
-	instances, err := env.allInstances(env.controllerResourceGroup)
+	instances, err := env.allInstances(env.controllerResourceGroup, true)
 	if err != nil {
 		return nil, err
 	}
@@ -861,16 +861,15 @@ func newStorageProfile(
 	sku := urnParts[2]
 	version := urnParts[3]
 
-	// TODO(axw) create a helper for this, and set the right name for China locations.
-	vhdsRoot := fmt.Sprintf("https://%s.blob.core.windows.net/vhds/", storageAccountName)
-	osDiskName := vmName + "-osdisk"
+	osDisksRoot := osDiskVhdRoot(storageAccountName)
+	osDiskName := vmName
 	osDisk := &compute.OSDisk{
 		Name:         to.StringPtr(osDiskName),
 		CreateOption: compute.FromImage,
 		Caching:      compute.ReadWrite,
 		Vhd: &compute.VirtualHardDisk{
 			URI: to.StringPtr(
-				vhdsRoot + osDiskName + ".vhd",
+				osDisksRoot + osDiskName + ".vhd",
 			),
 		},
 	}
@@ -883,6 +882,18 @@ func newStorageProfile(
 		},
 		OsDisk: osDisk,
 	}, nil
+}
+
+func osDiskVhdRoot(storageAccountName string) string {
+	// TODO(axw) this needs to take into account the location,
+	// because China locations use a different hostname.
+	return fmt.Sprintf("https://%s.blob.core.windows.net/osvhds/", storageAccountName)
+}
+
+func dataDiskVhdRoot(storageAccountName string) string {
+	// TODO(axw) this needs to take into account the location,
+	// because China locations use a different hostname.
+	return fmt.Sprintf("https://%s.blob.core.windows.net/datavhds/", storageAccountName)
 }
 
 func newOSProfile(vmName string, instanceConfig *instancecfg.InstanceConfig) (*compute.OSProfile, error) {
@@ -1067,8 +1078,9 @@ func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 
 func (env *azureEnviron) destroyVirtualMachine(vmName string) error {
 	// TODO(axw) delete associated resources, e.g. NICs, network
-	// security rules. This must be done before deleting machine,
-	// or we'll leak resources.
+	// security rules, OS disk blobs. This must be done before
+	// deleting the machine, or we'll leak resources. Probably
+	// have to deallocate the machine first.
 	vmClient := compute.VirtualMachinesClient{env.compute}
 	result, err := vmClient.Delete(env.resourceGroup, vmName)
 	if err != nil && result.StatusCode != http.StatusNotFound {
@@ -1079,11 +1091,19 @@ func (env *azureEnviron) destroyVirtualMachine(vmName string) error {
 
 // Instances is specified in the Environ interface.
 func (env *azureEnviron) Instances(ids []instance.Id) ([]instance.Instance, error) {
+	return env.instances(env.resourceGroup, ids, true /* refresh addresses */)
+}
+
+func (env *azureEnviron) instances(
+	resourceGroup string,
+	ids []instance.Id,
+	refreshAddresses bool,
+) ([]instance.Instance, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
 	// TODO(axw) optimise the len(1) case.
-	all, err := env.AllInstances()
+	all, err := env.allInstances(resourceGroup, refreshAddresses)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1111,11 +1131,15 @@ func (env *azureEnviron) Instances(ids []instance.Id) ([]instance.Instance, erro
 
 // AllInstances is specified in the InstanceBroker interface.
 func (env *azureEnviron) AllInstances() ([]instance.Instance, error) {
-	return env.allInstances(env.resourceGroup)
+	return env.allInstances(env.resourceGroup, true /* refresh addresses */)
 }
 
-// allInstances returns all of the instances in the given resource group.
-func (env *azureEnviron) allInstances(resourceGroup string) ([]instance.Instance, error) {
+// allInstances returns all of the instances in the given resource group,
+// and optionally ensures that each instance's addresses are up-to-date.
+func (env *azureEnviron) allInstances(
+	resourceGroup string,
+	refreshAddresses bool,
+) ([]instance.Instance, error) {
 	env.mu.Lock()
 	vmClient := compute.VirtualMachinesClient{env.compute}
 	env.mu.Unlock()
@@ -1135,8 +1159,10 @@ func (env *azureEnviron) allInstances(resourceGroup string) ([]instance.Instance
 	instances := make([]instance.Instance, len(*result.Value))
 	for i, vm := range *result.Value {
 		inst := &azureInstance{vm, nil, nil, env}
-		if err := inst.refreshAddresses(); err != nil {
-			return nil, errors.Trace(err)
+		if refreshAddresses {
+			if err := inst.refreshAddresses(); err != nil {
+				return nil, errors.Trace(err)
+			}
 		}
 		instances[i] = inst
 	}

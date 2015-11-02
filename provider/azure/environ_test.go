@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"path"
+	"reflect"
 	"time"
 
 	autorestazure "github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/azure"
@@ -79,7 +81,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		Type: to.StringPtr("Standard_LRS"),
 		Properties: &storage.AccountProperties{
 			PrimaryEndpoints: &storage.Endpoints{
-				Blob: to.StringPtr("http://mrblobby.example.com/"),
+				Blob: to.StringPtr("https://mrblobby.blob.core.windows.net/"),
 			},
 		},
 	}
@@ -134,6 +136,14 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		Value: &oldNetworkInterfaces,
 	}
 
+	// nsgID is the name of the internal network security group. This NSG
+	// is created when the environment is created.
+	nsgID := path.Join(
+		"/subscriptions", fakeSubscriptionId,
+		"resourceGroups", "juju-testenv-environment-"+testing.EnvironmentTag.Id(),
+		"providers/Microsoft.Network/networkSecurityGroups/juju-internal",
+	)
+
 	// The newly created IP/NIC.
 	newIPConfigurations := []network.InterfaceIPConfiguration{{
 		ID:   to.StringPtr("ip-configuration-1-id"),
@@ -151,7 +161,8 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 		Location: to.StringPtr("westus"),
 		Tags:     &s.tags,
 		Properties: &network.InterfacePropertiesFormat{
-			IPConfigurations: &newIPConfigurations,
+			IPConfigurations:     &newIPConfigurations,
+			NetworkSecurityGroup: &network.SubResource{to.StringPtr(nsgID)},
 		},
 	}
 
@@ -190,12 +201,12 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 					Version:   to.StringPtr("latest"),
 				},
 				OsDisk: &compute.OSDisk{
-					Name:         to.StringPtr("machine-1-osdisk"),
+					Name:         to.StringPtr("machine-1"),
 					CreateOption: compute.FromImage,
 					Caching:      compute.ReadWrite,
 					Vhd: &compute.VirtualHardDisk{
 						URI: to.StringPtr(
-							"http://mrblobby.example.com/vhds/machine-1-osdisk.vhd",
+							"https://mrblobby.blob.core.windows.net/osvhds/machine-1.vhd",
 						),
 					},
 				},
@@ -223,6 +234,7 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 func (s *environSuite) openEnviron(c *gc.C, attrs ...testing.Attrs) environs.Environ {
 	// Opening the environment should not incur network communication,
 	// so we don't set s.sender until after opening.
+	attrs = append([]testing.Attrs{{"storage-account": "mrblobby"}}, attrs...)
 	cfg := makeTestEnvironConfig(c, attrs...)
 	env, err := s.provider.Open(cfg)
 	c.Assert(err, jc.ErrorIsNil)
@@ -253,7 +265,7 @@ func (s *environSuite) startInstanceSenders() azuretesting.Senders {
 	}
 	return azuretesting.Senders{
 		sender(".*/vmSizes", s.vmSizes),
-		sender(".*/storageAccounts", s.storageAccount),
+		//sender(".*/storageAccounts", s.storageAccount),
 		sender(".*/subnets/juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d", s.subnet),
 		sender(".*/Canonical/.*/UbuntuServer/skus", s.ubuntuServerSKUs),
 		sender(".*/publicIPAddresses/machine-1-public-ip", s.publicIPAddress),
@@ -314,17 +326,9 @@ func unmarshalRequestBody(c *gc.C, req *http.Request, out interface{}) {
 }
 
 func assertRequestBody(c *gc.C, req *http.Request, expect interface{}) {
-	m := make(map[string]interface{})
-	expectM, ok := expect.(map[string]interface{})
-	if !ok {
-		bytes, err := json.Marshal(expect)
-		c.Assert(err, jc.ErrorIsNil)
-		expectM = make(map[string]interface{})
-		err = json.Unmarshal(bytes, &expectM)
-		c.Assert(err, jc.ErrorIsNil)
-	}
-	unmarshalRequestBody(c, req, &m)
-	c.Assert(m, jc.DeepEquals, expectM)
+	unmarshalled := reflect.New(reflect.TypeOf(expect).Elem()).Interface()
+	unmarshalRequestBody(c, req, unmarshalled)
+	c.Assert(unmarshalled, jc.DeepEquals, expect)
 }
 
 func (s *environSuite) TestOpen(c *gc.C) {
@@ -393,24 +397,23 @@ func (s *environSuite) TestStartInstance(c *gc.C) {
 	s.virtualMachine.Properties.ProvisioningState = nil
 
 	// Validate HTTP request bodies.
-	c.Assert(s.requests, gc.HasLen, 9)
+	c.Assert(s.requests, gc.HasLen, 8)
 	c.Assert(s.requests[0].Method, gc.Equals, "GET") // vmSizes
-	c.Assert(s.requests[1].Method, gc.Equals, "GET") // storageAccounts
-	c.Assert(s.requests[2].Method, gc.Equals, "GET") // juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d
-	c.Assert(s.requests[3].Method, gc.Equals, "GET") // skus
-	c.Assert(s.requests[4].Method, gc.Equals, "PUT")
-	assertRequestBody(c, s.requests[4], s.publicIPAddress)
-	c.Assert(s.requests[5].Method, gc.Equals, "GET") // NICs
+	c.Assert(s.requests[1].Method, gc.Equals, "GET") // juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d
+	c.Assert(s.requests[2].Method, gc.Equals, "GET") // skus
+	c.Assert(s.requests[3].Method, gc.Equals, "PUT")
+	assertRequestBody(c, s.requests[3], s.publicIPAddress)
+	c.Assert(s.requests[4].Method, gc.Equals, "GET") // NICs
+	c.Assert(s.requests[5].Method, gc.Equals, "PUT")
+	assertRequestBody(c, s.requests[5], s.newNetworkInterface)
 	c.Assert(s.requests[6].Method, gc.Equals, "PUT")
-	assertRequestBody(c, s.requests[6], s.newNetworkInterface)
+	assertRequestBody(c, s.requests[6], s.jujuAvailabilitySet)
 	c.Assert(s.requests[7].Method, gc.Equals, "PUT")
-	assertRequestBody(c, s.requests[7], s.jujuAvailabilitySet)
-	c.Assert(s.requests[8].Method, gc.Equals, "PUT")
 
 	// CustomData is non-deterministic, so don't compare it.
 	// TODO(axw) shouldn't CustomData be deterministic? Look into this.
 	var virtualMachine compute.VirtualMachine
-	unmarshalRequestBody(c, s.requests[8], &virtualMachine)
+	unmarshalRequestBody(c, s.requests[7], &virtualMachine)
 	c.Assert(to.String(virtualMachine.Properties.OsProfile.CustomData), gc.Not(gc.HasLen), 0)
 	virtualMachine.Properties.OsProfile.CustomData = to.StringPtr("<juju-goes-here>")
 	c.Assert(&virtualMachine, jc.DeepEquals, s.virtualMachine)
@@ -422,7 +425,7 @@ func (s *environSuite) TestAllInstancesResourceGroupNotFound(c *gc.C) {
 	sender.EmitStatus("resource group not found", http.StatusNotFound)
 	s.sender = azuretesting.Senders{sender}
 	_, err := env.AllInstances()
-	c.Assert(err, gc.Equals, environs.ErrNoInstances)
+	c.Assert(err, jc.ErrorIsNil)
 }
 
 func (s *environSuite) TestStopInstancesNotFound(c *gc.C) {

@@ -37,7 +37,7 @@ type azureEnvironProvider struct {
 }
 
 // NewEnvironProvider returns a new EnvironProvider for Azure.
-func NewEnvironProvider(config EnvironProviderConfig) (environs.EnvironProvider, error) {
+func NewEnvironProvider(config EnvironProviderConfig) (*azureEnvironProvider, error) {
 	if err := config.Validate(); err != nil {
 		return nil, errors.Annotate(err, "validating environ provider configuration")
 	}

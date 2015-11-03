@@ -133,16 +133,18 @@ func (v *azureVolumeSource) CreateVolumes(params []storage.VolumeParams) (_ []st
 		if results[i].Error != nil {
 			continue
 		}
-		vm := virtualMachines[p.Attachment.InstanceId]
+		vm, ok := virtualMachines[p.Attachment.InstanceId]
+		if !ok {
+			continue
+		}
 		if vm.err != nil {
 			results[i].Error = vm.err
 			continue
 		}
 		volume, volumeAttachment, err := v.createVolume(vm.vm, p)
 		if err != nil {
-			// forget the VM so we don't try to update it later.
-			delete(virtualMachines, p.Attachment.InstanceId)
 			results[i].Error = err
+			vm.err = err
 			continue
 		}
 		results[i].Volume = volume
@@ -320,7 +322,6 @@ func (v *azureVolumeSource) ValidateVolumeParams(params storage.VolumeParams) er
 
 // AttachVolumes is specified on the storage.VolumeSource interface.
 func (v *azureVolumeSource) AttachVolumes(attachParams []storage.VolumeAttachmentParams) ([]storage.AttachVolumesResult, error) {
-
 	results := make([]storage.AttachVolumesResult, len(attachParams))
 	instanceIds := make([]instance.Id, len(attachParams))
 	for i, p := range attachParams {
@@ -342,19 +343,18 @@ func (v *azureVolumeSource) AttachVolumes(attachParams []storage.VolumeAttachmen
 	// of which VMs need updating.
 	changed := make(map[instance.Id]bool, len(virtualMachines))
 	for i, p := range attachParams {
-		if results[i].Error != nil {
+		vm, ok := virtualMachines[p.InstanceId]
+		if !ok {
 			continue
 		}
-		vm := virtualMachines[p.InstanceId]
 		if vm.err != nil {
 			results[i].Error = vm.err
 			continue
 		}
 		volumeAttachment, updated, err := v.attachVolume(vm.vm, p)
 		if err != nil {
-			// forget the VM so we don't try to update it later.
-			delete(virtualMachines, p.InstanceId)
 			results[i].Error = err
+			vm.err = err
 			continue
 		}
 		results[i].VolumeAttachment = volumeAttachment
@@ -421,7 +421,7 @@ func (v *azureVolumeSource) attachVolume(
 	//sizeInGib := mibToGib(p.Size)
 	dataDisk := compute.DataDisk{
 		Lun: to.IntPtr(lun),
-		// TODO(axw)
+		// TODO(axw) confirm this isn't needed when attaching
 		//DiskSizeGB:   to.IntPtr(int(sizeInGib)),
 		Name:         to.StringPtr(dataDiskName),
 		Vhd:          &compute.VirtualHardDisk{to.StringPtr(vhdURI)},
@@ -443,8 +443,87 @@ func (v *azureVolumeSource) attachVolume(
 
 // DetachVolumes is specified on the storage.VolumeSource interface.
 func (v *azureVolumeSource) DetachVolumes(attachParams []storage.VolumeAttachmentParams) ([]error, error) {
-	// We don't currently support persistent volumes.
-	return nil, errors.NotSupportedf("detaching volumes")
+	results := make([]error, len(attachParams))
+	instanceIds := make([]instance.Id, len(attachParams))
+	for i, p := range attachParams {
+		instanceIds[i] = p.InstanceId
+	}
+	if len(instanceIds) == 0 {
+		return results, nil
+	}
+	virtualMachines, err := v.virtualMachines(instanceIds)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting virtual machines")
+	}
+
+	// Update VirtualMachine objects in-memory,
+	// and then perform the updates all at once.
+	//
+	// An detachment does not require an update
+	// if the disk isn't attached, so we keep a
+	// record of which VMs need updating.
+	changed := make(map[instance.Id]bool, len(virtualMachines))
+	for i, p := range attachParams {
+		vm, ok := virtualMachines[p.InstanceId]
+		if !ok {
+			continue
+		}
+		if vm.err != nil {
+			results[i] = vm.err
+			continue
+		}
+		if v.detachVolume(vm.vm, p) {
+			changed[p.InstanceId] = true
+		}
+	}
+	for _, instanceId := range instanceIds {
+		if !changed[instanceId] {
+			delete(virtualMachines, instanceId)
+		}
+	}
+
+	updateResults, err := v.updateVirtualMachines(virtualMachines, instanceIds)
+	if err != nil {
+		return nil, errors.Annotate(err, "updating virtual machines")
+	}
+	for i, err := range updateResults {
+		if results[i] != nil || err == nil {
+			continue
+		}
+		results[i] = err
+	}
+	return results, nil
+}
+
+func (v *azureVolumeSource) detachVolume(
+	vm *compute.VirtualMachine,
+	p storage.VolumeAttachmentParams,
+) (updated bool) {
+
+	dataDisksRoot := dataDiskVhdRoot(v.env.config.location, v.env.config.storageAccount)
+	dataDiskName := p.VolumeId
+	vhdURI := dataDisksRoot + dataDiskName + vhdExtension
+
+	var dataDisks []compute.DataDisk
+	if vm.Properties.StorageProfile.DataDisks != nil {
+		dataDisks = *vm.Properties.StorageProfile.DataDisks
+	}
+	for i, disk := range dataDisks {
+		if to.String(disk.Name) != p.VolumeId {
+			continue
+		}
+		if to.String(disk.Vhd.URI) != vhdURI {
+			continue
+		}
+		dataDisks = append(dataDisks[:i], dataDisks[i+1:]...)
+		if len(dataDisks) == 0 {
+			vm.Properties.StorageProfile.DataDisks = nil
+		} else {
+			*vm.Properties.StorageProfile.DataDisks = dataDisks
+		}
+		return true
+	}
+	return false
 }
 
 type maybeVirtualMachine struct {

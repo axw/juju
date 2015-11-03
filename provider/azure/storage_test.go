@@ -424,3 +424,100 @@ func (s *storageSuite) TestAttachVolumes(c *gc.C) {
 	virtualMachines[0].Properties.StorageProfile.DataDisks = &machine0DataDisks
 	assertRequestBody(c, s.requests[1], &virtualMachines[0])
 }
+
+func (s *storageSuite) TestDetachVolumes(c *gc.C) {
+	// machine-0 has a three data disks: volume-0, volume-1 and volume-2
+	machine0DataDisks := []compute.DataDisk{{
+		Lun:  to.IntPtr(0),
+		Name: to.StringPtr("volume-0"),
+		Vhd: &compute.VirtualHardDisk{
+			URI: to.StringPtr(fmt.Sprintf(
+				"https://%s.blob.core.windows.net/datavhds/volume-0.vhd",
+				fakeStorageAccount,
+			)),
+		},
+	}, {
+		Lun:  to.IntPtr(1),
+		Name: to.StringPtr("volume-1"),
+		Vhd: &compute.VirtualHardDisk{
+			URI: to.StringPtr(fmt.Sprintf(
+				"https://%s.blob.core.windows.net/datavhds/volume-1.vhd",
+				fakeStorageAccount,
+			)),
+		},
+	}, {
+		Lun:  to.IntPtr(2),
+		Name: to.StringPtr("volume-2"),
+		Vhd: &compute.VirtualHardDisk{
+			URI: to.StringPtr(fmt.Sprintf(
+				"https://%s.blob.core.windows.net/datavhds/volume-2.vhd",
+				fakeStorageAccount,
+			)),
+		},
+	}}
+
+	makeParams := func(volume, machine string) storage.VolumeAttachmentParams {
+		return storage.VolumeAttachmentParams{
+			AttachmentParams: storage.AttachmentParams{
+				Provider:   "azure",
+				Machine:    names.NewMachineTag(machine),
+				InstanceId: instance.Id("machine-" + machine),
+			},
+			Volume:   names.NewVolumeTag(volume),
+			VolumeId: "volume-" + volume,
+		}
+	}
+	params := []storage.VolumeAttachmentParams{
+		makeParams("1", "0"),
+		makeParams("1", "0"),
+		makeParams("42", "1"),
+		makeParams("2", "42"),
+	}
+
+	virtualMachines := []compute.VirtualMachine{{
+		Name: to.StringPtr("machine-0"),
+		Properties: &compute.VirtualMachineProperties{
+			StorageProfile: &compute.StorageProfile{DataDisks: &machine0DataDisks},
+		},
+	}, {
+		Name: to.StringPtr("machine-1"),
+		Properties: &compute.VirtualMachineProperties{
+			StorageProfile: &compute.StorageProfile{},
+		},
+	}}
+
+	// There should be a single instance listing API call,
+	// and one update per modified instance.
+	virtualMachinesSender := azuretesting.NewSenderWithValue(compute.VirtualMachineListResult{
+		Value: &virtualMachines,
+	})
+	virtualMachinesSender.PathPattern = `.*/Microsoft\.Compute/virtualMachines`
+	updateVirtualMachine0Sender := azuretesting.NewSenderWithValue(&compute.VirtualMachine{})
+	updateVirtualMachine0Sender.PathPattern = `.*/Microsoft\.Compute/virtualMachines/machine-0`
+	volumeSource := s.volumeSource(c)
+	s.sender = azuretesting.Senders{
+		virtualMachinesSender,
+		updateVirtualMachine0Sender,
+	}
+
+	results, err := volumeSource.DetachVolumes(params)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(results, gc.HasLen, len(params))
+
+	c.Check(results[0], jc.ErrorIsNil)
+	c.Check(results[1], jc.ErrorIsNil)
+	c.Check(results[2], jc.ErrorIsNil)
+	c.Check(results[3], gc.ErrorMatches, "instance machine-42 not found")
+
+	// Validate HTTP request bodies.
+	c.Assert(s.requests, gc.HasLen, 2)
+	c.Assert(s.requests[0].Method, gc.Equals, "GET") // list virtual machines
+	c.Assert(s.requests[1].Method, gc.Equals, "PUT") // update machine-0
+
+	machine0DataDisks = []compute.DataDisk{
+		machine0DataDisks[0],
+		machine0DataDisks[2],
+	}
+	virtualMachines[0].Properties.StorageProfile.DataDisks = &machine0DataDisks
+	assertRequestBody(c, s.requests[1], &virtualMachines[0])
+}

@@ -39,9 +39,10 @@ import (
 type environSuite struct {
 	testing.BaseSuite
 
-	provider environs.EnvironProvider
-	requests []*http.Request
-	sender   azuretesting.Senders
+	storageClient azuretesting.MockStorageClient
+	provider      environs.EnvironProvider
+	requests      []*http.Request
+	sender        azuretesting.Senders
 
 	tags                 map[string]*string
 	vmSizes              *compute.VirtualMachineSizeListResult
@@ -59,7 +60,8 @@ var _ = gc.Suite(&environSuite{})
 
 func (s *environSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.provider, _ = newProviders(c, &s.sender, &s.requests)
+	s.storageClient = azuretesting.MockStorageClient{}
+	s.provider, _ = newProviders(c, &s.sender, s.storageClient.NewClient, &s.requests)
 	s.sender = nil
 
 	s.tags = map[string]*string{

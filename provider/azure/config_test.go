@@ -10,27 +10,31 @@ import (
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
+	"github.com/juju/juju/provider/azure/internal/azuretesting"
 	"github.com/juju/juju/testing"
 )
 
 const (
-	fakeClientId       = "00000000-0000-0000-0000-000000000000"
-	fakeTenantId       = "11111111-1111-1111-1111-111111111111"
-	fakeSubscriptionId = "22222222-2222-2222-2222-222222222222"
-	fakeStorageAccount = "mrblobby"
+	fakeClientId          = "00000000-0000-0000-0000-000000000000"
+	fakeTenantId          = "11111111-1111-1111-1111-111111111111"
+	fakeSubscriptionId    = "22222222-2222-2222-2222-222222222222"
+	fakeStorageAccount    = "mrblobby"
+	fakeStorageAccountKey = "quay"
 )
 
 type configSuite struct {
 	testing.BaseSuite
 
-	provider environs.EnvironProvider
+	storageClient azuretesting.MockStorageClient
+	provider      environs.EnvironProvider
 }
 
 var _ = gc.Suite(&configSuite{})
 
 func (s *configSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.provider, _ = newProviders(c, mocks.NewSender(), nil)
+	s.storageClient = azuretesting.MockStorageClient{}
+	s.provider, _ = newProviders(c, mocks.NewSender(), s.storageClient.NewClient, nil)
 }
 
 func (s *configSuite) TestValidateNew(c *gc.C) {

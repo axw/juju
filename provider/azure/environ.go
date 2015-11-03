@@ -17,6 +17,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/arm/network"
 	"github.com/Azure/azure-sdk-for-go/arm/resources"
 	"github.com/Azure/azure-sdk-for-go/arm/storage"
+	azurestorage "github.com/Azure/azure-sdk-for-go/storage"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
@@ -35,6 +36,7 @@ import (
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/instance"
 	jujunetwork "github.com/juju/juju/network"
+	internalazurestorage "github.com/juju/juju/provider/azure/internal/azurestorage"
 	"github.com/juju/juju/provider/azure/internal/azureutils"
 	"github.com/juju/juju/provider/common"
 	"github.com/juju/juju/state"
@@ -100,10 +102,11 @@ type azureEnviron struct {
 	config        *azureEnvironConfig
 	instanceTypes map[string]instances.InstanceType
 	// azure management clients
-	compute   compute.ManagementClient
-	resources resources.ManagementClient
-	storage   storage.ManagementClient
-	network   network.ManagementClient
+	compute       compute.ManagementClient
+	resources     resources.ManagementClient
+	storage       storage.ManagementClient
+	network       network.ManagementClient
+	storageClient azurestorage.Client
 }
 
 var _ environs.Environ = (*azureEnviron)(nil)
@@ -666,7 +669,7 @@ func createVirtualMachine(
 
 	storageProfile, err := newStorageProfile(
 		vmName, instanceConfig.Series,
-		instanceSpec, storageAccountName,
+		instanceSpec, location, storageAccountName,
 	)
 	if err != nil {
 		return compute.VirtualMachine{}, errors.Annotate(err, "creating storage profile")
@@ -848,7 +851,7 @@ func newStorageProfile(
 	vmName string,
 	series string,
 	instanceSpec *instances.InstanceSpec,
-	storageAccountName string,
+	location, storageAccountName string,
 ) (*compute.StorageProfile, error) {
 	logger.Debugf("creating storage profile for %q", vmName)
 
@@ -861,7 +864,7 @@ func newStorageProfile(
 	sku := urnParts[2]
 	version := urnParts[3]
 
-	osDisksRoot := osDiskVhdRoot(storageAccountName)
+	osDisksRoot := osDiskVhdRoot(location, storageAccountName)
 	osDiskName := vmName
 	osDisk := &compute.OSDisk{
 		Name:         to.StringPtr(osDiskName),
@@ -882,18 +885,6 @@ func newStorageProfile(
 		},
 		OsDisk: osDisk,
 	}, nil
-}
-
-func osDiskVhdRoot(storageAccountName string) string {
-	// TODO(axw) this needs to take into account the location,
-	// because China locations use a different hostname.
-	return fmt.Sprintf("https://%s.blob.core.windows.net/osvhds/", storageAccountName)
-}
-
-func dataDiskVhdRoot(storageAccountName string) string {
-	// TODO(axw) this needs to take into account the location,
-	// because China locations use a different hostname.
-	return fmt.Sprintf("https://%s.blob.core.windows.net/datavhds/", storageAccountName)
 }
 
 func newOSProfile(vmName string, instanceConfig *instancecfg.InstanceConfig) (*compute.OSProfile, error) {
@@ -1373,4 +1364,16 @@ func nextSubnetIPAddress(
 		return "", errors.Trace(err)
 	}
 	return ip.String(), nil
+}
+
+// getStorageClient queries the storage account key, and uses it to construct
+// a new storage client.
+func (env *azureEnviron) getStorageClient() (internalazurestorage.Client, error) {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	client, err := getStorageClient(env.provider.config.NewStorageClient, env.config)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting storage client")
+	}
+	return client, nil
 }

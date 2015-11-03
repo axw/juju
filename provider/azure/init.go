@@ -5,7 +5,9 @@ package azure
 
 import (
 	"github.com/juju/errors"
+
 	"github.com/juju/juju/environs"
+	"github.com/juju/juju/provider/azure/internal/azurestorage"
 	"github.com/juju/juju/storage"
 	"github.com/juju/juju/storage/provider/registry"
 )
@@ -26,7 +28,9 @@ func NewProviders(config ProviderConfig) (environs.EnvironProvider, storage.Prov
 }
 
 func init() {
-	environProvider, storageProvider, err := NewProviders(ProviderConfig{})
+	environProvider, storageProvider, err := NewProviders(ProviderConfig{
+		NewStorageClient: azurestorage.NewClient,
+	})
 	if err != nil {
 		panic(err)
 	}

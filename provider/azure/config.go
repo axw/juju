@@ -31,6 +31,10 @@ const (
 	// has an associated public DNS entry.
 	configAttrStorageAccount = "storage-account"
 
+	// configAttrStorageAccountKey is the primary key for the storage
+	// account.
+	configAttrStorageAccountKey = "storage-account-key"
+
 	// configAttrControllerResourceGroup is the resource group
 	// corresponding to the controller environment. Each environment needs
 	// to know this because some resources are shared, and live in the
@@ -45,12 +49,14 @@ var configFields = schema.Fields{
 	configAttrTenantId:                schema.String(),
 	configAttrClientKey:               schema.String(),
 	configAttrStorageAccount:          schema.String(),
+	configAttrStorageAccountKey:       schema.String(),
 	configAttrStorageAccountType:      schema.String(),
 	configAttrControllerResourceGroup: schema.String(),
 }
 
 var configDefaults = schema.Defaults{
 	configAttrStorageAccount:          schema.Omit,
+	configAttrStorageAccountKey:       schema.Omit,
 	configAttrControllerResourceGroup: schema.Omit,
 	configAttrStorageAccountType:      string(storage.StandardLRS),
 }
@@ -74,6 +80,7 @@ var immutableConfigAttributes = []string{
 
 var internalConfigAttributes = []string{
 	configAttrStorageAccount,
+	configAttrStorageAccountKey,
 	configAttrControllerResourceGroup,
 }
 
@@ -83,6 +90,7 @@ type azureEnvironConfig struct {
 	subscriptionId          string
 	location                string // canonicalized
 	storageAccount          string
+	storageAccountKey       string
 	storageAccountType      storage.AccountType
 	controllerResourceGroup string
 }
@@ -158,6 +166,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 	tenantId := validated[configAttrTenantId].(string)
 	clientKey := validated[configAttrClientKey].(string)
 	storageAccount, _ := validated[configAttrStorageAccount].(string)
+	storageAccountKey, _ := validated[configAttrStorageAccountKey].(string)
 	storageAccountType := validated[configAttrStorageAccountType].(string)
 	controllerResourceGroup := validated[configAttrControllerResourceGroup].(string)
 
@@ -189,6 +198,7 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		subscriptionId,
 		location,
 		storageAccount,
+		storageAccountKey,
 		storage.AccountType(storageAccountType),
 		controllerResourceGroup,
 	}

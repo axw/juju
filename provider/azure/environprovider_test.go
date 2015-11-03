@@ -16,6 +16,7 @@ import (
 	"github.com/juju/juju/environs"
 	envtesting "github.com/juju/juju/environs/testing"
 	"github.com/juju/juju/provider/azure"
+	"github.com/juju/juju/provider/azure/internal/azurestorage"
 	"github.com/juju/juju/provider/azure/internal/azuretesting"
 	"github.com/juju/juju/storage"
 	"github.com/juju/juju/testing"
@@ -23,16 +24,18 @@ import (
 
 type environProviderSuite struct {
 	testing.BaseSuite
-	provider environs.EnvironProvider
-	requests []*http.Request
-	sender   azuretesting.Senders
+	storageClient azuretesting.MockStorageClient
+	provider      environs.EnvironProvider
+	requests      []*http.Request
+	sender        azuretesting.Senders
 }
 
 var _ = gc.Suite(&environProviderSuite{})
 
 func (s *environProviderSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.provider, _ = newProviders(c, &s.sender, &s.requests)
+	s.storageClient = azuretesting.MockStorageClient{}
+	s.provider, _ = newProviders(c, &s.sender, s.storageClient.NewClient, &s.requests)
 	s.sender = nil
 }
 
@@ -69,7 +72,9 @@ func (s *environProviderSuite) TestPrepareForBootstrap(c *gc.C) {
 }
 
 func newProviders(
-	c *gc.C, sender autorest.Sender, requests *[]*http.Request,
+	c *gc.C, sender autorest.Sender,
+	newStorageClient azurestorage.NewClientFunc,
+	requests *[]*http.Request,
 ) (environs.EnvironProvider, storage.Provider) {
 	var requestInspector autorest.PrepareDecorator
 	if requests != nil {
@@ -78,6 +83,7 @@ func newProviders(
 	config := azure.ProviderConfig{
 		Sender:           sender,
 		RequestInspector: requestInspector,
+		NewStorageClient: newStorageClient,
 	}
 	environProvider, storageProvider, err := azure.NewProviders(config)
 	c.Assert(err, jc.ErrorIsNil)

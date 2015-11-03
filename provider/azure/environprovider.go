@@ -10,6 +10,7 @@ import (
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
+	"github.com/juju/juju/provider/azure/internal/azurestorage"
 )
 
 // Logger for the Azure provider.
@@ -25,10 +26,17 @@ type ProviderConfig struct {
 	// RequestInspector will be used to inspect Azure requests
 	// if it is non-nil.
 	RequestInspector autorest.PrepareDecorator
+
+	// NewStorageClient will be used to construct new storage
+	// clients.
+	NewStorageClient azurestorage.NewClientFunc
 }
 
 // Validate validates the Azure provider configuration.
-func (ProviderConfig) Validate() error {
+func (cfg ProviderConfig) Validate() error {
+	if cfg.NewStorageClient == nil {
+		return errors.NotValidf("nil NewStorageClient")
+	}
 	return nil
 }
 
@@ -124,8 +132,10 @@ func (prov *azureEnvironProvider) BoilerplateConfig() string {
 
 // SecretAttrs is specified in the EnvironProvider interface.
 func (prov *azureEnvironProvider) SecretAttrs(cfg *config.Config) (map[string]string, error) {
+	unknownAttrs := cfg.UnknownAttrs()
 	secretAttrs := map[string]string{
-		configAttrClientKey: cfg.UnknownAttrs()[configAttrClientKey].(string),
+		configAttrClientKey:         unknownAttrs[configAttrClientKey].(string),
+		configAttrStorageAccountKey: unknownAttrs[configAttrStorageAccountKey].(string),
 	}
 	return secretAttrs, nil
 }

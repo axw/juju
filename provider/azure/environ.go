@@ -150,7 +150,7 @@ func (env *azureEnviron) initResourceGroup() (*config.Config, error) {
 
 	// Create a storage account for the resource group.
 	storageAccountsClient := storage.AccountsClient{env.storage}
-	storageAccountName, err := createStorageAccount(
+	storageAccountName, storageAccountKey, err := createStorageAccount(
 		storageAccountsClient, env.config.storageAccountType,
 		env.resourceGroup, location, tags,
 	)
@@ -158,7 +158,8 @@ func (env *azureEnviron) initResourceGroup() (*config.Config, error) {
 		return nil, errors.Annotate(err, "creating storage account")
 	}
 	return env.config.Config.Apply(map[string]interface{}{
-		configAttrStorageAccount: storageAccountName,
+		configAttrStorageAccount:    storageAccountName,
+		configAttrStorageAccountKey: storageAccountKey,
 	})
 }
 
@@ -168,7 +169,7 @@ func createStorageAccount(
 	resourceGroup string,
 	location string,
 	tags map[string]string,
-) (string, error) {
+) (string, string, error) {
 	const maxStorageAccountNameLen = 24
 	const maxAttempts = 10
 	validRunes := append([]rune(utils.LowerAlpha), []rune(utils.Digits)...)
@@ -185,7 +186,7 @@ func createStorageAccount(
 			},
 		)
 		if err != nil {
-			return "", errors.Annotate(err, "checking account name availability")
+			return "", "", errors.Annotate(err, "checking account name availability")
 		}
 		if !to.Bool(result.NameAvailable) {
 			logger.Debugf(
@@ -203,11 +204,16 @@ func createStorageAccount(
 		}
 		logger.Debugf("- creating %q storage account %q", accountType, accountName)
 		if _, err := client.Create(resourceGroup, accountName, createParams); err != nil {
-			return "", errors.Trace(err)
+			return "", "", errors.Trace(err)
 		}
-		return accountName, nil
+		logger.Debugf("- listing storage account keys")
+		listKeysResult, err := client.ListKeys(resourceGroup, accountName)
+		if err != nil {
+			return "", "", errors.Annotate(err, "listing storage account keys")
+		}
+		return accountName, to.String(listKeysResult.Key1), nil
 	}
-	return "", errors.New("could not find available storage account name")
+	return "", "", errors.New("could not find available storage account name")
 }
 
 // StateServerInstances is specified in the Environ interface.
@@ -461,7 +467,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		vmExtensionClient,
 	)
 	if err != nil {
-		if err := env.destroyVirtualMachine(vmName); err != nil {
+		if err := env.StopInstances(instance.Id(vmName)); err != nil {
 			logger.Errorf("could not destroy failed virtual machine: %v", err)
 		}
 		return nil, errors.Annotatef(err, "creating virtual machine %q", vmName)
@@ -709,7 +715,7 @@ func newStorageProfile(
 		Caching:      compute.ReadWrite,
 		Vhd: &compute.VirtualHardDisk{
 			URI: to.StringPtr(
-				osDisksRoot + osDiskName + ".vhd",
+				osDisksRoot + osDiskName + vhdExtension,
 			),
 		},
 	}
@@ -771,23 +777,126 @@ func newOSProfile(vmName string, instanceConfig *instancecfg.InstanceConfig) (*c
 
 // StopInstances is specified in the InstanceBroker interface.
 func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
+	env.mu.Lock()
+	computeClient := env.compute
+	networkClient := env.network
+	env.mu.Unlock()
+	storageClient, err := env.getStorageClient()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	for _, id := range ids {
-		if err := env.destroyVirtualMachine(string(id)); err != nil {
-			return errors.Annotatef(err, "stopping instance %q", id)
+		if err := deallocateVirtualMachine(
+			env.resourceGroup, string(id), computeClient,
+		); err != nil {
+			return errors.Annotatef(err, "deallocating virtual machine %q", id)
+		}
+	}
+
+	// Query the instances, so we can inspect the VirtualMachines
+	// and delete related resources.
+	instances, err := env.Instances(ids)
+	switch err {
+	case environs.ErrNoInstances:
+		return nil
+	default:
+		return errors.Trace(err)
+	case nil, environs.ErrPartialInstances:
+		// handled below
+		break
+	}
+
+	for _, inst := range instances {
+		if inst == nil {
+			continue
+		}
+		if err := deleteInstance(
+			inst.(*azureInstance), computeClient, networkClient, storageClient,
+		); err != nil {
+			return errors.Annotatef(err, "deleting instance %q", inst.Id())
 		}
 	}
 	return nil
 }
 
-func (env *azureEnviron) destroyVirtualMachine(vmName string) error {
-	// TODO(axw) delete associated resources, e.g. NICs, network
-	// security rules, OS disk blobs. This must be done before
-	// deleting the machine, or we'll leak resources. Probably
-	// have to deallocate the machine first.
-	vmClient := compute.VirtualMachinesClient{env.compute}
-	result, err := vmClient.Delete(env.resourceGroup, vmName)
-	if err != nil && result.StatusCode != http.StatusNotFound {
+// deallocateVirtualMachine stops a virtual machine, and deallocates it such
+// that it cannot be started again. We do this before deleting resources so
+// we can be sure there is nothing dangling.
+func deallocateVirtualMachine(
+	resourceGroup, vmName string,
+	computeClient compute.ManagementClient,
+) error {
+	vmClient := compute.VirtualMachinesClient{computeClient}
+	logger.Debugf("deallocating virtual machine %q", vmName)
+	deallocateResult, err := vmClient.Deallocate(resourceGroup, vmName)
+	// TODO(axw) test what happens when VM is already deallocated.
+	if err != nil && deallocateResult.StatusCode != http.StatusNotFound {
 		return errors.Trace(err)
+	}
+	return nil
+}
+
+// deleteInstances deletes a virtual machine and all of the resources that
+// it owns, and any corresponding network security rules.
+func deleteInstance(
+	inst *azureInstance,
+	computeClient compute.ManagementClient,
+	networkClient network.ManagementClient,
+	storageClient internalazurestorage.Client,
+) error {
+	vmName := string(inst.Id())
+	vmClient := compute.VirtualMachinesClient{computeClient}
+	nicClient := network.InterfacesClient{networkClient}
+	nsgClient := network.SecurityGroupsClient{networkClient}
+	securityRuleClient := network.SecurityRulesClient{networkClient}
+	publicIPClient := network.PublicIPAddressesClient{networkClient}
+	logger.Debugf("deleting instance %q", vmName)
+
+	// Delete the VM's OS disk VHD.
+	logger.Debugf("- deleting OS VHD")
+	blobClient := storageClient.GetBlobService()
+	if _, err := blobClient.DeleteBlobIfExists(osDiskVHDContainer, vmName); err != nil {
+		return errors.Annotate(err, "deleting OS VHD")
+	}
+
+	// Delete network security rules that refer to the VM.
+	logger.Debugf("- deleting security rules")
+	if err := deleteInstanceNetworkSecurityRules(
+		inst.env.resourceGroup, inst.Id(), nsgClient, securityRuleClient,
+	); err != nil {
+		return errors.Annotate(err, "deleting network security rules")
+	}
+
+	// Delete public IPs. Do this before deleting NICs so we can still
+	// find the public IPs in case we fail.
+	logger.Debugf("- deleting public IPs")
+	for _, pip := range inst.publicIPAddresses {
+		pipName := to.String(pip.Name)
+		logger.Tracef("deleting public IP %q", pipName)
+		result, err := publicIPClient.Delete(inst.env.resourceGroup, pipName)
+		if err != nil && result.StatusCode != http.StatusNotFound {
+			return errors.Annotate(err, "deleting public IP")
+		}
+	}
+
+	// Delete NICs.
+	logger.Debugf("- deleting network interfaces")
+	for _, nic := range inst.networkInterfaces {
+		nicName := to.String(nic.Name)
+		logger.Tracef("deleting NIC %q", nicName)
+		result, err := nicClient.Delete(inst.env.resourceGroup, nicName)
+		if err != nil && result.StatusCode != http.StatusNotFound {
+			return errors.Annotate(err, "deleting NIC")
+		}
+	}
+
+	// Deleting the virtual machine must come last, otherwise if
+	// we fail after deleting the VM we might leak resources.
+	logger.Debugf("- deleting virtual machine")
+	deleteResult, err := vmClient.Delete(inst.env.resourceGroup, vmName)
+	if err != nil && deleteResult.StatusCode != http.StatusNotFound {
+		return errors.Annotate(err, "deleting virtual machine")
 	}
 	return nil
 }
@@ -805,7 +914,31 @@ func (env *azureEnviron) instances(
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	// TODO(axw) optimise the len(1) case.
+	// TODO(axw) uncomment the below when the following bug is fixed:
+	//     https://github.com/Azure/azure-sdk-for-go/issues/231
+	/*
+		if len(ids) == 1 {
+			// There's just one instance being queried, so just query
+			// the one VM's details.
+			env.mu.Lock()
+			vmClient := compute.VirtualMachinesClient{env.compute}
+			env.mu.Unlock()
+			vm, err := vmClient.Get(env.resourceGroup, string(ids[0]), "")
+			if err != nil {
+				if vm.StatusCode == http.StatusNotFound {
+					return nil, environs.ErrNoInstances
+				}
+				return nil, errors.Annotate(err, "querying virtual machine")
+			}
+			inst := &azureInstance{vm, nil, nil, env}
+			if refreshAddresses {
+				if err := inst.refreshAddresses(); err != nil {
+					return nil, errors.Trace(err)
+				}
+			}
+			return []instance.Instance{inst}, nil
+		}
+	*/
 	all, err := env.allInstances(resourceGroup, refreshAddresses)
 	if err != nil {
 		return nil, errors.Trace(err)

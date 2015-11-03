@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
@@ -157,7 +158,7 @@ func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRang
 	}
 
 	vmName := resourceName(names.NewMachineTag(machineId))
-	prefix := vmName + "-"
+	prefix := instanceNetworkSecurityRulePrefix(instance.Id(vmName))
 	for _, rule := range *nsg.Properties.SecurityRules {
 		if rule.Properties.Direction != network.Inbound {
 			continue
@@ -200,4 +201,46 @@ func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRang
 		}
 	}
 	return ports, nil
+}
+
+// deleteInstanceNetworkSecurityRules deletes network security rules in the
+// internal network security group that correspond to the specified machine.
+//
+// This is expected to delete *all* security rules related to the instance,
+// i.e. both the ones opened by OpenPorts above, and the ones opened for API
+// access.
+func deleteInstanceNetworkSecurityRules(
+	resourceGroup string, id instance.Id,
+	nsgClient network.SecurityGroupsClient,
+	securityRuleClient network.SecurityRulesClient,
+) error {
+	nsg, err := nsgClient.Get(resourceGroup, internalSecurityGroupName)
+	if err != nil {
+		return errors.Annotate(err, "querying network security group")
+	}
+	if nsg.Properties.SecurityRules == nil {
+		return nil
+	}
+	prefix := instanceNetworkSecurityRulePrefix(id)
+	for _, rule := range *nsg.Properties.SecurityRules {
+		ruleName := to.String(rule.Name)
+		if !strings.HasPrefix(ruleName, prefix) {
+			continue
+		}
+		result, err := securityRuleClient.Delete(
+			resourceGroup,
+			internalSecurityGroupName,
+			ruleName,
+		)
+		if err != nil && result.StatusCode != http.StatusNotFound {
+			return errors.Annotatef(err, "deleting security rule %q", ruleName)
+		}
+	}
+	return nil
+}
+
+// instanceNetworkSecurityRulePrefix returns the unique prefix for network
+// security rule names that relate to the instance with the given ID.
+func instanceNetworkSecurityRulePrefix(id instance.Id) string {
+	return string(id) + "-"
 }

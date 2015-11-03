@@ -65,6 +65,16 @@ func (s *storageSuite) TestVolumeSource(c *gc.C) {
 	s.volumeSource(c)
 }
 
+func (s *storageSuite) TestFilesystemSource(c *gc.C) {
+	storageConfig, err := storage.NewConfig("azure", "azure", nil)
+	c.Assert(err, jc.ErrorIsNil)
+
+	cfg := makeTestEnvironConfig(c)
+	_, err = s.provider.FilesystemSource(cfg, storageConfig)
+	c.Assert(err, gc.ErrorMatches, "filesystems not supported")
+	c.Assert(err, jc.Satisfies, errors.IsNotSupported)
+}
+
 func (s *storageSuite) TestSupports(c *gc.C) {
 	c.Assert(s.provider.Supports(storage.StorageKindBlock), jc.IsTrue)
 	c.Assert(s.provider.Supports(storage.StorageKindFilesystem), jc.IsFalse)
@@ -72,6 +82,10 @@ func (s *storageSuite) TestSupports(c *gc.C) {
 
 func (s *storageSuite) TestDynamic(c *gc.C) {
 	c.Assert(s.provider.Dynamic(), jc.IsTrue)
+}
+
+func (s *storageSuite) TestScope(c *gc.C) {
+	c.Assert(s.provider.Scope(), gc.Equals, storage.ScopeEnviron)
 }
 
 func (s *storageSuite) TestCreateVolumes(c *gc.C) {

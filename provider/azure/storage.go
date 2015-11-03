@@ -88,6 +88,9 @@ func (e *azureStorageProvider) Dynamic() bool {
 
 // VolumeSource is defined on the Provider interface.
 func (e *azureStorageProvider) VolumeSource(environConfig *config.Config, cfg *storage.Config) (storage.VolumeSource, error) {
+	if err := e.ValidateConfig(cfg); err != nil {
+		return nil, errors.Trace(err)
+	}
 	env, err := newEnviron(e.environProvider, environConfig)
 	if err != nil {
 		return nil, errors.Trace(err)

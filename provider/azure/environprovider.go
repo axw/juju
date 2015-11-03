@@ -134,8 +134,10 @@ func (prov *azureEnvironProvider) BoilerplateConfig() string {
 func (prov *azureEnvironProvider) SecretAttrs(cfg *config.Config) (map[string]string, error) {
 	unknownAttrs := cfg.UnknownAttrs()
 	secretAttrs := map[string]string{
-		configAttrClientKey:         unknownAttrs[configAttrClientKey].(string),
-		configAttrStorageAccountKey: unknownAttrs[configAttrStorageAccountKey].(string),
+		configAttrClientKey: unknownAttrs[configAttrClientKey].(string),
+	}
+	if storageAccountKey, ok := unknownAttrs[configAttrStorageAccountKey].(string); ok {
+		secretAttrs[configAttrStorageAccountKey] = storageAccountKey
 	}
 	return secretAttrs, nil
 }

@@ -418,11 +418,8 @@ func (v *azureVolumeSource) attachVolume(
 		return nil, false, errors.Annotate(err, "choosing LUN")
 	}
 
-	//sizeInGib := mibToGib(p.Size)
 	dataDisk := compute.DataDisk{
-		Lun: to.IntPtr(lun),
-		// TODO(axw) confirm this isn't needed when attaching
-		//DiskSizeGB:   to.IntPtr(int(sizeInGib)),
+		Lun:          to.IntPtr(lun),
 		Name:         to.StringPtr(dataDiskName),
 		Vhd:          &compute.VirtualHardDisk{to.StringPtr(vhdURI)},
 		Caching:      compute.ReadWrite,

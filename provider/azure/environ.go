@@ -93,6 +93,8 @@ var sshSecurityRule = network.SecurityRule{
 }
 
 type azureEnviron struct {
+	common.SupportsUnitPlacementPolicy
+
 	provider                *azureEnvironProvider
 	resourceGroup           string
 	controllerResourceGroup string
@@ -1220,11 +1222,6 @@ func (env *azureEnviron) Ports() ([]jujunetwork.PortRange, error) {
 // Provider is specified in the Environ interface.
 func (env *azureEnviron) Provider() environs.EnvironProvider {
 	return env.provider
-}
-
-// SupportsUnitPlacement is specified in the state.EnvironCapability interface.
-func (env *azureEnviron) SupportsUnitPlacement() error {
-	return nil
 }
 
 // resourceGroupName returns the name of the environment's resource group.

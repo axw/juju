@@ -22,15 +22,14 @@ import (
 type instanceSuite struct {
 	testing.BaseSuite
 
-	storageClient              azuretesting.MockStorageClient
-	provider                   environs.EnvironProvider
-	requests                   []*http.Request
-	sender                     azuretesting.Senders
-	env                        environs.Environ
-	virtualMachine             compute.VirtualMachine
-	networkInterfaces          []network.Interface
-	networkInterfaceReferences []compute.NetworkInterfaceReference
-	publicIPAddresses          []network.PublicIPAddress
+	storageClient     azuretesting.MockStorageClient
+	provider          environs.EnvironProvider
+	requests          []*http.Request
+	sender            azuretesting.Senders
+	env               environs.Environ
+	virtualMachines   []compute.VirtualMachine
+	networkInterfaces []network.Interface
+	publicIPAddresses []network.PublicIPAddress
 }
 
 var _ = gc.Suite(&instanceSuite{})
@@ -43,13 +42,19 @@ func (s *instanceSuite) SetUpTest(c *gc.C) {
 	s.sender = nil
 	s.requests = nil
 	s.networkInterfaces = nil
-	s.networkInterfaceReferences = nil
 	s.publicIPAddresses = nil
-	s.virtualMachine = compute.VirtualMachine{
-		Name: to.StringPtr("machine-0"),
+	s.virtualMachines = []compute.VirtualMachine{
+		makeVirtualMachine("machine-0"),
+	}
+}
+
+func makeVirtualMachine(name string) compute.VirtualMachine {
+	var networkInterfaceReferences []compute.NetworkInterfaceReference
+	return compute.VirtualMachine{
+		Name: to.StringPtr(name),
 		Properties: &compute.VirtualMachineProperties{
 			NetworkProfile: &compute.NetworkProfile{
-				NetworkInterfaces: &s.networkInterfaceReferences,
+				NetworkInterfaces: &networkInterfaceReferences,
 			},
 			ProvisioningState: to.StringPtr("Successful"),
 		},
@@ -57,9 +62,14 @@ func (s *instanceSuite) SetUpTest(c *gc.C) {
 }
 
 func (s *instanceSuite) getInstance(c *gc.C) instance.Instance {
-	virtualMachines := []compute.VirtualMachine{s.virtualMachine}
+	instances := s.getInstances(c, "machine-0")
+	c.Assert(instances, gc.HasLen, 1)
+	return instances[0]
+}
+
+func (s *instanceSuite) getInstances(c *gc.C, ids ...instance.Id) []instance.Instance {
 	vmsSender := azuretesting.NewSenderWithValue(&compute.VirtualMachineListResult{
-		Value: &virtualMachines,
+		Value: &s.virtualMachines,
 	})
 	vmsSender.PathPattern = ".*/virtualMachines"
 
@@ -75,10 +85,9 @@ func (s *instanceSuite) getInstance(c *gc.C) instance.Instance {
 
 	s.sender = azuretesting.Senders{vmsSender, nicsSender, pipsSender}
 
-	instances, err := s.env.AllInstances()
+	instances, err := s.env.Instances(ids)
 	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(instances, gc.HasLen, 1)
-	return instances[0]
+	return instances
 }
 
 func (s *instanceSuite) TestInstanceStatus(c *gc.C) {
@@ -87,7 +96,7 @@ func (s *instanceSuite) TestInstanceStatus(c *gc.C) {
 }
 
 func (s *instanceSuite) TestInstanceStatusNilProvisioningState(c *gc.C) {
-	s.virtualMachine.Properties.ProvisioningState = nil
+	s.virtualMachines[0].Properties.ProvisioningState = nil
 	inst := s.getInstance(c)
 	c.Assert(inst.Status(), gc.Equals, "")
 }
@@ -100,7 +109,7 @@ func (s *instanceSuite) TestInstanceAddressesEmpty(c *gc.C) {
 
 func (s *instanceSuite) TestInstanceAddressesDanglingNICs(c *gc.C) {
 	// References for which there are no NICs
-	s.networkInterfaceReferences = []compute.NetworkInterfaceReference{
+	*s.virtualMachines[0].Properties.NetworkProfile.NetworkInterfaces = []compute.NetworkInterfaceReference{
 		{ID: to.StringPtr("nic-0")}, {ID: to.StringPtr("nic-1")},
 	}
 	addresses, err := s.getInstance(c).Addresses()
@@ -109,8 +118,10 @@ func (s *instanceSuite) TestInstanceAddressesDanglingNICs(c *gc.C) {
 }
 
 func (s *instanceSuite) TestInstanceAddresses(c *gc.C) {
-	s.networkInterfaceReferences = []compute.NetworkInterfaceReference{
-		{ID: to.StringPtr("nic-0")}, {ID: to.StringPtr("nic-1")},
+	*s.virtualMachines[0].Properties.NetworkProfile.NetworkInterfaces = []compute.NetworkInterfaceReference{
+		{ID: to.StringPtr("nic-0")},
+		{ID: to.StringPtr("nic-1")},
+		{ID: to.StringPtr("nic-2")},
 	}
 	nic0IPConfigurations := []network.InterfaceIPConfiguration{{
 		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
@@ -146,8 +157,11 @@ func (s *instanceSuite) TestInstanceAddresses(c *gc.C) {
 			IPConfigurations: &nic1IPConfigurations,
 		},
 	}, {
+		ID:         to.StringPtr("nic-2"),
+		Properties: &network.InterfacePropertiesFormat{},
+	}, {
 		// unrelated NIC
-		ID: to.StringPtr("nic-2"),
+		ID: to.StringPtr("nic-3"),
 	}}
 	s.publicIPAddresses = []network.PublicIPAddress{{
 		ID: to.StringPtr("pip-0"),
@@ -170,5 +184,69 @@ func (s *instanceSuite) TestInstanceAddresses(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(addresses, jc.DeepEquals, jujunetwork.NewAddresses(
 		"10.0.0.4", "10.0.0.5", "1.2.3.5", "1.2.3.4",
+	))
+}
+
+func (s *instanceSuite) TestMultipleInstanceAddresses(c *gc.C) {
+	nic0IPConfigurations := []network.InterfaceIPConfiguration{{
+		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
+			PrivateIPAddress: to.StringPtr("10.0.0.4"),
+			PublicIPAddress: &network.SubResource{
+				to.StringPtr("pip-0"),
+			},
+		},
+	}}
+	nic1IPConfigurations := []network.InterfaceIPConfiguration{{
+		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
+			PrivateIPAddress: to.StringPtr("10.0.0.5"),
+			PublicIPAddress: &network.SubResource{
+				to.StringPtr("pip-1"),
+			},
+		},
+	}}
+	s.networkInterfaces = []network.Interface{{
+		ID: to.StringPtr("nic-0"),
+		Properties: &network.InterfacePropertiesFormat{
+			IPConfigurations: &nic0IPConfigurations,
+		},
+	}, {
+		ID: to.StringPtr("nic-1"),
+		Properties: &network.InterfacePropertiesFormat{
+			IPConfigurations: &nic1IPConfigurations,
+		},
+	}}
+	s.publicIPAddresses = []network.PublicIPAddress{{
+		ID: to.StringPtr("pip-0"),
+		Properties: &network.PublicIPAddressPropertiesFormat{
+			IPAddress: to.StringPtr("1.2.3.4"),
+		},
+	}, {
+		ID: to.StringPtr("pip-1"),
+		Properties: &network.PublicIPAddressPropertiesFormat{
+			IPAddress: to.StringPtr("1.2.3.5"),
+		},
+	}}
+
+	s.virtualMachines = append(s.virtualMachines, makeVirtualMachine("machine-1"))
+	*s.virtualMachines[0].Properties.NetworkProfile.NetworkInterfaces = []compute.NetworkInterfaceReference{
+		{ID: to.StringPtr("nic-0")},
+	}
+	*s.virtualMachines[1].Properties.NetworkProfile.NetworkInterfaces = []compute.NetworkInterfaceReference{
+		{ID: to.StringPtr("nic-1")},
+	}
+
+	instances := s.getInstances(c, "machine-0", "machine-1")
+	c.Assert(instances, gc.HasLen, 2)
+
+	inst0Addresses, err := instances[0].Addresses()
+	c.Assert(err, jc.ErrorIsNil)
+	inst1Addresses, err := instances[1].Addresses()
+	c.Assert(err, jc.ErrorIsNil)
+
+	c.Assert(inst0Addresses, jc.DeepEquals, jujunetwork.NewAddresses(
+		"10.0.0.4", "1.2.3.4",
+	))
+	c.Assert(inst1Addresses, jc.DeepEquals, jujunetwork.NewAddresses(
+		"10.0.0.5", "1.2.3.5",
 	))
 }

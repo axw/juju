@@ -914,31 +914,6 @@ func (env *azureEnviron) instances(
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	// TODO(axw) uncomment the below when the following bug is fixed:
-	//     https://github.com/Azure/azure-sdk-for-go/issues/231
-	/*
-		if len(ids) == 1 {
-			// There's just one instance being queried, so just query
-			// the one VM's details.
-			env.mu.Lock()
-			vmClient := compute.VirtualMachinesClient{env.compute}
-			env.mu.Unlock()
-			vm, err := vmClient.Get(env.resourceGroup, string(ids[0]), "")
-			if err != nil {
-				if vm.StatusCode == http.StatusNotFound {
-					return nil, environs.ErrNoInstances
-				}
-				return nil, errors.Annotate(err, "querying virtual machine")
-			}
-			inst := &azureInstance{vm, nil, nil, env}
-			if refreshAddresses {
-				if err := inst.refreshAddresses(); err != nil {
-					return nil, errors.Trace(err)
-				}
-			}
-			return []instance.Instance{inst}, nil
-		}
-	*/
 	all, err := env.allInstances(resourceGroup, refreshAddresses)
 	if err != nil {
 		return nil, errors.Trace(err)

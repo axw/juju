@@ -21,9 +21,9 @@ const AzureDomainName = "cloudapp.net"
 
 type azureInstance struct {
 	compute.VirtualMachine
+	env               *azureEnviron
 	networkInterfaces []network.Interface
 	publicIPAddresses []network.PublicIPAddress
-	env               *azureEnviron
 }
 
 // azureInstance implements Instance.
@@ -39,65 +39,137 @@ func (inst *azureInstance) Id() instance.Id {
 
 // Status is specified in the Instance interface.
 func (inst *azureInstance) Status() string {
-	// TODO(axw) is this the right thing to use?
+	// NOTE(axw) ideally we would use the power state, but that is only
+	// available when using the "instance view". Instance view is only
+	// delivered when explicitly requested, and you can only request it
+	// when querying a single VM. This means the results of AllInstances
+	// or Instances would have the instance view missing.
 	return to.String(inst.Properties.ProvisioningState)
 }
 
-func (inst *azureInstance) refreshAddresses() error {
-	inst.env.mu.Lock()
-	nicClient := network.InterfacesClient{inst.env.network}
-	pipClient := network.PublicIPAddressesClient{inst.env.network}
-	resourceGroup := inst.env.resourceGroup
-	inst.env.mu.Unlock()
+// setInstanceAddresses queries Azure for the NICs and public IPs associated
+// with the given set of instances. This assumes that the instances'
+// VirtualMachines are up-to-date, and that there are no concurrent accesses
+// to the instances.
+func setInstanceAddresses(
+	nicClient network.InterfacesClient,
+	pipClient network.PublicIPAddressesClient,
+	resourceGroup string,
+	instances []*azureInstance,
+) (err error) {
 
-	// Can't use Get() with an Id, which is all we have in
-	// the VirtualMachine. When we list generic resources
-	// this will be a non-issue.
+	nicsById := make(map[string]*network.Interface)
+	pipsById := make(map[string]*network.PublicIPAddress)
+	instanceNicIds := make([][]string, len(instances))
+	pipIdsByNicId := make(map[string][]string)
+
+	// When setAddresses returns without error, update each
+	// instance's network interfaces and public IP addresses.
+	setInstanceFields := func(inst *azureInstance, nicIds []string) {
+		inst.networkInterfaces = nil
+		inst.publicIPAddresses = nil
+		for _, nicId := range nicIds {
+			nic := nicsById[nicId]
+			if nic == nil {
+				logger.Warningf(
+					"could not find NIC with ID %q for instance %q",
+					nicId, inst.Id(),
+				)
+				continue
+			}
+			inst.networkInterfaces = append(inst.networkInterfaces, *nic)
+
+			for _, pipId := range pipIdsByNicId[nicId] {
+				pip := pipsById[pipId]
+				if pip == nil {
+					logger.Warningf(
+						"could not find public IP with ID %q for NIC %q",
+						pipId, nicId,
+					)
+					continue
+				}
+				inst.publicIPAddresses = append(inst.publicIPAddresses, *pip)
+			}
+		}
+	}
+	defer func() {
+		if err != nil {
+			return
+		}
+		for i, inst := range instances {
+			setInstanceFields(inst, instanceNicIds[i])
+		}
+	}()
+
+	// Record the NIC IDs we're interested in. We record the NIC IDs
+	// related to each instance in the order that they appear in the
+	// network profile, to simplify testing.
+	for i, inst := range instances {
+		if inst.Properties.NetworkProfile.NetworkInterfaces == nil {
+			// The machine should have NICs, but be defensive about it.
+			continue
+		}
+		for _, nicRef := range *inst.Properties.NetworkProfile.NetworkInterfaces {
+			nicId := to.String(nicRef.ID)
+			nicsById[nicId] = nil
+			instanceNicIds[i] = append(instanceNicIds[i], nicId)
+		}
+	}
+	if len(nicsById) == 0 {
+		return nil
+	}
+
 	nicsResult, err := nicClient.List(resourceGroup)
 	if err != nil {
 		return errors.Annotate(err, "listing network interfaces")
 	}
-	nicsById := make(map[string]network.Interface)
-	pipsById := make(map[string]*network.PublicIPAddress)
-	for _, nic := range *nicsResult.Value {
-		nicsById[to.String(nic.ID)] = nic
+	if nicsResult.Value == nil || len(*nicsResult.Value) == 0 {
+		return nil
 	}
-	if inst.Properties.NetworkProfile.NetworkInterfaces != nil {
-		networkInterfaces := make([]network.Interface, 0, len(*inst.Properties.NetworkProfile.NetworkInterfaces))
-		for _, nicRef := range *inst.Properties.NetworkProfile.NetworkInterfaces {
-			nic, ok := nicsById[to.String(nicRef.ID)]
-			if !ok {
-				logger.Warningf("could not find NIC with ID %q", to.String(nicRef.ID))
+	for _, nic := range *nicsResult.Value {
+		nicId := to.String(nic.ID)
+		if _, ok := nicsById[nicId]; !ok {
+			continue
+		}
+		nicCopy := nic
+		nicsById[nicId] = &nicCopy
+
+		// Record the Public IP address IDs we're interested in. We
+		// record the public IP address IDs in the order they appear
+		// in IP configurations, to simplify testing.
+		if nic.Properties.IPConfigurations == nil {
+			continue
+		}
+		for _, ipConfig := range *nic.Properties.IPConfigurations {
+			if ipConfig.Properties.PublicIPAddress == nil {
 				continue
 			}
-			if nic.Properties.IPConfigurations != nil {
-				for _, ipConfiguration := range *nic.Properties.IPConfigurations {
-					if ipConfiguration.Properties.PublicIPAddress == nil {
-						continue
-					}
-					pipsById[to.String(ipConfiguration.Properties.PublicIPAddress.ID)] = nil
-				}
-			}
-			networkInterfaces = append(networkInterfaces, nic)
+			pipId := to.String(ipConfig.Properties.PublicIPAddress.ID)
+			pipsById[pipId] = nil
+			pipIdsByNicId[nicId] = append(pipIdsByNicId[nicId], pipId)
 		}
-		inst.networkInterfaces = networkInterfaces
 	}
 
+	if len(pipsById) == 0 {
+		return nil
+	}
 	pipsResult, err := pipClient.List(resourceGroup)
 	if err != nil {
 		return errors.Annotate(err, "listing public IP addresses")
 	}
-	publicIPAddresses := make([]network.PublicIPAddress, 0, len(pipsById))
-	if pipsResult.Value != nil {
-		for _, pip := range *pipsResult.Value {
-			if _, ok := pipsById[to.String(pip.ID)]; !ok {
-				continue
-			}
-			publicIPAddresses = append(publicIPAddresses, pip)
-		}
+	if pipsResult.Value == nil || len(*pipsResult.Value) == 0 {
+		return nil
 	}
-	inst.publicIPAddresses = publicIPAddresses
+	for _, pip := range *pipsResult.Value {
+		pipId := to.String(pip.ID)
+		if _, ok := pipsById[pipId]; !ok {
+			continue
+		}
+		pipCopy := pip
+		pipsById[pipId] = &pipCopy
+	}
 
+	// Fields will be assigned to instances by the deferred call.
 	return nil
 }
 
@@ -110,6 +182,9 @@ func (inst *azureInstance) Addresses() ([]jujunetwork.Address, error) {
 		}
 		for _, ipConfiguration := range *nic.Properties.IPConfigurations {
 			privateIpAddress := ipConfiguration.Properties.PrivateIPAddress
+			if privateIpAddress == nil {
+				continue
+			}
 			addresses = append(addresses, jujunetwork.NewScopedAddress(
 				to.String(privateIpAddress),
 				jujunetwork.ScopeCloudLocal,

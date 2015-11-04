@@ -235,16 +235,25 @@ func (s *environSuite) SetUpTest(c *gc.C) {
 }
 
 func (s *environSuite) openEnviron(c *gc.C, attrs ...testing.Attrs) environs.Environ {
+	attrs = append([]testing.Attrs{{"storage-account": fakeStorageAccount}}, attrs...)
+	return openEnviron(c, s.provider, &s.sender, attrs...)
+}
+
+func openEnviron(
+	c *gc.C,
+	provider environs.EnvironProvider,
+	sender *azuretesting.Senders,
+	attrs ...testing.Attrs,
+) environs.Environ {
 	// Opening the environment should not incur network communication,
 	// so we don't set s.sender until after opening.
-	attrs = append([]testing.Attrs{{"storage-account": fakeStorageAccount}}, attrs...)
 	cfg := makeTestEnvironConfig(c, attrs...)
-	env, err := s.provider.Open(cfg)
+	env, err := provider.Open(cfg)
 	c.Assert(err, jc.ErrorIsNil)
 
 	// Force an explicit refresh of the access token, so it isn't done
 	// implicitly during the tests.
-	s.sender = azuretesting.Senders{tokenRefreshSender()}
+	*sender = azuretesting.Senders{tokenRefreshSender()}
 	err = azure.ForceTokenRefresh(env)
 	c.Assert(err, jc.ErrorIsNil)
 	return env

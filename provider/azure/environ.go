@@ -476,7 +476,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	// Note: the instance is initialised without addresses to keep the
 	// API chatter down. We will refresh the instance if we need to know
 	// the addresses.
-	inst := &azureInstance{vm, nil, nil, env}
+	inst := &azureInstance{vm, env, nil, nil}
 	amd64 := arch.AMD64
 	hc := &instance.HardwareCharacteristics{
 		Arch:     &amd64,
@@ -953,6 +953,8 @@ func (env *azureEnviron) allInstances(
 ) ([]instance.Instance, error) {
 	env.mu.Lock()
 	vmClient := compute.VirtualMachinesClient{env.compute}
+	nicClient := network.InterfacesClient{env.network}
+	pipClient := network.PublicIPAddressesClient{env.network}
 	env.mu.Unlock()
 
 	result, err := vmClient.List(resourceGroup)
@@ -967,15 +969,19 @@ func (env *azureEnviron) allInstances(
 	if result.Value == nil || len(*result.Value) == 0 {
 		return nil, nil
 	}
+	azureInstances := make([]*azureInstance, len(*result.Value))
 	instances := make([]instance.Instance, len(*result.Value))
 	for i, vm := range *result.Value {
-		inst := &azureInstance{vm, nil, nil, env}
-		if refreshAddresses {
-			if err := inst.refreshAddresses(); err != nil {
-				return nil, errors.Trace(err)
-			}
-		}
+		inst := &azureInstance{vm, env, nil, nil}
+		azureInstances[i] = inst
 		instances[i] = inst
+	}
+	if len(instances) > 0 && refreshAddresses {
+		if err := setInstanceAddresses(
+			nicClient, pipClient, resourceGroup, azureInstances,
+		); err != nil {
+			return nil, errors.Trace(err)
+		}
 	}
 	return instances, nil
 }

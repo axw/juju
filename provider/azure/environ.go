@@ -203,6 +203,9 @@ func createStorageAccount(
 			},
 		}
 		logger.Debugf("- creating %q storage account %q", accountType, accountName)
+		// TODO(axw) account creation can fail if the account name is
+		// available, but contains profanity. We should retry a set
+		// number of times even if creating fails.
 		if _, err := client.Create(resourceGroup, accountName, createParams); err != nil {
 			return "", "", errors.Trace(err)
 		}

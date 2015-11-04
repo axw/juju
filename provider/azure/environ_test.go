@@ -444,7 +444,7 @@ func (s *environSuite) TestStopInstancesNotFound(c *gc.C) {
 	env := s.openEnviron(c)
 	sender := mocks.NewSender()
 	sender.EmitStatus("vm not found", http.StatusNotFound)
-	s.sender = azuretesting.Senders{sender, sender}
+	s.sender = azuretesting.Senders{sender, sender, sender}
 	err := env.StopInstances("a", "b")
 	c.Assert(err, jc.ErrorIsNil)
 }

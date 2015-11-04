@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path"
 
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
@@ -49,6 +50,10 @@ const (
 	// security rule that allows inbound SSH access to all
 	// machines.
 	securityRuleInternalSSHInbound = securityRuleInternalMin + iota
+
+	// securityRuleMax is the maximum allowable security rule
+	// priority.
+	securityRuleMax = 4096
 )
 
 var sshSecurityRule = network.SecurityRule{
@@ -322,7 +327,7 @@ func nextSecurityRulePriority(group network.SecurityGroup, min, max int) (int, e
 	if group.Properties.SecurityRules == nil {
 		return min, nil
 	}
-	for p := min; p <= min; p++ {
+	for p := min; p <= max; p++ {
 		var found bool
 		for _, rule := range *group.Properties.SecurityRules {
 			if to.Int(rule.Properties.Priority) == p {
@@ -335,9 +340,7 @@ func nextSecurityRulePriority(group network.SecurityGroup, min, max int) (int, e
 		}
 	}
 	return -1, errors.Errorf(
-		"no priorities available in the range [%d, %d]",
-		securityRuleInternalMin,
-		securityRuleInternalMax,
+		"no priorities available in the range [%d, %d]", min, max,
 	)
 }
 
@@ -379,4 +382,15 @@ func nextSubnetIPAddress(
 		return "", errors.Trace(err)
 	}
 	return ip.String(), nil
+}
+
+// internalSubnetId returns the Azure resource ID of the internal network
+// subnet for the specified resource group.
+func internalSubnetId(resourceGroup, controllerResourceGroup, subscriptionId string) string {
+	return path.Join(
+		"/subscriptions", subscriptionId,
+		"resourceGroups", controllerResourceGroup,
+		"providers/Microsoft.Network/virtualnetworks",
+		internalNetworkName, "subnets", resourceGroup,
+	)
 }

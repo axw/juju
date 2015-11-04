@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -203,17 +204,143 @@ func (inst *azureInstance) Addresses() ([]jujunetwork.Address, error) {
 	return addresses, nil
 }
 
+// internalNetworkAddress returns the instance's jujunetwork.Address for the
+// internal virtual network. This address is used to identify the machine in
+// network security rules.
+func (inst *azureInstance) internalNetworkAddress() (jujunetwork.Address, error) {
+	inst.env.mu.Lock()
+	subscriptionId := inst.env.config.subscriptionId
+	resourceGroup := inst.env.resourceGroup
+	controllerResourceGroup := inst.env.controllerResourceGroup
+	inst.env.mu.Unlock()
+	internalSubnetId := internalSubnetId(
+		resourceGroup, controllerResourceGroup, subscriptionId,
+	)
+	logger.Debugf("searching for %q", internalSubnetId)
+
+	for _, nic := range inst.networkInterfaces {
+		if nic.Properties.IPConfigurations == nil {
+			continue
+		}
+		for _, ipConfiguration := range *nic.Properties.IPConfigurations {
+			if ipConfiguration.Properties.Subnet == nil {
+				continue
+			}
+			if to.String(ipConfiguration.Properties.Subnet.ID) != internalSubnetId {
+				continue
+			}
+			privateIpAddress := ipConfiguration.Properties.PrivateIPAddress
+			if privateIpAddress == nil {
+				continue
+			}
+			return jujunetwork.NewScopedAddress(
+				to.String(privateIpAddress),
+				jujunetwork.ScopeCloudLocal,
+			), nil
+		}
+	}
+	return jujunetwork.Address{}, errors.NotFoundf("internal network address")
+}
+
 // OpenPorts is specified in the Instance interface.
 func (inst *azureInstance) OpenPorts(machineId string, ports []jujunetwork.PortRange) error {
-	// TODO(axw)
-	logger.Debugf("OpenPorts(%v, %+v)", machineId, ports)
+	inst.env.mu.Lock()
+	nsgClient := network.SecurityGroupsClient{inst.env.network}
+	securityRuleClient := network.SecurityRulesClient{inst.env.network}
+	inst.env.mu.Unlock()
+	internalNetworkAddress, err := inst.internalNetworkAddress()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	securityGroupName := internalSecurityGroupName
+	nsg, err := nsgClient.Get(inst.env.resourceGroup, securityGroupName)
+	if err != nil {
+		return errors.Annotate(err, "querying network security group")
+	}
+
+	var securityRules []network.SecurityRule
+	if nsg.Properties.SecurityRules != nil {
+		securityRules = *nsg.Properties.SecurityRules
+	} else {
+		nsg.Properties.SecurityRules = &securityRules
+	}
+
+	// Create rules one at a time; this is necessary to avoid trampling
+	// on changes made by the provisioner. We still record rules in the
+	// NSG in memory, so we can easily tell which priorities are available.
+	vmName := resourceName(names.NewMachineTag(machineId))
+	prefix := instanceNetworkSecurityRulePrefix(instance.Id(vmName))
+	for _, ports := range ports {
+		ruleName := securityRuleName(prefix, ports)
+		logger.Debugf("creating security rule %q", ruleName)
+
+		priority, err := nextSecurityRulePriority(nsg, securityRuleInternalMax+1, securityRuleMax)
+		if err != nil {
+			return errors.Annotatef(err, "getting security rule priority for %s", ports)
+		}
+
+		var protocol network.SecurityRuleProtocol
+		switch ports.Protocol {
+		case "tcp":
+			protocol = network.SecurityRuleProtocolTCP
+		case "udp":
+			protocol = network.SecurityRuleProtocolUDP
+		default:
+			return errors.Errorf("invalid protocol %q", ports.Protocol)
+		}
+
+		var portRange string
+		if ports.FromPort != ports.ToPort {
+			portRange = fmt.Sprintf("%d-%d", ports.FromPort, ports.ToPort)
+		} else {
+			portRange = fmt.Sprint(ports.FromPort)
+		}
+
+		rule := network.SecurityRule{
+			Properties: &network.SecurityRulePropertiesFormat{
+				Description:              to.StringPtr(ports.String()),
+				Protocol:                 protocol,
+				SourcePortRange:          to.StringPtr("*"),
+				DestinationPortRange:     to.StringPtr(portRange),
+				SourceAddressPrefix:      to.StringPtr("*"),
+				DestinationAddressPrefix: to.StringPtr(internalNetworkAddress.Value),
+				Access:    network.Allow,
+				Priority:  to.IntPtr(priority),
+				Direction: network.Inbound,
+			},
+		}
+		if _, err := securityRuleClient.CreateOrUpdate(
+			inst.env.resourceGroup, securityGroupName, ruleName, rule,
+		); err != nil {
+			return errors.Annotatef(err, "creating security rule for %s", ports)
+		}
+		securityRules = append(securityRules, rule)
+	}
 	return nil
 }
 
 // ClosePorts is specified in the Instance interface.
 func (inst *azureInstance) ClosePorts(machineId string, ports []jujunetwork.PortRange) error {
-	// TODO(axw)
-	logger.Debugf("ClosePorts(%v, %+v)", machineId, ports)
+	inst.env.mu.Lock()
+	securityRuleClient := network.SecurityRulesClient{inst.env.network}
+	inst.env.mu.Unlock()
+	securityGroupName := internalSecurityGroupName
+
+	// Delete rules one at a time; this is necessary to avoid trampling
+	// on changes made by the provisioner.
+	vmName := resourceName(names.NewMachineTag(machineId))
+	prefix := instanceNetworkSecurityRulePrefix(instance.Id(vmName))
+	for _, ports := range ports {
+		ruleName := securityRuleName(prefix, ports)
+		logger.Debugf("deleting security rule %q", ruleName)
+		result, err := securityRuleClient.Delete(
+			inst.env.resourceGroup, securityGroupName, ruleName,
+		)
+		if err != nil && result.StatusCode != http.StatusNotFound {
+			return errors.Annotatef(err, "deleting security rule %q", ruleName)
+		}
+	}
 	return nil
 }
 
@@ -236,6 +363,9 @@ func (inst *azureInstance) Ports(machineId string) (ports []jujunetwork.PortRang
 	prefix := instanceNetworkSecurityRulePrefix(instance.Id(vmName))
 	for _, rule := range *nsg.Properties.SecurityRules {
 		if rule.Properties.Direction != network.Inbound {
+			continue
+		}
+		if rule.Properties.Access != network.Allow {
 			continue
 		}
 		if to.Int(rule.Properties.Priority) <= securityRuleInternalMax {
@@ -318,4 +448,14 @@ func deleteInstanceNetworkSecurityRules(
 // security rule names that relate to the instance with the given ID.
 func instanceNetworkSecurityRulePrefix(id instance.Id) string {
 	return string(id) + "-"
+}
+
+// securityRuleName returns the security rule name for the given port range,
+// and prefix returned by instanceNetworkSecurityRulePrefix.
+func securityRuleName(prefix string, ports jujunetwork.PortRange) string {
+	ruleName := fmt.Sprintf("%s%s-%d", prefix, ports.Protocol, ports.FromPort)
+	if ports.FromPort != ports.ToPort {
+		ruleName += fmt.Sprintf("-%d", ports.ToPort)
+	}
+	return ruleName
 }

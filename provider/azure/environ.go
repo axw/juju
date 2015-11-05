@@ -24,6 +24,7 @@ import (
 	"github.com/juju/utils/arch"
 	"github.com/juju/utils/os"
 	jujuseries "github.com/juju/utils/series"
+	"github.com/juju/utils/set"
 
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/cloudconfig/providerinit"
@@ -39,6 +40,8 @@ import (
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/multiwatcher"
 )
+
+const jujuMachineNameTag = tags.JujuTagPrefix + "machine-name"
 
 type azureEnviron struct {
 	common.SupportsUnitPlacementPolicy
@@ -452,7 +455,6 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	// jujuMachineNameTag identifies the VM name, in which is encoded
 	// the Juju machine name. We tag all resources related to the
 	// machine with this.
-	jujuMachineNameTag := tags.JujuTagPrefix + "machine-name"
 	vmTags[jujuMachineNameTag] = vmName
 
 	// If the machine will run a state server, then we need to open the
@@ -801,14 +803,6 @@ func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 		return errors.Trace(err)
 	}
 
-	for _, id := range ids {
-		if err := deallocateVirtualMachine(
-			env.resourceGroup, string(id), computeClient,
-		); err != nil {
-			return errors.Annotatef(err, "deallocating virtual machine %q", id)
-		}
-	}
-
 	// Query the instances, so we can inspect the VirtualMachines
 	// and delete related resources.
 	instances, err := env.Instances(ids)
@@ -835,31 +829,6 @@ func (env *azureEnviron) StopInstances(ids ...instance.Id) error {
 	return nil
 }
 
-// deallocateVirtualMachine stops a virtual machine, and deallocates it such
-// that it cannot be started again. We do this before deleting resources so
-// we can be sure there is nothing dangling.
-func deallocateVirtualMachine(
-	resourceGroup, vmName string,
-	computeClient compute.ManagementClient,
-) error {
-	vmClient := compute.VirtualMachinesClient{computeClient}
-	logger.Debugf("deallocating virtual machine %q", vmName)
-	result, err := vmClient.Deallocate(resourceGroup, vmName)
-	if err != nil {
-		// TODO(axw) there is a bug in azure-sdk-for-go that means that
-		// 200 OK is treated as an error. When this is fixed, we can
-		// stop checking StatusOK here.
-		if result.Response != nil {
-			switch result.StatusCode {
-			case http.StatusNotFound, http.StatusOK:
-				return nil
-			}
-		}
-		return errors.Trace(err)
-	}
-	return nil
-}
-
 // deleteInstances deletes a virtual machine and all of the resources that
 // it owns, and any corresponding network security rules.
 func deleteInstance(
@@ -876,6 +845,14 @@ func deleteInstance(
 	publicIPClient := network.PublicIPAddressesClient{networkClient}
 	logger.Debugf("deleting instance %q", vmName)
 
+	logger.Debugf("- deleting virtual machine")
+	deleteResult, err := vmClient.Delete(inst.env.resourceGroup, vmName)
+	if err != nil {
+		if deleteResult.Response == nil || deleteResult.StatusCode != http.StatusNotFound {
+			return errors.Annotate(err, "deleting virtual machine")
+		}
+	}
+
 	// Delete the VM's OS disk VHD.
 	logger.Debugf("- deleting OS VHD")
 	blobClient := storageClient.GetBlobService()
@@ -891,8 +868,34 @@ func deleteInstance(
 		return errors.Annotate(err, "deleting network security rules")
 	}
 
-	// Delete public IPs. Do this before deleting NICs so we can still
-	// find the public IPs in case we fail.
+	// Detach public IPs from NICs. This must be done before public
+	// IPs can be deleted. In the future, VMs may not necessarily
+	// have a public IP, so we don't use the presence of a public
+	// IP to indicate the existence of an instance.
+	logger.Debugf("- detaching public IP addresses")
+	for _, nic := range inst.networkInterfaces {
+		if nic.Properties.IPConfigurations == nil {
+			continue
+		}
+		var detached bool
+		for i, ipConfiguration := range *nic.Properties.IPConfigurations {
+			if ipConfiguration.Properties.PublicIPAddress == nil {
+				continue
+			}
+			ipConfiguration.Properties.PublicIPAddress = nil
+			(*nic.Properties.IPConfigurations)[i] = ipConfiguration
+			detached = true
+		}
+		if detached {
+			if _, err := nicClient.CreateOrUpdate(
+				inst.env.resourceGroup, to.String(nic.Name), nic,
+			); err != nil {
+				return errors.Annotate(err, "detaching public IP addresses")
+			}
+		}
+	}
+
+	// Delete public IPs.
 	logger.Debugf("- deleting public IPs")
 	for _, pip := range inst.publicIPAddresses {
 		pipName := to.String(pip.Name)
@@ -906,6 +909,8 @@ func deleteInstance(
 	}
 
 	// Delete NICs.
+	//
+	// NOTE(axw) this *must* be deleted last, or we risk leaking resources.
 	logger.Debugf("- deleting network interfaces")
 	for _, nic := range inst.networkInterfaces {
 		nicName := to.String(nic.Name)
@@ -918,15 +923,6 @@ func deleteInstance(
 		}
 	}
 
-	// Deleting the virtual machine must come last, otherwise if
-	// we fail after deleting the VM we might leak resources.
-	logger.Debugf("- deleting virtual machine")
-	deleteResult, err := vmClient.Delete(inst.env.resourceGroup, vmName)
-	if err != nil {
-		if deleteResult.Response == nil || deleteResult.StatusCode != http.StatusNotFound {
-			return errors.Annotate(err, "deleting virtual machine")
-		}
-	}
 	return nil
 }
 
@@ -986,31 +982,70 @@ func (env *azureEnviron) allInstances(
 	pipClient := network.PublicIPAddressesClient{env.network}
 	env.mu.Unlock()
 
-	result, err := vmClient.List(resourceGroup)
+	// Due to how deleting instances works, we have to get creative about
+	// listing instances. We list NICs and return an instance for each
+	// unique value of the jujuMachineNameTag tag.
+	//
+	// The machine provisioner will call AllInstances so it can delete
+	// unknown instances. StopInstances must delete VMs before NICs and
+	// public IPs, because a VM cannot have less than 1 NIC. Thus, we can
+	// potentially delete a VM but then fail to delete its NIC.
+	nicsResult, err := nicClient.List(resourceGroup)
 	if err != nil {
-		if result.Response.Response == nil || result.StatusCode == http.StatusNotFound {
+		if nicsResult.Response.Response == nil || nicsResult.StatusCode == http.StatusNotFound {
 			// This will occur if the resource group does not
 			// exist, e.g. in a fresh hosted environment.
 			return nil, nil
 		}
-		return nil, errors.Annotate(err, "listing virtual machines")
 	}
-	if result.Value == nil || len(*result.Value) == 0 {
+	if nicsResult.Value == nil || len(*nicsResult.Value) == 0 {
 		return nil, nil
 	}
-	azureInstances := make([]*azureInstance, len(*result.Value))
-	instances := make([]instance.Instance, len(*result.Value))
-	for i, vm := range *result.Value {
-		inst := &azureInstance{vm, env, nil, nil}
-		azureInstances[i] = inst
-		instances[i] = inst
+
+	// Create an azureInstance for each VM.
+	result, err := vmClient.List(resourceGroup)
+	if err != nil {
+		return nil, errors.Annotate(err, "listing virtual machines")
 	}
-	if len(instances) > 0 && refreshAddresses {
+	vmNames := make(set.Strings)
+	var azureInstances []*azureInstance
+	if result.Value != nil {
+		azureInstances = make([]*azureInstance, len(*result.Value))
+		for i, vm := range *result.Value {
+			inst := &azureInstance{vm, env, nil, nil}
+			azureInstances[i] = inst
+			vmNames.Add(to.String(vm.Name))
+		}
+	}
+
+	// Create additional azureInstances for NICs without machines. See
+	// comments above for rationale.
+	for _, nic := range *nicsResult.Value {
+		vmName, ok := toTags(nic.Tags)[jujuMachineNameTag]
+		if !ok || vmNames.Contains(vmName) {
+			continue
+		}
+		vm := compute.VirtualMachine{
+			Name: to.StringPtr(vmName),
+			Properties: &compute.VirtualMachineProperties{
+				ProvisioningState: to.StringPtr("Deleted"),
+			},
+		}
+		inst := &azureInstance{vm, env, nil, nil}
+		azureInstances = append(azureInstances, inst)
+		vmNames.Add(to.String(vm.Name))
+	}
+
+	if len(azureInstances) > 0 && refreshAddresses {
 		if err := setInstanceAddresses(
-			nicClient, pipClient, resourceGroup, azureInstances,
+			pipClient, resourceGroup, azureInstances, nicsResult,
 		); err != nil {
 			return nil, errors.Trace(err)
 		}
+	}
+	instances := make([]instance.Instance, len(azureInstances))
+	for i, inst := range azureInstances {
+		instances[i] = inst
 	}
 	return instances, nil
 }
@@ -1018,10 +1053,7 @@ func (env *azureEnviron) allInstances(
 // Destroy is specified in the Environ interface.
 func (env *azureEnviron) Destroy() error {
 	logger.Debugf("destroying environment %q", env.envName)
-	// TODO(axw) drop common.Destroy; deleting the RG should be good enough.
-	if err := common.Destroy(env); err != nil {
-		return errors.Trace(err)
-	}
+	logger.Debugf("- deleting resource group")
 	if err := env.deleteResourceGroup(); err != nil {
 		return errors.Trace(err)
 	}
@@ -1030,6 +1062,7 @@ func (env *azureEnviron) Destroy() error {
 		// deleted, there's nothing left.
 		return nil
 	}
+	logger.Debugf("- deleting internal subnet")
 	if err := env.deleteInternalSubnet(); err != nil {
 		return errors.Trace(err)
 	}

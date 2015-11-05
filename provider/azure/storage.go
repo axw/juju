@@ -258,6 +258,12 @@ func (v *azureVolumeSource) listBlobs() ([]azurestorage.Blob, error) {
 		dataDiskVHDContainer, azurestorage.ListBlobsParameters{},
 	)
 	if err != nil {
+		if err, ok := err.(azurestorage.AzureStorageServiceError); ok {
+			switch err.Code {
+			case "ContainerNotFound":
+				return nil, nil
+			}
+		}
 		return nil, errors.Annotate(err, "listing blobs")
 	}
 	return response.Blobs, nil
@@ -306,7 +312,9 @@ func (v *azureVolumeSource) DestroyVolumes(volumeIds []string) ([]error, error) 
 	blobsClient := client.GetBlobService()
 	results := make([]error, len(volumeIds))
 	for i, volumeId := range volumeIds {
-		_, err := blobsClient.DeleteBlobIfExists(dataDiskVHDContainer, volumeId+vhdExtension)
+		_, err := blobsClient.DeleteBlobIfExists(
+			dataDiskVHDContainer, volumeId+vhdExtension,
+		)
 		results[i] = err
 	}
 	return results, nil

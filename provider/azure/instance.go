@@ -53,121 +53,65 @@ func (inst *azureInstance) Status() string {
 // VirtualMachines are up-to-date, and that there are no concurrent accesses
 // to the instances.
 func setInstanceAddresses(
-	nicClient network.InterfacesClient,
 	pipClient network.PublicIPAddressesClient,
 	resourceGroup string,
 	instances []*azureInstance,
+	nicsResult network.InterfaceListResult,
 ) (err error) {
 
-	nicsById := make(map[string]*network.Interface)
-	pipsById := make(map[string]*network.PublicIPAddress)
-	instanceNicIds := make([][]string, len(instances))
-	pipIdsByNicId := make(map[string][]string)
+	instanceNics := make(map[instance.Id][]network.Interface)
+	instancePips := make(map[instance.Id][]network.PublicIPAddress)
+	for _, inst := range instances {
+		instanceNics[inst.Id()] = nil
+		instancePips[inst.Id()] = nil
+	}
 
 	// When setAddresses returns without error, update each
 	// instance's network interfaces and public IP addresses.
-	setInstanceFields := func(inst *azureInstance, nicIds []string) {
-		inst.networkInterfaces = nil
-		inst.publicIPAddresses = nil
-		for _, nicId := range nicIds {
-			nic := nicsById[nicId]
-			if nic == nil {
-				logger.Warningf(
-					"could not find NIC with ID %q for instance %q",
-					nicId, inst.Id(),
-				)
-				continue
-			}
-			inst.networkInterfaces = append(inst.networkInterfaces, *nic)
-
-			for _, pipId := range pipIdsByNicId[nicId] {
-				pip := pipsById[pipId]
-				if pip == nil {
-					logger.Warningf(
-						"could not find public IP with ID %q for NIC %q",
-						pipId, nicId,
-					)
-					continue
-				}
-				inst.publicIPAddresses = append(inst.publicIPAddresses, *pip)
-			}
-		}
+	setInstanceFields := func(inst *azureInstance) {
+		inst.networkInterfaces = instanceNics[inst.Id()]
+		inst.publicIPAddresses = instancePips[inst.Id()]
 	}
 	defer func() {
 		if err != nil {
 			return
 		}
-		for i, inst := range instances {
-			setInstanceFields(inst, instanceNicIds[i])
+		for _, inst := range instances {
+			setInstanceFields(inst)
 		}
 	}()
 
-	// Record the NIC IDs we're interested in. We record the NIC IDs
-	// related to each instance in the order that they appear in the
-	// network profile, to simplify testing.
-	for i, inst := range instances {
-		if inst.Properties.NetworkProfile.NetworkInterfaces == nil {
-			// The machine should have NICs, but be defensive about it.
-			continue
-		}
-		for _, nicRef := range *inst.Properties.NetworkProfile.NetworkInterfaces {
-			nicId := to.String(nicRef.ID)
-			nicsById[nicId] = nil
-			instanceNicIds[i] = append(instanceNicIds[i], nicId)
-		}
-	}
-	if len(nicsById) == 0 {
-		return nil
-	}
+	// We do not rely on references because of how StopInstances works.
+	// In order to not leak resources we must not delete the virtual
+	// machine until after all of its dependencies are deleted.
+	//
+	// NICs and PIPs cannot be deleted until they have no references.
+	// Thus, we cannot delete a PIP until there is no reference to it
+	// in any NICs, and likewise we cannot delete a NIC until there
+	// is no reference to it in any virtual machine.
 
-	nicsResult, err := nicClient.List(resourceGroup)
-	if err != nil {
-		return errors.Annotate(err, "listing network interfaces")
-	}
-	if nicsResult.Value == nil || len(*nicsResult.Value) == 0 {
-		return nil
-	}
-	for _, nic := range *nicsResult.Value {
-		nicId := to.String(nic.ID)
-		if _, ok := nicsById[nicId]; !ok {
-			continue
-		}
-		nicCopy := nic
-		nicsById[nicId] = &nicCopy
-
-		// Record the Public IP address IDs we're interested in. We
-		// record the public IP address IDs in the order they appear
-		// in IP configurations, to simplify testing.
-		if nic.Properties.IPConfigurations == nil {
-			continue
-		}
-		for _, ipConfig := range *nic.Properties.IPConfigurations {
-			if ipConfig.Properties.PublicIPAddress == nil {
+	if nicsResult.Value != nil {
+		for _, nic := range *nicsResult.Value {
+			instanceId := instance.Id(toTags(nic.Tags)[jujuMachineNameTag])
+			if _, ok := instanceNics[instanceId]; !ok {
 				continue
 			}
-			pipId := to.String(ipConfig.Properties.PublicIPAddress.ID)
-			pipsById[pipId] = nil
-			pipIdsByNicId[nicId] = append(pipIdsByNicId[nicId], pipId)
+			instanceNics[instanceId] = append(instanceNics[instanceId], nic)
 		}
 	}
 
-	if len(pipsById) == 0 {
-		return nil
-	}
 	pipsResult, err := pipClient.List(resourceGroup)
 	if err != nil {
 		return errors.Annotate(err, "listing public IP addresses")
 	}
-	if pipsResult.Value == nil || len(*pipsResult.Value) == 0 {
-		return nil
-	}
-	for _, pip := range *pipsResult.Value {
-		pipId := to.String(pip.ID)
-		if _, ok := pipsById[pipId]; !ok {
-			continue
+	if pipsResult.Value != nil {
+		for _, pip := range *pipsResult.Value {
+			instanceId := instance.Id(toTags(pip.Tags)[jujuMachineNameTag])
+			if _, ok := instanceNics[instanceId]; !ok {
+				continue
+			}
+			instancePips[instanceId] = append(instancePips[instanceId], pip)
 		}
-		pipCopy := pip
-		pipsById[pipId] = &pipCopy
 	}
 
 	// Fields will be assigned to instances by the deferred call.

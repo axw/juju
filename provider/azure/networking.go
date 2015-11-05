@@ -317,8 +317,10 @@ func (env *azureEnviron) deleteInternalSubnet() error {
 	result, err := client.Delete(
 		env.controllerResourceGroup, internalNetworkName, subnetName,
 	)
-	if err != nil && result.Response.StatusCode != http.StatusNotFound {
-		return errors.Annotatef(err, "deleting subnet %q", subnetName)
+	if err != nil {
+		if result.Response == nil || result.StatusCode != http.StatusNotFound {
+			return errors.Annotatef(err, "deleting subnet %q", subnetName)
+		}
 	}
 	return nil
 }

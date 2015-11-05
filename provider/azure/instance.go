@@ -337,8 +337,10 @@ func (inst *azureInstance) ClosePorts(machineId string, ports []jujunetwork.Port
 		result, err := securityRuleClient.Delete(
 			inst.env.resourceGroup, securityGroupName, ruleName,
 		)
-		if err != nil && result.StatusCode != http.StatusNotFound {
-			return errors.Annotatef(err, "deleting security rule %q", ruleName)
+		if err != nil {
+			if result.Response == nil || result.StatusCode != http.StatusNotFound {
+				return errors.Annotatef(err, "deleting security rule %q", ruleName)
+			}
 		}
 	}
 	return nil
@@ -437,8 +439,10 @@ func deleteInstanceNetworkSecurityRules(
 			internalSecurityGroupName,
 			ruleName,
 		)
-		if err != nil && result.StatusCode != http.StatusNotFound {
-			return errors.Annotatef(err, "deleting security rule %q", ruleName)
+		if err != nil {
+			if result.Response == nil || result.StatusCode != http.StatusNotFound {
+				return errors.Annotatef(err, "deleting security rule %q", ruleName)
+			}
 		}
 	}
 	return nil

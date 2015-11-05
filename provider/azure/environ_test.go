@@ -26,6 +26,7 @@ import (
 
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/cloudconfig/instancecfg"
+	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/imagemetadata"
 	envtesting "github.com/juju/juju/environs/testing"
@@ -316,50 +317,50 @@ func tokenRefreshSender() *azuretesting.MockSender {
 }
 
 func (s *environSuite) initResourceGroupSenders() azuretesting.Senders {
-	sender := func(pattern string, v interface{}) *azuretesting.MockSender {
-		sender := azuretesting.NewSenderWithValue(v)
-		sender.PathPattern = pattern
-		return sender
-	}
 	resourceGroupName := "juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d"
 	return azuretesting.Senders{
-		sender(".*/resourcegroups/"+resourceGroupName, &resources.Group{}),
-		sender(".*/virtualnetworks/juju-internal", s.vnet),
-		sender(".*/networkSecurityGroups/juju-internal", &network.SecurityGroup{}),
-		sender(".*/virtualnetworks/juju-internal/subnets/"+resourceGroupName, &s.subnet),
-		sender(".*/checkNameAvailability", s.storageNameAvailabilityResult),
-		sender(".*/storageAccounts/.*", s.storageAccount),
-		sender(".*/storageAccounts/.*/listKeys", s.storageAccountKeys),
+		s.makeSender(".*/resourcegroups/"+resourceGroupName, &resources.Group{}),
+		s.makeSender(".*/virtualnetworks/juju-internal", s.vnet),
+		s.makeSender(".*/networkSecurityGroups/juju-internal", &network.SecurityGroup{}),
+		s.makeSender(".*/virtualnetworks/juju-internal/subnets/"+resourceGroupName, &s.subnet),
+		s.makeSender(".*/checkNameAvailability", s.storageNameAvailabilityResult),
+		s.makeSender(".*/storageAccounts/.*", s.storageAccount),
+		s.makeSender(".*/storageAccounts/.*/listKeys", s.storageAccountKeys),
 	}
 }
 
 func (s *environSuite) startInstanceSenders(controller bool) azuretesting.Senders {
-	sender := func(pattern string, v interface{}) *azuretesting.MockSender {
-		sender := azuretesting.NewSenderWithValue(v)
-		sender.PathPattern = pattern
-		return sender
-	}
 	senders := azuretesting.Senders{
-		sender(".*/vmSizes", s.vmSizes),
-		sender(".*/subnets/juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d", s.subnet),
-		sender(".*/Canonical/.*/UbuntuServer/skus", s.ubuntuServerSKUs),
-		sender(".*/publicIPAddresses/machine-0-public-ip", s.publicIPAddress),
-		sender(".*/networkInterfaces", s.oldNetworkInterfaces),
-		sender(".*/networkInterfaces/machine-0-primary", s.newNetworkInterface),
+		s.vmSizesSender(),
+		s.makeSender(".*/subnets/juju-testenv-environment-deadbeef-0bad-400d-8000-4b1d0d06f00d", s.subnet),
+		s.makeSender(".*/Canonical/.*/UbuntuServer/skus", s.ubuntuServerSKUs),
+		s.makeSender(".*/publicIPAddresses/machine-0-public-ip", s.publicIPAddress),
+		s.makeSender(".*/networkInterfaces", s.oldNetworkInterfaces),
+		s.makeSender(".*/networkInterfaces/machine-0-primary", s.newNetworkInterface),
 	}
 	if controller {
 		senders = append(senders,
-			sender(".*/networkSecurityGroups/juju-internal", &network.SecurityGroup{
+			s.makeSender(".*/networkSecurityGroups/juju-internal", &network.SecurityGroup{
 				Properties: &network.SecurityGroupPropertiesFormat{},
 			}),
-			sender(".*/networkSecurityGroups/juju-internal", &network.SecurityGroup{}),
+			s.makeSender(".*/networkSecurityGroups/juju-internal", &network.SecurityGroup{}),
 		)
 	}
 	senders = append(senders,
-		sender(".*/availabilitySets/juju", s.jujuAvailabilitySet),
-		sender(".*/virtualMachines/machine-0", s.virtualMachine),
+		s.makeSender(".*/availabilitySets/juju", s.jujuAvailabilitySet),
+		s.makeSender(".*/virtualMachines/machine-0", s.virtualMachine),
 	)
 	return senders
+}
+
+func (s *environSuite) vmSizesSender() *azuretesting.MockSender {
+	return s.makeSender(".*/vmSizes", s.vmSizes)
+}
+
+func (s *environSuite) makeSender(pattern string, v interface{}) *azuretesting.MockSender {
+	sender := azuretesting.NewSenderWithValue(v)
+	sender.PathPattern = pattern
+	return sender
 }
 
 func makeStartInstanceParams(c *gc.C, series string) environs.StartInstanceParams {
@@ -602,4 +603,53 @@ func (s *environSuite) TestStopInstancesNotFound(c *gc.C) {
 	s.sender = azuretesting.Senders{sender, sender, sender}
 	err := env.StopInstances("a", "b")
 	c.Assert(err, jc.ErrorIsNil)
+}
+
+func (s *environSuite) TestStopInstances(c *gc.C) {
+	env := s.openEnviron(c)
+	s.sender = azuretesting.Senders{
+		s.makeSender(".*/virtualMachines/machine-0/deallocate", nil),
+		s.makeSender(".*/virtualMachines/machine-1/deallocate", nil),
+	}
+	err := env.StopInstances("machine-0", "machine-1")
+	c.Assert(err, jc.ErrorIsNil)
+}
+
+func (s *environSuite) TestConstraintsValidatorUnsupported(c *gc.C) {
+	validator := s.constraintsValidator(c)
+	unsupported, err := validator.Validate(constraints.MustParse(
+		"arch=amd64 tags=foo cpu-power=100",
+	))
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(unsupported, jc.SameContents, []string{"tags", "cpu-power"})
+}
+
+func (s *environSuite) TestConstraintsValidatorVocabulary(c *gc.C) {
+	validator := s.constraintsValidator(c)
+	_, err := validator.Validate(constraints.MustParse("arch=armhf"))
+	c.Assert(err, gc.ErrorMatches,
+		"invalid constraint value: arch=armhf\nvalid values are: \\[amd64\\]",
+	)
+	_, err = validator.Validate(constraints.MustParse("instance-type=t1.micro"))
+	c.Assert(err, gc.ErrorMatches,
+		"invalid constraint value: instance-type=t1.micro\nvalid values are: \\[D1 Standard_D1\\]",
+	)
+}
+
+func (s *environSuite) TestConstraintsValidatorMerge(c *gc.C) {
+	validator := s.constraintsValidator(c)
+	cons, err := validator.Merge(
+		constraints.MustParse("mem=3G arch=amd64"),
+		constraints.MustParse("instance-type=D1"),
+	)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(cons.String(), gc.Equals, "instance-type=D1")
+}
+
+func (s *environSuite) constraintsValidator(c *gc.C) constraints.Validator {
+	env := s.openEnviron(c)
+	s.sender = azuretesting.Senders{s.vmSizesSender()}
+	validator, err := env.ConstraintsValidator()
+	c.Assert(err, jc.ErrorIsNil)
+	return validator
 }

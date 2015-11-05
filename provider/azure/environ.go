@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 
@@ -313,24 +314,15 @@ func (env *azureEnviron) SetConfig(cfg *config.Config) error {
 
 // SupportedArchitectures is specified on the EnvironCapability interface.
 func (env *azureEnviron) SupportedArchitectures() ([]string, error) {
-	return []string{arch.AMD64}, nil
+	return env.supportedArchitectures(), nil
 }
 
-var unsupportedConstraints = []string{
-	constraints.CpuPower,
-	constraints.Tags,
+func (env *azureEnviron) supportedArchitectures() []string {
+	return []string{arch.AMD64}
 }
 
 // ConstraintsValidator is defined on the Environs interface.
 func (env *azureEnviron) ConstraintsValidator() (constraints.Validator, error) {
-	validator := constraints.NewValidator()
-	validator.RegisterUnsupported(unsupportedConstraints)
-	supportedArches, err := env.SupportedArchitectures()
-	if err != nil {
-		return nil, err
-	}
-	validator.RegisterVocabulary(constraints.Arch, supportedArches)
-
 	instanceTypes, err := env.getInstanceTypes()
 	if err != nil {
 		return nil, err
@@ -339,10 +331,29 @@ func (env *azureEnviron) ConstraintsValidator() (constraints.Validator, error) {
 	for instTypeName := range instanceTypes {
 		instTypeNames = append(instTypeNames, instTypeName)
 	}
-	validator.RegisterVocabulary(constraints.InstanceType, instTypeNames)
+	sort.Strings(instTypeNames)
+
+	validator := constraints.NewValidator()
+	validator.RegisterUnsupported([]string{
+		constraints.CpuPower,
+		constraints.Tags,
+	})
+	validator.RegisterVocabulary(
+		constraints.Arch,
+		env.supportedArchitectures(),
+	)
+	validator.RegisterVocabulary(
+		constraints.InstanceType,
+		instTypeNames,
+	)
 	validator.RegisterConflicts(
 		[]string{constraints.InstanceType},
-		[]string{constraints.Mem, constraints.CpuCores, constraints.Arch, constraints.RootDisk},
+		[]string{
+			constraints.Mem,
+			constraints.CpuCores,
+			constraints.Arch,
+			constraints.RootDisk,
+		},
 	)
 	return validator, nil
 }
@@ -833,9 +844,17 @@ func deallocateVirtualMachine(
 ) error {
 	vmClient := compute.VirtualMachinesClient{computeClient}
 	logger.Debugf("deallocating virtual machine %q", vmName)
-	deallocateResult, err := vmClient.Deallocate(resourceGroup, vmName)
-	// TODO(axw) test what happens when VM is already deallocated.
-	if err != nil && deallocateResult.StatusCode != http.StatusNotFound {
+	result, err := vmClient.Deallocate(resourceGroup, vmName)
+	if err != nil {
+		// TODO(axw) there is a bug in azure-sdk-for-go that means that
+		// 200 OK is treated as an error. When this is fixed, we can
+		// stop checking StatusOK here.
+		if result.Response != nil {
+			switch result.StatusCode {
+			case http.StatusNotFound, http.StatusOK:
+				return nil
+			}
+		}
 		return errors.Trace(err)
 	}
 	return nil
@@ -879,8 +898,10 @@ func deleteInstance(
 		pipName := to.String(pip.Name)
 		logger.Tracef("deleting public IP %q", pipName)
 		result, err := publicIPClient.Delete(inst.env.resourceGroup, pipName)
-		if err != nil && result.StatusCode != http.StatusNotFound {
-			return errors.Annotate(err, "deleting public IP")
+		if err != nil {
+			if result.Response == nil || result.StatusCode != http.StatusNotFound {
+				return errors.Annotate(err, "deleting public IP")
+			}
 		}
 	}
 
@@ -890,8 +911,10 @@ func deleteInstance(
 		nicName := to.String(nic.Name)
 		logger.Tracef("deleting NIC %q", nicName)
 		result, err := nicClient.Delete(inst.env.resourceGroup, nicName)
-		if err != nil && result.StatusCode != http.StatusNotFound {
-			return errors.Annotate(err, "deleting NIC")
+		if err != nil {
+			if result.Response == nil || result.StatusCode != http.StatusNotFound {
+				return errors.Annotate(err, "deleting NIC")
+			}
 		}
 	}
 
@@ -899,8 +922,10 @@ func deleteInstance(
 	// we fail after deleting the VM we might leak resources.
 	logger.Debugf("- deleting virtual machine")
 	deleteResult, err := vmClient.Delete(inst.env.resourceGroup, vmName)
-	if err != nil && deleteResult.StatusCode != http.StatusNotFound {
-		return errors.Annotate(err, "deleting virtual machine")
+	if err != nil {
+		if deleteResult.Response == nil || deleteResult.StatusCode != http.StatusNotFound {
+			return errors.Annotate(err, "deleting virtual machine")
+		}
 	}
 	return nil
 }
@@ -963,7 +988,7 @@ func (env *azureEnviron) allInstances(
 
 	result, err := vmClient.List(resourceGroup)
 	if err != nil {
-		if result.StatusCode == http.StatusNotFound {
+		if result.Response.Response == nil || result.StatusCode == http.StatusNotFound {
 			// This will occur if the resource group does not
 			// exist, e.g. in a fresh hosted environment.
 			return nil, nil
@@ -993,6 +1018,10 @@ func (env *azureEnviron) allInstances(
 // Destroy is specified in the Environ interface.
 func (env *azureEnviron) Destroy() error {
 	logger.Debugf("destroying environment %q", env.envName)
+	// TODO(axw) drop common.Destroy; deleting the RG should be good enough.
+	if err := common.Destroy(env); err != nil {
+		return errors.Trace(err)
+	}
 	if err := env.deleteResourceGroup(); err != nil {
 		return errors.Trace(err)
 	}
@@ -1010,8 +1039,10 @@ func (env *azureEnviron) Destroy() error {
 func (env *azureEnviron) deleteResourceGroup() error {
 	client := resources.GroupsClient{env.resources}
 	result, err := client.Delete(env.resourceGroup)
-	if err != nil && result.Response.StatusCode != http.StatusNotFound {
-		return errors.Annotatef(err, "deleting resource group %q", env.resourceGroup)
+	if err != nil {
+		if result.Response == nil || result.StatusCode != http.StatusNotFound {
+			return errors.Annotatef(err, "deleting resource group %q", env.resourceGroup)
+		}
 	}
 	return nil
 }

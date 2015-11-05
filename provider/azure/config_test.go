@@ -10,7 +10,7 @@ import (
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/provider/azure/internal/azuretesting"
+	"github.com/juju/juju/provider/azure"
 	"github.com/juju/juju/testing"
 )
 
@@ -25,16 +25,16 @@ const (
 type configSuite struct {
 	testing.BaseSuite
 
-	storageClient azuretesting.MockStorageClient
-	provider      environs.EnvironProvider
+	provider environs.EnvironProvider
 }
 
 var _ = gc.Suite(&configSuite{})
 
 func (s *configSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.storageClient = azuretesting.MockStorageClient{}
-	s.provider, _ = newProviders(c, mocks.NewSender(), s.storageClient.NewClient, nil)
+	s.provider, _ = newProviders(c, azure.ProviderConfig{
+		Sender: mocks.NewSender(),
+	})
 }
 
 func (s *configSuite) TestValidateNew(c *gc.C) {
@@ -105,9 +105,13 @@ func makeTestEnvironConfig(c *gc.C, extra ...testing.Attrs) *config.Config {
 		"subscription-id":           fakeSubscriptionId,
 		"location":                  "westus",
 		"controller-resource-group": "arbitrary",
+		"agent-version":             "1.2.3",
 	}
 	for _, extra := range extra {
 		attrs = attrs.Merge(extra)
 	}
-	return testing.CustomEnvironConfig(c, attrs)
+	attrs = testing.FakeConfig().Merge(attrs)
+	cfg, err := config.New(config.NoDefaults, attrs)
+	c.Assert(err, jc.ErrorIsNil)
+	return cfg
 }

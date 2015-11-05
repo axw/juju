@@ -16,7 +16,6 @@ import (
 	"github.com/juju/juju/environs"
 	envtesting "github.com/juju/juju/environs/testing"
 	"github.com/juju/juju/provider/azure"
-	"github.com/juju/juju/provider/azure/internal/azurestorage"
 	"github.com/juju/juju/provider/azure/internal/azuretesting"
 	"github.com/juju/juju/storage"
 	"github.com/juju/juju/testing"
@@ -24,18 +23,19 @@ import (
 
 type environProviderSuite struct {
 	testing.BaseSuite
-	storageClient azuretesting.MockStorageClient
-	provider      environs.EnvironProvider
-	requests      []*http.Request
-	sender        azuretesting.Senders
+	provider environs.EnvironProvider
+	requests []*http.Request
+	sender   azuretesting.Senders
 }
 
 var _ = gc.Suite(&environProviderSuite{})
 
 func (s *environProviderSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	s.storageClient = azuretesting.MockStorageClient{}
-	s.provider, _ = newProviders(c, &s.sender, s.storageClient.NewClient, &s.requests)
+	s.provider, _ = newProviders(c, azure.ProviderConfig{
+		Sender:           &s.sender,
+		RequestInspector: requestRecorder(&s.requests),
+	})
 	s.sender = nil
 }
 
@@ -71,19 +71,15 @@ func (s *environProviderSuite) TestPrepareForBootstrap(c *gc.C) {
 	)
 }
 
-func newProviders(
-	c *gc.C, sender autorest.Sender,
-	newStorageClient azurestorage.NewClientFunc,
-	requests *[]*http.Request,
-) (environs.EnvironProvider, storage.Provider) {
-	var requestInspector autorest.PrepareDecorator
-	if requests != nil {
-		requestInspector = requestRecorder(requests)
+func newProviders(c *gc.C, config azure.ProviderConfig) (environs.EnvironProvider, storage.Provider) {
+	if config.NewStorageClient == nil {
+		var storage azuretesting.MockStorageClient
+		config.NewStorageClient = storage.NewClient
 	}
-	config := azure.ProviderConfig{
-		Sender:           sender,
-		RequestInspector: requestInspector,
-		NewStorageClient: newStorageClient,
+	if config.StorageAccountNameGenerator == nil {
+		config.StorageAccountNameGenerator = func() string {
+			return fakeStorageAccount
+		}
 	}
 	environProvider, storageProvider, err := azure.NewProviders(config)
 	c.Assert(err, jc.ErrorIsNil)
@@ -91,6 +87,9 @@ func newProviders(
 }
 
 func requestRecorder(requests *[]*http.Request) autorest.PrepareDecorator {
+	if requests == nil {
+		return nil
+	}
 	return func(p autorest.Preparer) autorest.Preparer {
 		return autorest.PreparerFunc(func(req *http.Request) (*http.Request, error) {
 			// Save the request body, since it will be consumed.

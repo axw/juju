@@ -17,6 +17,7 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/instance"
 	jujunetwork "github.com/juju/juju/network"
+	"github.com/juju/juju/provider/azure"
 	"github.com/juju/juju/provider/azure/internal/azuretesting"
 	"github.com/juju/juju/testing"
 )
@@ -37,8 +38,10 @@ var _ = gc.Suite(&instanceSuite{})
 
 func (s *instanceSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
-	var storageClient azuretesting.MockStorageClient
-	s.provider, _ = newProviders(c, &s.sender, storageClient.NewClient, &s.requests)
+	s.provider, _ = newProviders(c, azure.ProviderConfig{
+		Sender:           &s.sender,
+		RequestInspector: requestRecorder(&s.requests),
+	})
 	s.env = openEnviron(c, s.provider, &s.sender)
 	s.sender = nil
 	s.requests = nil

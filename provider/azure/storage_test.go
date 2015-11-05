@@ -37,7 +37,11 @@ func (s *storageSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
 	s.storageClient = azuretesting.MockStorageClient{}
 	s.requests = nil
-	_, s.provider = newProviders(c, &s.sender, s.storageClient.NewClient, &s.requests)
+	_, s.provider = newProviders(c, azure.ProviderConfig{
+		Sender:           &s.sender,
+		NewStorageClient: s.storageClient.NewClient,
+		RequestInspector: requestRecorder(&s.requests),
+	})
 	s.sender = nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/names"
 	"github.com/juju/schema"
+	"github.com/juju/utils"
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
@@ -691,4 +692,11 @@ func getStorageClient(
 		storageAccountName, storageAccountKey,
 		storageEndpoint, azurestorage.DefaultAPIVersion, useHTTPS,
 	)
+}
+
+// RandomStorageAccountName returns a random storage account name.
+func RandomStorageAccountName() string {
+	const maxStorageAccountNameLen = 24
+	validRunes := append([]rune(utils.LowerAlpha), []rune(utils.Digits)...)
+	return utils.RandomString(maxStorageAccountNameLen, validRunes)
 }

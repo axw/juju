@@ -29,7 +29,8 @@ func NewProviders(config ProviderConfig) (environs.EnvironProvider, storage.Prov
 
 func init() {
 	environProvider, storageProvider, err := NewProviders(ProviderConfig{
-		NewStorageClient: azurestorage.NewClient,
+		NewStorageClient:            azurestorage.NewClient,
+		StorageAccountNameGenerator: RandomStorageAccountName,
 	})
 	if err != nil {
 		panic(err)

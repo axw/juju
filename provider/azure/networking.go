@@ -46,14 +46,16 @@ const (
 	// security group rules defined by Juju.
 	securityRuleInternalMax = 199
 
+	// securityRuleMax is the maximum allowable security rule
+	// priority.
+	securityRuleMax = 4096
+)
+
+const (
 	// securityRuleInternalSSHInbound is the priority of the
 	// security rule that allows inbound SSH access to all
 	// machines.
 	securityRuleInternalSSHInbound = securityRuleInternalMin + iota
-
-	// securityRuleMax is the maximum allowable security rule
-	// priority.
-	securityRuleMax = 4096
 )
 
 var sshSecurityRule = network.SecurityRule{

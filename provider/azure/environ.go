@@ -20,7 +20,6 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
-	"github.com/juju/utils"
 	"github.com/juju/utils/arch"
 	"github.com/juju/utils/os"
 	jujuseries "github.com/juju/utils/series"
@@ -91,6 +90,7 @@ func (env *azureEnviron) Bootstrap(
 
 	arch, series, finalizer, err := common.Bootstrap(ctx, env, args)
 	if err != nil {
+		logger.Errorf("bootstrap failed, destroying environment: %v", err)
 		if err := env.Destroy(); err != nil {
 			logger.Errorf(
 				"failed to destroy environment: %v",
@@ -153,6 +153,7 @@ func (env *azureEnviron) initResourceGroup() (*config.Config, error) {
 	storageAccountName, storageAccountKey, err := createStorageAccount(
 		storageAccountsClient, env.config.storageAccountType,
 		env.resourceGroup, location, tags,
+		env.provider.config.StorageAccountNameGenerator,
 	)
 	if err != nil {
 		return nil, errors.Annotate(err, "creating storage account")
@@ -169,13 +170,12 @@ func createStorageAccount(
 	resourceGroup string,
 	location string,
 	tags map[string]string,
+	accountNameGenerator func() string,
 ) (string, string, error) {
-	const maxStorageAccountNameLen = 24
-	const maxAttempts = 10
-	validRunes := append([]rune(utils.LowerAlpha), []rune(utils.Digits)...)
 	logger.Debugf("creating storage account (finding available name)")
+	const maxAttempts = 10
 	for remaining := maxAttempts; remaining > 0; remaining-- {
-		accountName := utils.RandomString(maxStorageAccountNameLen, validRunes)
+		accountName := accountNameGenerator()
 		logger.Debugf("- checking storage account name %q", accountName)
 		result, err := client.CheckNameAvailability(
 			storage.AccountCheckNameAvailabilityParameters{
@@ -470,6 +470,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		vmExtensionClient,
 	)
 	if err != nil {
+		logger.Errorf("creating instance failed, destroying: %v", err)
 		if err := env.StopInstances(instance.Id(vmName)); err != nil {
 			logger.Errorf("could not destroy failed virtual machine: %v", err)
 		}

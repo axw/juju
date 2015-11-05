@@ -30,12 +30,19 @@ type ProviderConfig struct {
 	// NewStorageClient will be used to construct new storage
 	// clients.
 	NewStorageClient azurestorage.NewClientFunc
+
+	// StorageAccountNameGenerator is a function returning storage
+	// account names.
+	StorageAccountNameGenerator func() string
 }
 
 // Validate validates the Azure provider configuration.
 func (cfg ProviderConfig) Validate() error {
 	if cfg.NewStorageClient == nil {
 		return errors.NotValidf("nil NewStorageClient")
+	}
+	if cfg.StorageAccountNameGenerator == nil {
+		return errors.NotValidf("nil StorageAccountNameGenerator")
 	}
 	return nil
 }
@@ -107,7 +114,7 @@ func (prov *azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapCont
 
 	// Record the UUID that will be used for the controller environment.
 	cfg, err := cfg.Apply(map[string]interface{}{
-		"controller-resource-group": resourceGroupName(cfg),
+		configAttrControllerResourceGroup: resourceGroupName(cfg),
 	})
 	if err != nil {
 		return nil, errors.Annotate(err, "recording controller-resource-group")

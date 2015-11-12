@@ -44,7 +44,7 @@ func (s *configSuite) TestValidateNew(c *gc.C) {
 func (s *configSuite) TestValidateInvalidStorageAccountType(c *gc.C) {
 	s.assertConfigInvalid(
 		c, testing.Attrs{"storage-account-type": "savings"},
-		`invalid storage account type "savings", expected one of: \["Standard_LRS" "Standard_GRS" "Standard_RAGRS" "Standard_ZRS" "Premium_LRS"\]`,
+		`storage-account-type: expected one of \[Standard_LRS Standard_GRS Standard_RAGRS Standard_ZRS Premium_LRS\], got "savings"`,
 	)
 }
 

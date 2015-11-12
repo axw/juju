@@ -6,6 +6,8 @@ package azure
 import (
 	"strings"
 
+	"gopkg.in/juju/environschema.v1"
+
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/azure"
 	"github.com/Azure/azure-sdk-for-go/arm/storage"
 	"github.com/juju/errors"
@@ -42,24 +44,93 @@ const (
 	configAttrControllerResourceGroup = "controller-resource-group"
 )
 
-var configFields = schema.Fields{
-	configAttrLocation:                schema.String(),
-	configAttrAppId:                   schema.String(),
-	configAttrSubscriptionId:          schema.String(),
-	configAttrTenantId:                schema.String(),
-	configAttrAppKey:                  schema.String(),
-	configAttrStorageAccount:          schema.String(),
-	configAttrStorageAccountKey:       schema.String(),
-	configAttrStorageAccountType:      schema.String(),
-	configAttrControllerResourceGroup: schema.String(),
+var configSchema = environschema.Fields{
+	// User-configurable attributes.
+	configAttrLocation: {
+		Description: "The Azure data center location",
+		Type:        environschema.Tstring,
+		Immutable:   true,
+		Mandatory:   true,
+		Example:     "West US",
+		// TODO(axw) enumerate locations?
+	},
+	configAttrStorageAccountType: {
+		Description: "The Azure storage account type",
+		Type:        environschema.Tstring,
+		Immutable:   true,
+		Mandatory:   true,
+		Example:     string(storage.StandardLRS),
+		Values: []interface{}{
+			string(storage.StandardLRS),
+			string(storage.StandardGRS),
+			string(storage.StandardRAGRS),
+			string(storage.StandardZRS),
+			string(storage.PremiumLRS),
+		},
+	},
+
+	// Internal configuration.
+	configAttrStorageAccount: {
+		Description: "The environment's storage account name",
+		Type:        environschema.Tstring,
+		Group:       environschema.JujuGroup,
+		Immutable:   true,
+	},
+	configAttrStorageAccountKey: {
+		Description: "The environment's storage account key",
+		Type:        environschema.Tstring,
+		Group:       environschema.JujuGroup,
+		Immutable:   true,
+		Secret:      true,
+	},
+	configAttrControllerResourceGroup: {
+		Description: "The name of the Juju controller environment's resource group",
+		Type:        environschema.Tstring,
+		Group:       environschema.JujuGroup,
+		Immutable:   true,
+	},
+
+	// Credentials.
+	configAttrAppId: {
+		Description: "The application ID created in Azure Active Directory for Juju to use",
+		Type:        environschema.Tstring,
+		Group:       environschema.AccountGroup,
+		Mandatory:   true,
+		Secret:      true,
+	},
+	configAttrAppKey: {
+		Description: "The password for the application created in Azure Active Directory",
+		Type:        environschema.Tstring,
+		Group:       environschema.AccountGroup,
+		Mandatory:   true,
+		Secret:      true,
+	},
+	configAttrSubscriptionId: {
+		Description: "The ID of the account subscription to manage resources in",
+		Type:        environschema.Tstring,
+		Group:       environschema.AccountGroup,
+		Immutable:   true,
+		Mandatory:   true,
+		Secret:      true,
+	},
+	configAttrTenantId: {
+		Description: "The ID of the Azure tenant, which identifies the Azure Active Directory instance",
+		Type:        environschema.Tstring,
+		Group:       environschema.AccountGroup,
+		Immutable:   true,
+		Mandatory:   true,
+		Secret:      true,
+	},
 }
 
-var configDefaults = schema.Defaults{
-	configAttrStorageAccount:          schema.Omit,
-	configAttrStorageAccountKey:       schema.Omit,
-	configAttrControllerResourceGroup: schema.Omit,
-	configAttrStorageAccountType:      string(storage.StandardLRS),
-}
+var configFields, configDefaults = func() (schema.Fields, schema.Defaults) {
+	fields, defaults, err := configSchema.ValidationSchema()
+	if err != nil {
+		panic(err)
+	}
+	defaults[configAttrStorageAccountType] = string(storage.StandardLRS)
+	return fields, defaults
+}()
 
 var requiredConfigAttributes = []string{
 	configAttrAppId,
@@ -93,10 +164,6 @@ type azureEnvironConfig struct {
 	storageAccountKey       string
 	storageAccountType      storage.AccountType
 	controllerResourceGroup string
-}
-
-var knownStorageAccountTypes = []string{
-	"Standard_LRS", "Standard_GRS", "Standard_RAGRS", "Standard_ZRS", "Premium_LRS",
 }
 
 func (prov *azureEnvironProvider) newConfig(cfg *config.Config) (*azureEnvironConfig, error) {
@@ -175,13 +242,6 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 		return nil, errNoFwGlobal
 	}
 
-	if !isKnownStorageAccountType(storageAccountType) {
-		return nil, errors.Errorf(
-			"invalid storage account type %q, expected one of: %q",
-			storageAccountType, knownStorageAccountTypes,
-		)
-	}
-
 	token, err := azure.NewServicePrincipalToken(
 		appId, appKey, tenantId,
 		azure.AzureResourceManagerScope,
@@ -202,17 +262,6 @@ func validateConfig(newCfg, oldCfg *config.Config) (*azureEnvironConfig, error) 
 	}
 
 	return azureConfig, nil
-}
-
-// isKnownStorageAccountType reports whether or not the given string identifies
-// a known storage account type.
-func isKnownStorageAccountType(t string) bool {
-	for _, knownStorageAccountType := range knownStorageAccountTypes {
-		if t == knownStorageAccountType {
-			return true
-		}
-	}
-	return false
 }
 
 // canonicalLocation returns the canonicalized location string. This involves

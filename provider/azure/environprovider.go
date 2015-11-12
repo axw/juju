@@ -7,6 +7,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
+	"gopkg.in/juju/environschema.v1"
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
@@ -147,6 +148,18 @@ func (prov *azureEnvironProvider) SecretAttrs(cfg *config.Config) (map[string]st
 		secretAttrs[configAttrStorageAccountKey] = storageAccountKey
 	}
 	return secretAttrs, nil
+}
+
+// Schema returns the configuration schema for Azure environments.
+//
+// TODO(axw) add Schema() to dual.EnvironProvider
+// (and to the legacy provider?)
+func (*azureEnvironProvider) Schema() environschema.Fields {
+	fields, err := config.Schema(configSchema)
+	if err != nil {
+		panic(err)
+	}
+	return fields
 }
 
 // verifyCredentials issues a cheap, non-modifying request to Azure to

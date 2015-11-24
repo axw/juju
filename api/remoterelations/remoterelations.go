@@ -39,11 +39,9 @@ func (st *State) WatchRemoteServices() (watcher.StringsWatcher, error) {
 	return w, nil
 }
 
-// WatchRemoteService returns service relations watchers that delivers
-// changes according to the addition, removal, and lifecycle changes of
-// relations that the specified remote service is involved in; and also
-// according to the entering, departing, and change of unit settings in
-// those relations.
+// WatchRemoteService returns remote service watchers that delivers
+// changes to the remote service in the offering environment. This
+// includes status, lifecycle and relation changes.
 func (st *State) WatchRemoteService(service string) (watcher.ServiceRelationsWatcher, error) {
 	if !names.IsValidService(service) {
 		return nil, errors.NotValidf("service name %q", service)

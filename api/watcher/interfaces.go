@@ -56,3 +56,10 @@ type ServiceRelationsWatcher interface {
 	Err() error
 	Stop() error
 }
+
+// ServiceWatcher is a watcher that reports on changes to a services.
+type ServiceWatcher interface {
+	Changes() <-chan params.ServiceChange
+	Err() error
+	Stop() error
+}

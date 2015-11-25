@@ -39,10 +39,10 @@ func (st *State) WatchRemoteServices() (watcher.StringsWatcher, error) {
 	return w, nil
 }
 
-// WatchRemoteService returns remote service watchers that delivers
+// WatchRemoteService returns a remote service watcher that delivers
 // changes to the remote service in the offering environment. This
 // includes status, lifecycle and relation changes.
-func (st *State) WatchRemoteService(service string) (watcher.ServiceRelationsWatcher, error) {
+func (st *State) WatchRemoteService(service string) (watcher.ServiceWatcher, error) {
 	if !names.IsValidService(service) {
 		return nil, errors.NotValidf("service name %q", service)
 	}
@@ -51,7 +51,7 @@ func (st *State) WatchRemoteService(service string) (watcher.ServiceRelationsWat
 		Entities: []params.Entity{{Tag: serviceTag.String()}},
 	}
 
-	var results params.ServiceRelationsWatchResults
+	var results params.ServiceWatchResults
 	err := st.facade.FacadeCall("WatchRemoteService", args, &results)
 	if err != nil {
 		return nil, err

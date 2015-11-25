@@ -510,11 +510,26 @@ type ServiceRelationsWatchResults struct {
 	Results []ServiceRelationsWatchResult `json:"results"`
 }
 
+// ServiceWatchResult holds a ServiceWatcher id, changes and an error (if any).
+type ServiceWatchResult struct {
+	ServiceWatcherId string
+	Change           *ServiceChange `json:"change,omitempty"`
+	Error            *Error         `json:"error,omitempty"`
+}
+
+// ServiceWatchResults holds the results for any API call which ends
+// up returning a list of ServiceWatchers.
+type ServiceWatchResults struct {
+	Results []ServiceWatchResult `json:"results"`
+}
+
 // ServiceChange describes changes to a service.
 type ServiceChange struct {
 	ServiceTag string                 `json:"servicetag"`
 	Life       Life                   `json:"life"`
 	Relations  ServiceRelationsChange `json:"relations"`
+
+	// TODO(axw) status
 }
 
 // ServiceChanges describes a set of changes to services.

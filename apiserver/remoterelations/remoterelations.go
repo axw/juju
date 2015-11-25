@@ -12,6 +12,7 @@ import (
 
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
+	"github.com/juju/juju/model/crossmodel"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/multiwatcher"
 	"github.com/juju/juju/state/watcher"
@@ -25,9 +26,10 @@ func init() {
 
 // RemoteRelationsAPI provides access to the Provisioner API facade.
 type RemoteRelationsAPI struct {
-	st         RemoteRelationsState
-	resources  *common.Resources
-	authorizer common.Authorizer
+	st                    RemoteRelationsState
+	localServiceDirectory crossmodel.ServiceDirectory
+	resources             *common.Resources
+	authorizer            common.Authorizer
 }
 
 // NewRemoteRelationsAPI creates a new server-side RemoteRelationsAPI facade
@@ -61,6 +63,7 @@ func NewRemoteRelationsAPI(
 func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
 	changes params.ServiceChanges,
 ) (params.ErrorResults, error) {
+	logger.Debugf("ConsumeRemoteServiceChange: %+v", changes)
 	results := params.ErrorResults{
 		Results: make([]params.ErrorResult, len(changes.Changes)),
 	}
@@ -145,6 +148,7 @@ func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
 func (api *RemoteRelationsAPI) PublishLocalRelationsChange(
 	changes params.ServiceRelationsChanges,
 ) (params.ErrorResults, error) {
+	logger.Debugf("PublishLocalRelationsChange: %+v", changes)
 	return params.ErrorResults{}, errors.NotImplementedf("PublishLocalRelationChange")
 }
 
@@ -163,10 +167,88 @@ func (api *RemoteRelationsAPI) WatchRemoteServices() (params.StringsWatchResult,
 	return params.StringsWatchResult{}, watcher.EnsureErr(w)
 }
 
-// WatchRemoteService starts a ServiceRelationsWatcher for each specified
+// WatchRemoteService returns a remote service watcher that delivers
+// changes to the remote service in the offering environment. This
+// includes status, lifecycle and relation changes.
+func (api *RemoteRelationsAPI) WatchRemoteService(args params.Entities) (params.ServiceWatchResults, error) {
+	results := params.ServiceWatchResults{
+		make([]params.ServiceWatchResult, len(args.Entities)),
+	}
+	for i, arg := range args.Entities {
+		serviceTag, err := names.ParseServiceTag(arg.Tag)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
+		w, err := api.watchRemoteService(serviceTag)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+		}
+		change, ok := <-w.Changes()
+		if !ok {
+			results.Results[i].Error = common.ServerError(watcher.EnsureErr(w))
+			continue
+		}
+		results.Results[i].ServiceWatcherId = api.resources.Register(w)
+		results.Results[i].Change = &change
+	}
+	return results, nil
+}
+
+func (api *RemoteRelationsAPI) watchRemoteService(serviceTag names.ServiceTag) (*serviceWatcher, error) {
+	// TODO(axw) when we want to support cross-model relations involving
+	// non-local directories, we'll need to subscribe to some sort of
+	// message bus which will receive the changes from remote controllers.
+	// For now we only handle local.
+	serviceName := serviceTag.Id()
+	remoteService, err := api.st.RemoteService(serviceName)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	serviceURL := remoteService.URL()
+	directoryName, err := crossmodel.ServiceDirectoryForURL(serviceURL)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if directoryName != "local" {
+		return nil, errors.NotSupportedf("non-local service URL %q", serviceURL)
+	}
+
+	// TODO(axw) ideally we'd use crossmodel.ServiceOfferForURL, but the API it
+	// expects does not match ServiceDirectory. Why does the API client have a
+	// different interface to crossmodel.ServiceDirectory?
+	offers, err := api.localServiceDirectory.ListOffers(crossmodel.ServiceOfferFilter{
+		ServiceOffer: crossmodel.ServiceOffer{ServiceURL: serviceURL},
+	})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if len(offers) == 0 {
+		return nil, errors.NotFoundf("service offer for %q", serviceURL)
+	}
+	offer := offers[0]
+	otherState, err := api.st.ForEnviron(names.NewEnvironTag(offer.SourceEnvUUID))
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	// The offered service may have a different name to what it's called in
+	// the consuming environment. The offer records the service's name.
+	serviceName = offer.ServiceName
+	service, err := otherState.Service(serviceName)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	serviceWatcher := service.Watch()
+	relationsWatcher := service.WatchRelations()
+	rw := newServiceRelationsWatcher(otherState, serviceName, false, relationsWatcher)
+	return newServiceWatcher(otherState, serviceName, serviceWatcher, rw), nil
+}
+
+// WatchServiceRelations starts a ServiceRelationsWatcher for each specified
 // remote service, and returns the watcher IDs and initial values, or an error
 // if the remote services could not be watched.
-func (api *RemoteRelationsAPI) WatchRemoteService(args params.Entities) (params.ServiceRelationsWatchResults, error) {
+func (api *RemoteRelationsAPI) WatchServiceRelations(args params.Entities) (params.ServiceRelationsWatchResults, error) {
 	results := params.ServiceRelationsWatchResults{
 		make([]params.ServiceRelationsWatchResult, len(args.Entities)),
 	}
@@ -176,7 +258,7 @@ func (api *RemoteRelationsAPI) WatchRemoteService(args params.Entities) (params.
 			results.Results[i].Error = common.ServerError(err)
 			continue
 		}
-		w, err := api.watchService(serviceTag)
+		w, err := api.watchServiceRelations(serviceTag)
 		if err != nil {
 			results.Results[i].Error = common.ServerError(err)
 			continue
@@ -192,22 +274,119 @@ func (api *RemoteRelationsAPI) WatchRemoteService(args params.Entities) (params.
 	return results, nil
 }
 
-func (api *RemoteRelationsAPI) watchService(serviceTag names.ServiceTag) (*serviceRelationsWatcher, error) {
-	// TODO(axw) subscribe to changes sent by the offering side.
+func (api *RemoteRelationsAPI) watchServiceRelations(serviceTag names.ServiceTag) (*serviceRelationsWatcher, error) {
 	serviceName := serviceTag.Id()
 	relationsWatcher, err := api.st.WatchRemoteServiceRelations(serviceName)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return newServiceRelationsWatcher(api.st, serviceName, relationsWatcher), nil
+	return newServiceRelationsWatcher(api.st, serviceName, true, relationsWatcher), nil
+}
+
+type serviceWatcher struct {
+	tomb             tomb.Tomb
+	st               RemoteRelationsState
+	serviceName      string
+	serviceWatcher   state.NotifyWatcher
+	relationsWatcher *serviceRelationsWatcher
+	out              chan params.ServiceChange
+}
+
+func newServiceWatcher(
+	st RemoteRelationsState,
+	serviceName string,
+	sw state.NotifyWatcher,
+	rw *serviceRelationsWatcher,
+) *serviceWatcher {
+	w := &serviceWatcher{
+		st:               st,
+		serviceName:      serviceName,
+		serviceWatcher:   sw,
+		relationsWatcher: rw,
+		out:              make(chan params.ServiceChange),
+	}
+	go func() {
+		defer w.tomb.Done()
+		defer close(w.out)
+		defer watcher.Stop(sw, &w.tomb)
+		defer watcher.Stop(rw, &w.tomb)
+		w.tomb.Kill(w.loop())
+	}()
+	return w
+}
+
+func (w *serviceWatcher) loop() error {
+	var out chan<- params.ServiceChange
+	value := params.ServiceChange{
+		ServiceTag: names.NewServiceTag(w.serviceName).String(),
+	}
+	var seenServiceChange, seenRelationsChange bool
+	for {
+		select {
+		case <-w.tomb.Dying():
+			return tomb.ErrDying
+
+		case _, ok := <-w.serviceWatcher.Changes():
+			if !ok {
+				return watcher.EnsureErr(w.serviceWatcher)
+			}
+			seenServiceChange = true
+			service, err := w.st.Service(w.serviceName)
+			if errors.IsNotFound(err) {
+				// Service has been removed.
+				// TODO(axw) we need a way of conveying this
+				// information to the consumer.
+				return nil
+			} else if err != nil {
+				return errors.Trace(err)
+			}
+			value.Life = params.Life(service.Life().String())
+			if seenRelationsChange {
+				out = w.out
+			}
+
+		case change, ok := <-w.relationsWatcher.Changes():
+			if !ok {
+				return watcher.EnsureErr(w.relationsWatcher)
+			}
+			seenRelationsChange = true
+			value.Relations = change
+			if seenServiceChange {
+				out = w.out
+			}
+
+		case out <- value:
+			out = nil
+			value = params.ServiceChange{
+				ServiceTag: value.ServiceTag,
+				Life:       value.Life,
+			}
+		}
+	}
+}
+
+func (w *serviceWatcher) Changes() <-chan params.ServiceChange {
+	return w.out
+}
+
+func (w *serviceWatcher) Err() error {
+	return w.tomb.Err()
+}
+
+func (w *serviceWatcher) Stop() error {
+	w.tomb.Kill(nil)
+	return w.tomb.Wait()
 }
 
 // serviceRelationsWatcher watches the relations of a service, and the
-// *counterpart* endpoint units for each of those relations.
+// units for each of those relations. Depending on configuration, the
+// reported units will be for the service specified, or for the
+// counterpart service.
 type serviceRelationsWatcher struct {
 	tomb                  tomb.Tomb
 	st                    RemoteRelationsState
 	serviceName           string
+	counterpartUnits      bool
 	relationsWatcher      state.StringsWatcher
 	relationUnitsChanges  chan relationUnitsChange
 	relationUnitsWatchers map[string]*relationWatcher
@@ -218,11 +397,13 @@ type serviceRelationsWatcher struct {
 func newServiceRelationsWatcher(
 	st RemoteRelationsState,
 	serviceName string,
+	counterpartUnits bool,
 	rw state.StringsWatcher,
 ) *serviceRelationsWatcher {
 	w := &serviceRelationsWatcher{
 		st:                    st,
 		serviceName:           serviceName,
+		counterpartUnits:      counterpartUnits,
 		relationsWatcher:      rw,
 		relationUnitsChanges:  make(chan relationUnitsChange),
 		relationUnitsWatchers: make(map[string]*relationWatcher),
@@ -293,7 +474,12 @@ func (w *serviceRelationsWatcher) loop() error {
 				if _, ok := w.relationUnitsWatchers[relationKey]; !ok {
 					// Start a relation units watcher, wait for the initial
 					// value before informing the client of the relation.
-					ruw, err := relation.WatchCounterpartEndpointUnits(w.serviceName)
+					var ruw state.RelationUnitsWatcher
+					if w.counterpartUnits {
+						ruw, err = relation.WatchCounterpartEndpointUnits(w.serviceName)
+					} else {
+						ruw, err = relation.WatchUnits(w.serviceName)
+					}
 					if err != nil {
 						return errors.Trace(err)
 					}

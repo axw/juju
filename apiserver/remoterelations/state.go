@@ -5,12 +5,18 @@ package remoterelations
 
 import (
 	"github.com/juju/errors"
+	"github.com/juju/names"
+
 	"github.com/juju/juju/state"
 )
 
 // RemoteRelationState provides the subset of global state required by the
 // remote relations facade.
 type RemoteRelationsState interface {
+	// ForEnviron returns a RemoteRelationsState for the specified
+	// environment.
+	ForEnviron(names.EnvironTag) (RemoteRelationsState, error)
+
 	// KeyRelation returns the existing relation with the given key (which can
 	// be derived unambiguously from the relation's endpoints).
 	KeyRelation(string) (Relation, error)
@@ -20,6 +26,9 @@ type RemoteRelationsState interface {
 
 	// RemoteService returns a remote service by name.
 	RemoteService(string) (RemoteService, error)
+
+	// Service returns a local service by name.
+	Service(string) (Service, error)
 
 	// WatchRemoteServices returns a StringsWatcher that notifies of changes to
 	// the lifecycles of the remote services in the environment.
@@ -54,6 +63,10 @@ type Relation interface {
 	// changes to the units with the endpoint counterpart to the specified
 	// service.
 	WatchCounterpartEndpointUnits(serviceName string) (state.RelationUnitsWatcher, error)
+
+	// WatchEndpointUnits returns a watcher that notifies of changes to
+	// the units of the specified service in the relation.
+	WatchUnits(serviceName string) (state.RelationUnitsWatcher, error)
 }
 
 // RelationUnit provides access to the settings of a single unit in a relation,
@@ -93,8 +106,31 @@ type RemoteService interface {
 	URL() string
 }
 
+// RemoteService represents the state of a service hosted in the local
+// environment.
+type Service interface {
+	// Life returns the lifecycle state of the service.
+	Life() state.Life
+
+	// Watch returns a NotifyWatcher that notifies of changes to
+	// the service.
+	Watch() state.NotifyWatcher
+
+	// WatchRelations returns a StringsWatcher that notifies of changes to
+	// the lifecycles of relations involving the service.
+	WatchRelations() state.StringsWatcher
+}
+
 type stateShim struct {
 	*state.State
+}
+
+func (st stateShim) ForEnviron(tag names.EnvironTag) (RemoteRelationsState, error) {
+	other, err := st.State.ForEnviron(tag)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return stateShim{other}, nil
 }
 
 func (st stateShim) KeyRelation(key string) (Relation, error) {
@@ -119,6 +155,14 @@ func (st stateShim) RemoteService(name string) (RemoteService, error) {
 		return nil, errors.Trace(err)
 	}
 	return remoteServiceShim{s}, nil
+}
+
+func (st stateShim) Service(name string) (Service, error) {
+	s, err := st.State.Service(name)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return serviceShim{s}, nil
 }
 
 func (st stateShim) WatchRemoteServiceRelations(serviceName string) (state.StringsWatcher, error) {
@@ -184,4 +228,8 @@ func (r relationUnitShim) Settings() (map[string]interface{}, error) {
 
 type remoteServiceShim struct {
 	*state.RemoteService
+}
+
+type serviceShim struct {
+	*state.Service
 }

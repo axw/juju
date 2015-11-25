@@ -12,22 +12,21 @@ type ServiceOfferLister interface {
 	ListOffers(directory string, filter ...ServiceOfferFilter) ([]ServiceOffer, error)
 }
 
-// ServiceOfferForURL returns a service offer for the specified URL
-// so long as the specified user has been granted access to use that offer.
+// ServiceOfferForURL returns a service offer for the specified URL,
+// checking that the specified user (if non-empty) has been granted
+// access to use that offer.
 func ServiceOfferForURL(offers ServiceOfferLister, urlStr string, user string) (ServiceOffer, error) {
 	url, err := ParseServiceURL(urlStr)
 	if err != nil {
 		return ServiceOffer{}, err
 	}
-	results, err := offers.ListOffers(
-		url.Directory,
-		ServiceOfferFilter{
-			ServiceOffer: ServiceOffer{
-				ServiceURL: urlStr,
-			},
-			AllowedUsers: []string{user},
-		},
-	)
+	filter := ServiceOfferFilter{
+		ServiceOffer: ServiceOffer{ServiceURL: urlStr},
+	}
+	if user != "" {
+		filter.AllowedUsers = []string{user}
+	}
+	results, err := offers.ListOffers(url.Directory, filter)
 	if err != nil {
 		return ServiceOffer{}, errors.Trace(err)
 	}

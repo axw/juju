@@ -13,8 +13,10 @@ import (
 	"github.com/juju/juju/api/remoterelations"
 	"github.com/juju/juju/apiserver"
 	"github.com/juju/juju/apiserver/params"
+	"github.com/juju/juju/instance"
 	jujutesting "github.com/juju/juju/juju/testing"
 	"github.com/juju/juju/model/crossmodel"
+	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
 	statetesting "github.com/juju/juju/state/testing"
 	"github.com/juju/juju/testing"
@@ -127,9 +129,15 @@ func (s *remoteRelationsSuite) TestWatchServiceRelations(c *gc.C) {
 func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
 	const serviceURL = "local:/u/me/mariadb"
 	mariadbEndpoints := []charm.Relation{{
-		Interface: "mariadb",
+		Interface: "mysql",
 		Name:      "db",
 		Role:      charm.RoleProvider,
+		Scope:     charm.ScopeGlobal,
+	}}
+	wordpressEndpoints := []charm.Relation{{
+		Interface: "mysql",
+		Name:      "db",
+		Role:      charm.RoleRequirer,
 		Scope:     charm.ScopeGlobal,
 	}}
 
@@ -158,7 +166,9 @@ func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
 	})
 	c.Assert(err, jc.ErrorIsNil)
 
-	// Local environment consumes offer, calls it "remote-mariadb".
+	// Local environment consumes offer, calls it "remote-mariadb". This
+	// triggers the creation of a remote service in the remote environment
+	// for the consumer's service that will be involved in the relation.
 	directory := state.NewServiceDirectory(s.State)
 	err = directory.AddOffer(crossmodel.ServiceOffer{
 		ServiceURL:         serviceURL,
@@ -170,36 +180,79 @@ func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	_, err = s.State.AddRemoteService("remote-mariadb", serviceURL, mariadbEndpoints)
 	c.Assert(err, jc.ErrorIsNil)
+	_, err = remoteEnv.AddRemoteService("mysql-client", "", wordpressEndpoints)
+	c.Assert(err, jc.ErrorIsNil)
 
 	// Add unit to remote service, but don't enter
 	// it into the relation's scope yet.
-	settings := map[string]interface{}{"key": "value"}
 	mysql0, err := mysql.AddUnit()
 	c.Assert(err, jc.ErrorIsNil)
+	err = mysql0.AssignToNewMachine()
+	c.Assert(err, jc.ErrorIsNil)
+	mid, err := mysql0.AssignedMachineId()
+	c.Assert(err, jc.ErrorIsNil)
+	m, err := remoteEnv.Machine(mid)
+	c.Assert(err, jc.ErrorIsNil)
+	err = m.SetInstanceInfo("inst-id", "nonce", &instance.HardwareCharacteristics{}, nil, nil, nil, nil)
+	c.Assert(err, jc.ErrorIsNil)
+	const privateAddress = "10.1.2.3"
+	const publicAddress = "162.213.33.122"
+	err = m.SetMachineAddresses(network.NewAddresses(privateAddress, publicAddress)...)
+	c.Assert(err, jc.ErrorIsNil)
+	settings := map[string]interface{}{
+		"host": privateAddress,
+	}
 
+	// TODO(axw) the assertService... functions sync remoteEnv,
+	// but that doesn't actually speed anything up. This is because
+	// the apiserver facade will get a new State object, which has
+	// its own watcher loop, unaffected by the syncing.
 	w, err := s.client.WatchRemoteService("remote-mariadb")
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(w, gc.NotNil)
 	defer statetesting.AssertStop(c, w)
-	assertServiceChange(c, remoteEnv, params.ServiceChange{
-		ServiceTag: "service-remote-mariadb",
+	assertServiceChange(c, remoteEnv, w, params.ServiceChange{
+		// TODO(axw) service should be "service-remote-mariadb"
+		ServiceTag: "service-mysql",
 		Life:       params.Alive,
 	})
-	assertNoServiceChange(c, remoteEnv)
+	assertNoServiceChange(c, remoteEnv, w)
 
-	/*
-		ru, err := rel.Unit(mysql0)
-		c.Assert(err, jc.ErrorIsNil)
-		err = ru.EnterScope(settings)
-		c.Assert(err, jc.ErrorIsNil)
-		assertServiceChange(c, remoteEnv, params.ServiceChange{
-			ServiceTag: "service-remote-mariadb",
-			Life:       params.Alive,
-			Relations: params.ServiceRelationsChange{
-				ChangedRelations:
-			},
-		})
-	*/
+	// Enter the remote unit into a relation, and it should
+	// be observed in the consuming side.
+	eps, err := remoteEnv.InferEndpoints("mysql", "mysql-client")
+	c.Assert(err, jc.ErrorIsNil)
+	rel, err := remoteEnv.AddRelation(eps[0], eps[1])
+	c.Assert(err, jc.ErrorIsNil)
+	ru, err := rel.Unit(mysql0)
+	c.Assert(err, jc.ErrorIsNil)
+	err = ru.EnterScope(settings)
+	c.Assert(err, jc.ErrorIsNil)
+	assertServiceChange(c, remoteEnv, w, params.ServiceChange{
+		// TODO(axw) service should be "service-remote-mariadb"
+		ServiceTag: "service-mysql",
+		Life:       params.Alive,
+		Relations: params.ServiceRelationsChange{
+			ChangedRelations: []params.RelationChange{{
+				// TODO(axw) create additonal relations in the
+				// consuming environment to ensure there's a
+				// translation of relation IDs.
+				RelationId: 0,
+				Life:       params.Alive,
+				ChangedUnits: map[string]params.RelationUnitChange{
+					// TODO(axw) unit names should be translated.
+					"mysql/0": params.RelationUnitChange{
+						// TODO(axw) private address should
+						// be translated to public address.
+						Settings: map[string]interface{}{
+							"host": privateAddress,
+						},
+					},
+				},
+			}},
+		},
+	})
+	assertNoServiceChange(c, remoteEnv, w)
 }
 
 func assertServiceRelationsChange(

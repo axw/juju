@@ -62,7 +62,6 @@ func NewRemoteRelationsAPI(
 func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
 	changes params.ServiceChanges,
 ) (params.ErrorResults, error) {
-	logger.Debugf("ConsumeRemoteServiceChange: %+v", changes)
 	results := params.ErrorResults{
 		Results: make([]params.ErrorResult, len(changes.Changes)),
 	}
@@ -151,7 +150,6 @@ func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
 func (api *RemoteRelationsAPI) PublishLocalRelationsChange(
 	changes params.ServiceRelationsChanges,
 ) (params.ErrorResults, error) {
-	logger.Debugf("PublishLocalRelationsChange: %+v", changes)
 	return params.ErrorResults{}, errors.NotImplementedf("PublishLocalRelationChange")
 }
 
@@ -365,19 +363,27 @@ func (w *serviceWatcher) loop() error {
 				return watcher.EnsureErr(w.serviceWatcher)
 			}
 			seenServiceChange = true
+			var life params.Life
 			service, err := w.st.Service(w.serviceName)
 			if errors.IsNotFound(err) {
 				// Service has been removed. Just say it's
 				// Dead, because we don't have any other
 				// way of saying it's removed. The consumer
 				// will still remove it after destroying.
-				value.Life = params.Dead
+				life = params.Dead
 			} else if err != nil {
 				return errors.Trace(err)
 			} else {
-				value.Life = params.Life(service.Life().String())
+				life = params.Life(service.Life().String())
 			}
-			if seenRelationsChange {
+			var changed bool
+			if life != value.Life {
+				value.Life = life
+				changed = true
+			}
+			// Only send changes when there is a service change
+			// that we are interested in.
+			if changed && seenRelationsChange {
 				out = w.out
 			}
 

@@ -40,6 +40,10 @@ func init() {
 		reflect.TypeOf((*srvServiceRelationsWatcher)(nil)),
 	)
 	common.RegisterFacade(
+		"ServiceWatcher", 1, newServiceWatcher,
+		reflect.TypeOf((*srvServiceWatcher)(nil)),
+	)
+	common.RegisterFacade(
 		"RelationUnitsWatcher", 0, newRelationUnitsWatcher,
 		reflect.TypeOf((*srvRelationUnitsWatcher)(nil)),
 	)
@@ -286,6 +290,63 @@ func (w *srvServiceRelationsWatcher) Next() (params.ServiceRelationsWatchResult,
 
 // Stop stops the watcher.
 func (w *srvServiceRelationsWatcher) Stop() error {
+	return w.resources.Stop(w.id)
+}
+
+// srvServiceWatcher defines the API wrapping a ServiceWatcher.
+// This watcher notifies about:
+//  - lifecycle changes to the service
+//  - addition and removal of relations of the service
+//  - lifecycle changes to relations of the service
+//  - settings of relation units changing
+//  - units departing the relation (joining is implicit in seeing new settings)
+type srvServiceWatcher struct {
+	watcher   ServiceWatcher
+	id        string
+	resources *common.Resources
+}
+
+// ServiceWatcher is a watcher that reports on changes to relations
+// and relation units related to those relations for a specified service.
+type ServiceWatcher interface {
+	Changes() <-chan params.ServiceChange
+	Err() error
+	Stop() error
+}
+
+func newServiceWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
+	if !auth.AuthEnvironManager() {
+		return nil, common.ErrPerm
+	}
+	watcher, ok := resources.Get(id).(ServiceWatcher)
+	if !ok {
+		return nil, common.ErrUnknownWatcher
+	}
+	return &srvServiceWatcher{
+		watcher:   watcher,
+		id:        id,
+		resources: resources,
+	}, nil
+}
+
+// Next returns when a change has occured to an entity of the
+// collection being watched since the most recent call to Next
+// or the Watch call that created the srvServiceWatcher.
+func (w *srvServiceWatcher) Next() (params.ServiceWatchResult, error) {
+	if change, ok := <-w.watcher.Changes(); ok {
+		return params.ServiceWatchResult{
+			Change: &change,
+		}, nil
+	}
+	err := w.watcher.Err()
+	if err == nil {
+		err = common.ErrStoppedWatcher
+	}
+	return params.ServiceWatchResult{}, err
+}
+
+// Stop stops the watcher.
+func (w *srvServiceWatcher) Stop() error {
 	return w.resources.Stop(w.id)
 }
 

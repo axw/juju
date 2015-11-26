@@ -181,6 +181,9 @@ func (w *remoteServiceWorker) Wait() error {
 
 func (w *remoteServiceWorker) loop() error {
 	for {
+		// TODO(axw) we must translate relation, unit and service IDs
+		// to the names that make sense to the other environment.
+
 		select {
 		case <-w.tomb.Dying():
 			return tomb.ErrDying

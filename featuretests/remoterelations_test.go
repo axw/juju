@@ -14,6 +14,7 @@ import (
 	"github.com/juju/juju/apiserver"
 	"github.com/juju/juju/apiserver/params"
 	jujutesting "github.com/juju/juju/juju/testing"
+	"github.com/juju/juju/model/crossmodel"
 	"github.com/juju/juju/state"
 	statetesting "github.com/juju/juju/state/testing"
 	"github.com/juju/juju/testing"
@@ -53,7 +54,7 @@ func (s *remoteRelationsSuite) TestWatchRemoteServices(c *gc.C) {
 	wc.AssertNoChange()
 }
 
-func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
+func (s *remoteRelationsSuite) TestWatchServiceRelations(c *gc.C) {
 	// Add a remote service, and watch it. It should initially have no
 	// relations.
 	_, err := s.State.AddRemoteService("mysql", "local:/u/me/mysql", []charm.Relation{{
@@ -63,7 +64,7 @@ func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
 		Scope:     charm.ScopeGlobal,
 	}})
 	c.Assert(err, jc.ErrorIsNil)
-	w, err := s.client.WatchRemoteService("mysql")
+	w, err := s.client.WatchServiceRelations("mysql")
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(w, gc.NotNil)
 	defer statetesting.AssertStop(c, w)
@@ -123,14 +124,95 @@ func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
 	assertNoServiceRelationsChange(c, s.BackingState, w)
 }
 
+func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
+	const serviceURL = "local:/u/me/mariadb"
+	mariadbEndpoints := []charm.Relation{{
+		Interface: "mariadb",
+		Name:      "db",
+		Role:      charm.RoleProvider,
+		Scope:     charm.ScopeGlobal,
+	}}
+
+	// Remote environment offers "mysql" as "mariadb".
+	configAttrs := testing.Attrs(s.Environ.Config().AllAttrs())
+	remoteEnv := s.Factory.MakeEnvironment(c, &factory.EnvParams{
+		ConfigAttrs: configAttrs.Delete(
+			"name", "uuid", "type", "state-port", "api-port",
+		),
+	})
+	defer remoteEnv.Close()
+	remoteOffers := state.NewOfferedServices(remoteEnv)
+	remoteStateFactory := factory.NewFactory(remoteEnv)
+	mysql := remoteStateFactory.MakeService(c, &factory.ServiceParams{
+		Name: "mysql",
+		Charm: remoteStateFactory.MakeCharm(c,
+			&factory.CharmParams{Name: "mysql"},
+		),
+	})
+	err := remoteOffers.AddOffer(crossmodel.OfferedService{
+		ServiceName: "mysql", // internal name
+		ServiceURL:  serviceURL,
+		Endpoints: map[string]string{
+			"server": "db",
+		},
+	})
+	c.Assert(err, jc.ErrorIsNil)
+
+	// Local environment consumes offer, calls it "remote-mariadb".
+	directory := state.NewServiceDirectory(s.State)
+	err = directory.AddOffer(crossmodel.ServiceOffer{
+		ServiceURL:         serviceURL,
+		ServiceName:        "remote-mariadb",
+		ServiceDescription: "just mariadb, honest",
+		SourceEnvUUID:      remoteEnv.EnvironUUID(),
+		Endpoints:          mariadbEndpoints,
+	})
+	c.Assert(err, jc.ErrorIsNil)
+	_, err = s.State.AddRemoteService("remote-mariadb", serviceURL, mariadbEndpoints)
+	c.Assert(err, jc.ErrorIsNil)
+
+	// Add unit to remote service, but don't enter
+	// it into the relation's scope yet.
+	settings := map[string]interface{}{"key": "value"}
+	mysql0, err := mysql.AddUnit()
+	c.Assert(err, jc.ErrorIsNil)
+
+	w, err := s.client.WatchRemoteService("remote-mariadb")
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(w, gc.NotNil)
+	defer statetesting.AssertStop(c, w)
+	assertServiceChange(c, remoteEnv, params.ServiceChange{
+		ServiceTag: "service-remote-mariadb",
+		Life:       params.Alive,
+	})
+	assertNoServiceChange(c, remoteEnv)
+
+	/*
+		ru, err := rel.Unit(mysql0)
+		c.Assert(err, jc.ErrorIsNil)
+		err = ru.EnterScope(settings)
+		c.Assert(err, jc.ErrorIsNil)
+		assertServiceChange(c, remoteEnv, params.ServiceChange{
+			ServiceTag: "service-remote-mariadb",
+			Life:       params.Alive,
+			Relations: params.ServiceRelationsChange{
+				ChangedRelations:
+			},
+		})
+	*/
+}
+
 func assertServiceRelationsChange(
-	c *gc.C, ss statetesting.SyncStarter, w apiserver.ServiceRelationsWatcher, change params.ServiceRelationsChange,
+	c *gc.C,
+	ss statetesting.SyncStarter,
+	w apiserver.ServiceRelationsWatcher,
+	expect params.ServiceRelationsChange,
 ) {
 	ss.StartSync()
 	select {
 	case change, ok := <-w.Changes():
 		c.Assert(ok, jc.IsTrue)
-		c.Assert(change, jc.DeepEquals, change)
+		c.Assert(change, jc.DeepEquals, expect)
 	case <-time.After(testing.LongWait):
 		c.Errorf("timed out waiting for service relations change")
 	}
@@ -141,6 +223,31 @@ func assertNoServiceRelationsChange(c *gc.C, ss statetesting.SyncStarter, w apis
 	select {
 	case change, ok := <-w.Changes():
 		c.Errorf("unexpected change from service relations watcher: %v, %v", change, ok)
+	case <-time.After(testing.ShortWait):
+	}
+}
+
+func assertServiceChange(
+	c *gc.C,
+	ss statetesting.SyncStarter,
+	w apiserver.ServiceWatcher,
+	expect params.ServiceChange,
+) {
+	ss.StartSync()
+	select {
+	case change, ok := <-w.Changes():
+		c.Assert(ok, jc.IsTrue)
+		c.Assert(change, jc.DeepEquals, expect)
+	case <-time.After(testing.LongWait):
+		c.Errorf("timed out waiting for service change")
+	}
+}
+
+func assertNoServiceChange(c *gc.C, ss statetesting.SyncStarter, w apiserver.ServiceWatcher) {
+	ss.StartSync()
+	select {
+	case change, ok := <-w.Changes():
+		c.Errorf("unexpected change from service watcher: %v, %v", change, ok)
 	case <-time.After(testing.ShortWait):
 	}
 }

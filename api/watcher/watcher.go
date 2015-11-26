@@ -473,3 +473,60 @@ func (w *serviceRelationsWatcher) loop(initialChanges params.ServiceRelationsCha
 func (w *serviceRelationsWatcher) Changes() <-chan params.ServiceRelationsChange {
 	return w.out
 }
+
+// serviceWatcher will sends changes to relations a service
+// is involved in, including changs to the units involved in those
+// relations, and their settings.
+type serviceWatcher struct {
+	commonWatcher
+	caller           base.APICaller
+	serviceWatcherId string
+	out              chan params.ServiceChange
+}
+
+func NewServiceWatcher(caller base.APICaller, result params.ServiceWatchResult) ServiceWatcher {
+	w := &serviceWatcher{
+		caller:           caller,
+		serviceWatcherId: result.ServiceWatcherId,
+		out:              make(chan params.ServiceChange),
+	}
+	go func() {
+		defer w.tomb.Done()
+		defer close(w.out)
+		w.tomb.Kill(w.loop(*result.Change))
+	}()
+	return w
+}
+
+func (w *serviceWatcher) loop(initialChange params.ServiceChange) error {
+	change := initialChange
+	w.newResult = func() interface{} { return new(params.ServiceWatchResult) }
+	w.call = makeWatcherAPICaller(w.caller, "ServiceWatcher", w.serviceWatcherId)
+	w.commonWatcher.init()
+	go w.commonLoop()
+
+	for {
+		select {
+		// Send the initial event or subsequent change.
+		case w.out <- change:
+		case <-w.tomb.Dying():
+			return nil
+		}
+		// Read the next change.
+		data, ok := <-w.in
+		if !ok {
+			// The tomb is already killed with the correct error
+			// at this point, so just return.
+			return nil
+		}
+		change = *data.(*params.ServiceWatchResult).Change
+	}
+}
+
+// Changes returns a channel that will receive the changes to
+// relations a service is involved in. The first event on the channel
+// holds the initial state of the service's relations in its Changed
+// field.
+func (w *serviceWatcher) Changes() <-chan params.ServiceChange {
+	return w.out
+}

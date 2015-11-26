@@ -7,10 +7,13 @@ import (
 	"launchpad.net/tomb"
 
 	"github.com/juju/errors"
+	"github.com/juju/names"
+	"github.com/juju/testing"
+
 	"github.com/juju/juju/apiserver/remoterelations"
+	"github.com/juju/juju/model/crossmodel"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/multiwatcher"
-	"github.com/juju/testing"
 )
 
 type mockState struct {
@@ -30,6 +33,15 @@ func newMockState() *mockState {
 	}
 }
 
+func (st *mockState) ForEnviron(e names.EnvironTag) (remoterelations.RemoteRelationsStateCloser, error) {
+	st.MethodCall(st, "ForEnviron", e)
+	if err := st.NextErr(); err != nil {
+		return nil, err
+	}
+	// TODO(axw) implement
+	return nil, errors.NotImplementedf("ForEnviron")
+}
+
 func (st *mockState) KeyRelation(key string) (remoterelations.Relation, error) {
 	st.MethodCall(st, "KeyRelation", key)
 	if err := st.NextErr(); err != nil {
@@ -40,6 +52,11 @@ func (st *mockState) KeyRelation(key string) (remoterelations.Relation, error) {
 		return nil, errors.NotFoundf("relation %q", key)
 	}
 	return r, nil
+}
+
+func (st *mockState) OfferedServices() crossmodel.OfferedServices {
+	// TODO(axw)
+	panic("not implemented")
 }
 
 func (st *mockState) Relation(id int) (remoterelations.Relation, error) {
@@ -65,6 +82,20 @@ func (st *mockState) RemoteService(id string) (remoterelations.RemoteService, er
 		return nil, errors.NotFoundf("remote service %q", id)
 	}
 	return s, nil
+}
+
+func (st *mockState) ServiceDirectory() crossmodel.ServiceDirectory {
+	// TODO(axw)
+	panic("not implemented")
+}
+
+func (st *mockState) Service(id string) (remoterelations.Service, error) {
+	st.MethodCall(st, "Service", id)
+	if err := st.NextErr(); err != nil {
+		return nil, err
+	}
+	// TODO(axw)
+	return nil, errors.NotImplementedf("Service")
 }
 
 func (st *mockState) WatchRemoteServices() state.StringsWatcher {
@@ -150,6 +181,15 @@ func (r *mockRelation) WatchCounterpartEndpointUnits(serviceName string) (state.
 		return nil, errors.NotFoundf("service %q", serviceName)
 	}
 	return w, nil
+}
+
+func (r *mockRelation) WatchUnits(serviceName string) (state.RelationUnitsWatcher, error) {
+	r.MethodCall(r, "WatchUnits", serviceName)
+	if err := r.NextErr(); err != nil {
+		return nil, err
+	}
+	// TODO(axw) implement
+	return nil, errors.NotImplementedf("WatchUnits")
 }
 
 type mockRemoteService struct {

@@ -40,8 +40,8 @@ func (st *State) WatchRemoteServices() (watcher.StringsWatcher, error) {
 }
 
 // WatchRemoteService returns a remote service watcher that delivers
-// changes to the remote service in the offering environment. This
-// includes status, lifecycle and relation changes.
+// changes made to the remote service in the offering environment.
+// This includes status, lifecycle and relation changes.
 func (st *State) WatchRemoteService(service string) (watcher.ServiceWatcher, error) {
 	if !names.IsValidService(service) {
 		return nil, errors.NotValidf("service name %q", service)
@@ -63,6 +63,72 @@ func (st *State) WatchRemoteService(service string) (watcher.ServiceWatcher, err
 	if result.Error != nil {
 		return nil, result.Error
 	}
+	w := watcher.NewServiceWatcher(st.facade.RawAPICaller(), result)
+	return w, nil
+}
+
+// WatchServiceRelations returns a service relations watcher that delivers
+// changes made to the relations of the identified services in the local
+// environment.
+func (st *State) WatchServiceRelations(service string) (watcher.ServiceRelationsWatcher, error) {
+	if !names.IsValidService(service) {
+		return nil, errors.NotValidf("service name %q", service)
+	}
+	serviceTag := names.NewServiceTag(service)
+	args := params.Entities{
+		Entities: []params.Entity{{Tag: serviceTag.String()}},
+	}
+
+	var results params.ServiceRelationsWatchResults
+	err := st.facade.FacadeCall("WatchServiceRelations", args, &results)
+	if err != nil {
+		return nil, err
+	}
+	if len(results.Results) != 1 {
+		return nil, errors.Errorf("expected 1 result, got %d", len(results.Results))
+	}
+	result := results.Results[0]
+	if result.Error != nil {
+		return nil, result.Error
+	}
 	w := watcher.NewServiceRelationsWatcher(st.facade.RawAPICaller(), result)
 	return w, nil
+}
+
+func (st *State) ConsumeRemoteServiceChange(change params.ServiceChange) error {
+	args := params.ServiceChanges{
+		Changes: []params.ServiceChange{change},
+	}
+	var results params.ErrorResults
+	err := st.facade.FacadeCall("ConsumeRemoteServiceChange", args, &results)
+	if err != nil {
+		return err
+	}
+	if len(results.Results) != 1 {
+		return errors.Errorf("expected 1 result, got %d", len(results.Results))
+	}
+	result := results.Results[0]
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
+}
+
+func (st *State) PublishLocalRelationsChange(change params.ServiceRelationsChange) error {
+	args := params.ServiceRelationsChanges{
+		Changes: []params.ServiceRelationsChange{change},
+	}
+	var results params.ErrorResults
+	err := st.facade.FacadeCall("PublishLocalRelationsChange", args, &results)
+	if err != nil {
+		return err
+	}
+	if len(results.Results) != 1 {
+		return errors.Errorf("expected 1 result, got %d", len(results.Results))
+	}
+	result := results.Results[0]
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
 }

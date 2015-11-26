@@ -15,6 +15,9 @@ type ServiceOffer struct {
 	// ServiceURL is the URL used to locate the offer in a directory.
 	ServiceURL string
 
+	// NOTE(axw) check with wallyworld -- this is redundant? should
+	// be necessarily the same as the end of ServiceURL?
+	//
 	// ServiceName is the name of the service.
 	ServiceName string
 

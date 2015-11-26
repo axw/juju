@@ -7,15 +7,22 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/names"
 
+	"github.com/juju/juju/model/crossmodel"
 	"github.com/juju/juju/state"
 )
+
+// RemoteRelationStateCloser extends RemoteRelationsState with a Close method.
+type RemoteRelationsStateCloser interface {
+	RemoteRelationsState
+	Close() error
+}
 
 // RemoteRelationState provides the subset of global state required by the
 // remote relations facade.
 type RemoteRelationsState interface {
 	// ForEnviron returns a RemoteRelationsState for the specified
 	// environment.
-	ForEnviron(names.EnvironTag) (RemoteRelationsState, error)
+	ForEnviron(names.EnvironTag) (RemoteRelationsStateCloser, error)
 
 	// KeyRelation returns the existing relation with the given key (which can
 	// be derived unambiguously from the relation's endpoints).
@@ -29,6 +36,13 @@ type RemoteRelationsState interface {
 
 	// Service returns a local service by name.
 	Service(string) (Service, error)
+
+	// ServiceDirectory returns the local service directory for the
+	// controller.
+	ServiceDirectory() crossmodel.ServiceDirectory
+
+	// OfferedServices returns the offered services for the environment.
+	OfferedServices() crossmodel.OfferedServices
 
 	// WatchRemoteServices returns a StringsWatcher that notifies of changes to
 	// the lifecycles of the remote services in the environment.
@@ -99,6 +113,11 @@ type RelationUnit interface {
 // RemoteService represents the state of a service hosted in an external
 // (remote) environment.
 type RemoteService interface {
+	// Destroy ensures that the service and all its relations will be
+	// removed at some point; if no relation involving the service has
+	// any units in scope, they are all removed immediately.
+	Destroy() error
+
 	// Name returns the name of the remote service.
 	Name() string
 
@@ -125,7 +144,7 @@ type stateShim struct {
 	*state.State
 }
 
-func (st stateShim) ForEnviron(tag names.EnvironTag) (RemoteRelationsState, error) {
+func (st stateShim) ForEnviron(tag names.EnvironTag) (RemoteRelationsStateCloser, error) {
 	other, err := st.State.ForEnviron(tag)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -139,6 +158,10 @@ func (st stateShim) KeyRelation(key string) (Relation, error) {
 		return nil, errors.Trace(err)
 	}
 	return relationShim{r, st.State}, nil
+}
+
+func (st stateShim) OfferedServices() crossmodel.OfferedServices {
+	return state.NewOfferedServices(st.State)
 }
 
 func (st stateShim) Relation(id int) (Relation, error) {
@@ -163,6 +186,10 @@ func (st stateShim) Service(name string) (Service, error) {
 		return nil, errors.Trace(err)
 	}
 	return serviceShim{s}, nil
+}
+
+func (st stateShim) ServiceDirectory() crossmodel.ServiceDirectory {
+	return state.NewServiceDirectory(st.State)
 }
 
 func (st stateShim) WatchRemoteServiceRelations(serviceName string) (state.StringsWatcher, error) {

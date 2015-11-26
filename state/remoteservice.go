@@ -29,7 +29,7 @@ type RemoteService struct {
 type remoteServiceDoc struct {
 	DocID         string              `bson:"_id"`
 	Name          string              `bson:"name"`
-	URL           string              `bson:"url"`
+	URL           string              `bson:"url,omitempty"`
 	Endpoints     []remoteEndpointDoc `bson:"endpoints"`
 	Life          Life                `bson:"life"`
 	RelationCount int                 `bson:"relationcount"`
@@ -293,8 +293,12 @@ func (st *State) AddRemoteService(name, url string, endpoints []charm.Relation) 
 	if !names.IsValidService(name) {
 		return nil, errors.Errorf("invalid name")
 	}
-	if _, err := crossmodel.ParseServiceURL(url); err != nil {
-		return nil, errors.Annotate(err, "validating service URL")
+	if url != "" {
+		// url may be empty, to represent remote services corresponding
+		// to consumers of an offered service.
+		if _, err := crossmodel.ParseServiceURL(url); err != nil {
+			return nil, errors.Annotate(err, "validating service URL")
+		}
 	}
 	env, err := st.Environment()
 	if err != nil {

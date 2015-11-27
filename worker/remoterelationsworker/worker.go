@@ -35,11 +35,11 @@ func (cfg Config) Validate() error {
 type RemoteServicesAccessor interface {
 	// ConsumeRemoteServiceChange consumes remote changes to a service
 	// into the local environment.
-	ConsumeRemoteServiceChange(params.ServiceChange) error
+	ConsumeRemoteServiceChange(params.RemoteServiceChange) error
 
 	// PublishLocalRelationsChange publishes local relations changes
 	// to the remote side offering those relations.
-	PublishLocalRelationsChange(params.ServiceRelationsChange) error
+	PublishLocalRelationsChange(params.RemoteRelationsChange) error
 
 	// WatchRemoteServices watches for addition, removal and lifecycle
 	// changes to remote services known to the local environment.
@@ -47,15 +47,18 @@ type RemoteServicesAccessor interface {
 
 	// WatchRemoteService watches for remote changes to the service
 	// with the given name.
-	WatchRemoteService(name string) (watcher.ServiceWatcher, error)
+	WatchRemoteService(name string) (watcher.RemoteServiceWatcher, error)
 
-	// WatchServiceRelations watches for local changes to the relations
+	// WatchRemoteRelations watches for local changes to the relations
 	// involving the service with the given name.
-	WatchServiceRelations(service string) (watcher.ServiceRelationsWatcher, error)
+	//
+	// TODO(axw) this should return a plain old RU watcher, and then we'll
+	// fetch settings from the worker.
+	WatchRemoteRelations(service string) (watcher.RemoteRelationsWatcher, error)
 }
 
-type consumeFunc func(params.ServiceChange) error
-type publishFunc func(params.ServiceRelationsChange) error
+type consumeFunc func(params.RemoteServiceChange) error
+type publishFunc func(params.RemoteRelationsChange) error
 
 func NewWorker(config Config) (worker.Worker, error) {
 	if err := config.Validate(); err != nil {
@@ -104,8 +107,8 @@ func (h *remoteServicesHandler) TearDown() error {
 }
 
 func (h *remoteServicesHandler) Handle(serviceIds []string) error {
-	startWatchers := func(serviceId string) (watcher.ServiceRelationsWatcher, watcher.ServiceWatcher, error) {
-		localWatcher, err := h.config.RemoteServicesAccessor.WatchServiceRelations(serviceId)
+	startWatchers := func(serviceId string) (watcher.RemoteRelationsWatcher, watcher.RemoteServiceWatcher, error) {
+		localWatcher, err := h.config.RemoteServicesAccessor.WatchRemoteRelations(serviceId)
 		if err != nil {
 			return nil, nil, errors.Trace(err)
 		}
@@ -145,15 +148,15 @@ func (h *remoteServicesHandler) Handle(serviceIds []string) error {
 
 type remoteServiceWorker struct {
 	tomb          tomb.Tomb
-	localWatcher  watcher.ServiceRelationsWatcher
-	remoteWatcher watcher.ServiceWatcher
+	localWatcher  watcher.RemoteRelationsWatcher
+	remoteWatcher watcher.RemoteServiceWatcher
 	consume       consumeFunc
 	publish       publishFunc
 }
 
 func newRemoteServiceWorker(
-	localWatcher watcher.ServiceRelationsWatcher,
-	remoteWatcher watcher.ServiceWatcher,
+	localWatcher watcher.RemoteRelationsWatcher,
+	remoteWatcher watcher.RemoteServiceWatcher,
 	consume consumeFunc,
 	publish publishFunc,
 ) worker.Worker {

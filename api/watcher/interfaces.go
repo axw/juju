@@ -49,17 +49,18 @@ type MachineStorageIdsWatcher interface {
 	Err() error
 }
 
-// ServiceRelationsWatcher is a watcher that reports on changes to relations
-// and relation units related to those relations for a specified service.
-type ServiceRelationsWatcher interface {
-	Changes() <-chan params.ServiceRelationsChange
+// RemoteRelationsWatcher is a watcher that reports on changes to relations
+// and relation units related to those cross-model relations involving a
+// specified remote service.
+type RemoteRelationsWatcher interface {
+	Changes() <-chan params.RemoteRelationsChange
 	Err() error
 	Stop() error
 }
 
-// ServiceWatcher is a watcher that reports on changes to a services.
-type ServiceWatcher interface {
-	Changes() <-chan params.ServiceChange
+// RemoteServiceWatcher is a watcher that reports on changes to a services.
+type RemoteServiceWatcher interface {
+	Changes() <-chan params.RemoteServiceChange
 	Err() error
 	Stop() error
 }

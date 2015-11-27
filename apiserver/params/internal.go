@@ -496,81 +496,84 @@ type RelationUnitsWatchResults struct {
 	Results []RelationUnitsWatchResult
 }
 
-// ServiceRelationsWatchResult holds a ServiceRelationsWatcher id,
+// RemoteRelationsWatchResult holds a RemoteRelationsWatcher id,
 // changes and an error (if any).
-type ServiceRelationsWatchResult struct {
-	ServiceRelationsWatcherId string
-	Changes                   *ServiceRelationsChange `json:"changes,omitempty"`
-	Error                     *Error                  `json:"error,omitempty"`
+type RemoteRelationsWatchResult struct {
+	RemoteRelationsWatcherId string
+	Changes                  *RemoteRelationsChange `json:"changes,omitempty"`
+	Error                    *Error                 `json:"error,omitempty"`
 }
 
-// ServiceRelationsWatchResults holds the results for any API call which ends
-// up returning a list of ServiceRelationsWatchers.
-type ServiceRelationsWatchResults struct {
-	Results []ServiceRelationsWatchResult `json:"results"`
+// RemoteRelationsWatchResults holds the results for any API call which ends up
+// returning a list of RemoteRelationsWatchers.
+type RemoteRelationsWatchResults struct {
+	Results []RemoteRelationsWatchResult `json:"results"`
 }
 
 // ServiceWatchResult holds a ServiceWatcher id, changes and an error (if any).
-type ServiceWatchResult struct {
-	ServiceWatcherId string
-	Change           *ServiceChange `json:"change,omitempty"`
-	Error            *Error         `json:"error,omitempty"`
+type RemoteServiceWatchResult struct {
+	RemoteServiceWatcherId string
+	Change                 *RemoteServiceChange `json:"change,omitempty"`
+	Error                  *Error               `json:"error,omitempty"`
 }
 
-// ServiceWatchResults holds the results for any API call which ends
-// up returning a list of ServiceWatchers.
-type ServiceWatchResults struct {
-	Results []ServiceWatchResult `json:"results"`
+// RemoteServiceWatchResults holds the results for any API call which ends
+// up returning a list of RemoteServiceWatchers.
+type RemoteServiceWatchResults struct {
+	Results []RemoteServiceWatchResult `json:"results"`
 }
 
-// ServiceChange describes changes to a service.
-type ServiceChange struct {
-	ServiceTag string                 `json:"servicetag"`
-	Life       Life                   `json:"life"`
-	Relations  ServiceRelationsChange `json:"relations"`
+// RemoteServiceChange describes changes to a remote service.
+type RemoteServiceChange struct {
+	ServiceURL string                `json:"serviceurl"`
+	Life       Life                  `json:"life"`
+	Relations  RemoteRelationsChange `json:"relations"`
 
 	// TODO(axw) status
 }
 
-// ServiceChanges describes a set of changes to services.
-type ServiceChanges struct {
-	Changes []ServiceChange `json:"changes,omitempty"`
+// RemoteServiceChanges describes a set of changes to services.
+type RemoteServiceChanges struct {
+	Changes []RemoteServiceChange `json:"changes,omitempty"`
 }
 
-// ServiceRelationsChange describes changes to the relations that a service
-// is involved in.
-type ServiceRelationsChange struct {
+// RemoteRelationsChange describes changes to the relations that a remote
+// service is involved in.
+type RemoteRelationsChange struct {
 	// ChangedRelations maps relation IDs to relation changes.
-	ChangedRelations []RelationChange `json:"changed,omitempty"`
+	ChangedRelations []RemoteRelationChange `json:"changed,omitempty"`
 
-	// RemovedRelations contains the IDs of relations removed
-	// since the last change.
+	// RemovedRelations contains the tokens corresponding to
+	// relations removed since the last change.
+	// TODO(axw) should be tokens
 	RemovedRelations []int `json:"removed,omitempty"`
 }
 
-// ServiceRelationsChanges holds a set of ServiceRelationsChange structures.
-type ServiceRelationsChanges struct {
-	Changes []ServiceRelationsChange `json:"changes,omitempty"`
+// RemoteRelationsChanges holds a set of RemoteRelationsChange structures.
+type RemoteRelationsChanges struct {
+	Changes []RemoteRelationsChange `json:"changes,omitempty"`
 }
 
 // RelationChange describes changes to a relation.
-type RelationChange struct {
-	// RelationId is the numeric ID of the relation.
-	RelationId int `json:"id"`
+type RemoteRelationChange struct {
+	// TODO(axw)
+	// Token uniquely identifies the cross-model relation.
+	//Token string `json:"token"`
+	RelationId int
 
 	// Life is the current lifecycle state of the relation.
 	Life Life `json:"life"`
 
 	// ChangedUnits maps unit names to relation unit changes.
-	ChangedUnits map[string]RelationUnitChange `json:"changedunits,omitempty"`
+	ChangedUnits map[string]RemoteRelationUnitChange `json:"changedunits,omitempty"`
 
 	// DepartedUnits contains the names of units that have departed
 	// the relation since the last change.
 	DepartedUnits []string `json:"departedunits,omitempty"`
 }
 
-// RelationUnitChange describes a relation unit change.
-type RelationUnitChange struct {
+// RemoteRelationUnitChange describes a relation unit change.
+type RemoteRelationUnitChange struct {
 	// Settings is the current settings for the relation unit.
 	Settings map[string]interface{} `json:"settings,omitempty"`
 }

@@ -417,21 +417,21 @@ func (w *entityWatcher) Changes() <-chan []string {
 	return w.out
 }
 
-// serviceRelationsWatcher will sends changes to relations a service
+// remoteRelationsWatcher will sends changes to relations a service
 // is involved in, including changs to the units involved in those
 // relations, and their settings.
-type serviceRelationsWatcher struct {
+type remoteRelationsWatcher struct {
 	commonWatcher
-	caller                    base.APICaller
-	serviceRelationsWatcherId string
-	out                       chan params.ServiceRelationsChange
+	caller                   base.APICaller
+	remoteRelationsWatcherId string
+	out                      chan params.RemoteRelationsChange
 }
 
-func NewServiceRelationsWatcher(caller base.APICaller, result params.ServiceRelationsWatchResult) ServiceRelationsWatcher {
-	w := &serviceRelationsWatcher{
+func NewRemoteRelationsWatcher(caller base.APICaller, result params.RemoteRelationsWatchResult) RemoteRelationsWatcher {
+	w := &remoteRelationsWatcher{
 		caller: caller,
-		serviceRelationsWatcherId: result.ServiceRelationsWatcherId,
-		out: make(chan params.ServiceRelationsChange),
+		remoteRelationsWatcherId: result.RemoteRelationsWatcherId,
+		out: make(chan params.RemoteRelationsChange),
 	}
 	go func() {
 		defer w.tomb.Done()
@@ -441,10 +441,10 @@ func NewServiceRelationsWatcher(caller base.APICaller, result params.ServiceRela
 	return w
 }
 
-func (w *serviceRelationsWatcher) loop(initialChanges params.ServiceRelationsChange) error {
+func (w *remoteRelationsWatcher) loop(initialChanges params.RemoteRelationsChange) error {
 	changes := initialChanges
-	w.newResult = func() interface{} { return new(params.ServiceRelationsWatchResult) }
-	w.call = makeWatcherAPICaller(w.caller, "ServiceRelationsWatcher", w.serviceRelationsWatcherId)
+	w.newResult = func() interface{} { return new(params.RemoteRelationsWatchResult) }
+	w.call = makeWatcherAPICaller(w.caller, "RemoteRelationsWatcher", w.remoteRelationsWatcherId)
 	w.commonWatcher.init()
 	go w.commonLoop()
 
@@ -462,7 +462,7 @@ func (w *serviceRelationsWatcher) loop(initialChanges params.ServiceRelationsCha
 			// at this point, so just return.
 			return nil
 		}
-		changes = *data.(*params.ServiceRelationsWatchResult).Changes
+		changes = *data.(*params.RemoteRelationsWatchResult).Changes
 	}
 }
 
@@ -470,7 +470,7 @@ func (w *serviceRelationsWatcher) loop(initialChanges params.ServiceRelationsCha
 // relations a service is involved in. The first event on the channel
 // holds the initial state of the service's relations in its Changed
 // field.
-func (w *serviceRelationsWatcher) Changes() <-chan params.ServiceRelationsChange {
+func (w *remoteRelationsWatcher) Changes() <-chan params.RemoteRelationsChange {
 	return w.out
 }
 
@@ -481,14 +481,14 @@ type serviceWatcher struct {
 	commonWatcher
 	caller           base.APICaller
 	serviceWatcherId string
-	out              chan params.ServiceChange
+	out              chan params.RemoteServiceChange
 }
 
-func NewServiceWatcher(caller base.APICaller, result params.ServiceWatchResult) ServiceWatcher {
+func NewRemoteServiceWatcher(caller base.APICaller, result params.RemoteServiceWatchResult) RemoteServiceWatcher {
 	w := &serviceWatcher{
 		caller:           caller,
-		serviceWatcherId: result.ServiceWatcherId,
-		out:              make(chan params.ServiceChange),
+		serviceWatcherId: result.RemoteServiceWatcherId,
+		out:              make(chan params.RemoteServiceChange),
 	}
 	go func() {
 		defer w.tomb.Done()
@@ -498,10 +498,10 @@ func NewServiceWatcher(caller base.APICaller, result params.ServiceWatchResult) 
 	return w
 }
 
-func (w *serviceWatcher) loop(initialChange params.ServiceChange) error {
+func (w *serviceWatcher) loop(initialChange params.RemoteServiceChange) error {
 	change := initialChange
-	w.newResult = func() interface{} { return new(params.ServiceWatchResult) }
-	w.call = makeWatcherAPICaller(w.caller, "ServiceWatcher", w.serviceWatcherId)
+	w.newResult = func() interface{} { return new(params.RemoteServiceWatchResult) }
+	w.call = makeWatcherAPICaller(w.caller, "RemoteServiceWatcher", w.serviceWatcherId)
 	w.commonWatcher.init()
 	go w.commonLoop()
 
@@ -519,7 +519,7 @@ func (w *serviceWatcher) loop(initialChange params.ServiceChange) error {
 			// at this point, so just return.
 			return nil
 		}
-		change = *data.(*params.ServiceWatchResult).Change
+		change = *data.(*params.RemoteServiceWatchResult).Change
 	}
 }
 
@@ -527,6 +527,6 @@ func (w *serviceWatcher) loop(initialChange params.ServiceChange) error {
 // relations a service is involved in. The first event on the channel
 // holds the initial state of the service's relations in its Changed
 // field.
-func (w *serviceWatcher) Changes() <-chan params.ServiceChange {
+func (w *serviceWatcher) Changes() <-chan params.RemoteServiceChange {
 	return w.out
 }

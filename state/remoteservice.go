@@ -379,12 +379,12 @@ func (st *State) AddRemoteService(name, url string, endpoints []charm.Relation) 
 
 // RemoteService returns a remote service state by name.
 func (st *State) RemoteService(name string) (service *RemoteService, err error) {
-	services, closer := st.getCollection(remoteServicesC)
-	defer closer()
-
 	if !names.IsValidService(name) {
 		return nil, errors.NotValidf("remote service name %q", name)
 	}
+	services, closer := st.getCollection(remoteServicesC)
+	defer closer()
+
 	sdoc := &remoteServiceDoc{}
 	err = services.FindId(name).One(sdoc)
 	if err == mgo.ErrNotFound {
@@ -392,6 +392,25 @@ func (st *State) RemoteService(name string) (service *RemoteService, err error) 
 	}
 	if err != nil {
 		return nil, errors.Annotatef(err, "cannot get remote service %q", name)
+	}
+	return newRemoteService(st, sdoc), nil
+}
+
+// RemoteService returns a remote service state by name.
+func (st *State) RemoteServiceByURL(url string) (service *RemoteService, err error) {
+	if _, err := crossmodel.ParseServiceURL(url); err != nil {
+		return nil, errors.Annotate(err, "validating service URL")
+	}
+	services, closer := st.getCollection(remoteServicesC)
+	defer closer()
+
+	sdoc := &remoteServiceDoc{}
+	err = services.Find(bson.D{{"url", url}}).One(sdoc)
+	if err == mgo.ErrNotFound {
+		return nil, errors.NotFoundf("remote service with URL %q", url)
+	}
+	if err != nil {
+		return nil, errors.Annotatef(err, "cannot get remote service with URL %q", url)
 	}
 	return newRemoteService(st, sdoc), nil
 }

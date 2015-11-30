@@ -34,6 +34,9 @@ type RemoteRelationsState interface {
 	// RemoteService returns a remote service by name.
 	RemoteService(string) (RemoteService, error)
 
+	// RemoteServiceByURL returns a remote service by URL.
+	RemoteServiceByURL(string) (RemoteService, error)
+
 	// Service returns a local service by name.
 	Service(string) (Service, error)
 
@@ -174,6 +177,14 @@ func (st stateShim) Relation(id int) (Relation, error) {
 
 func (st stateShim) RemoteService(name string) (RemoteService, error) {
 	s, err := st.State.RemoteService(name)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return remoteServiceShim{s}, nil
+}
+
+func (st stateShim) RemoteServiceByURL(url string) (RemoteService, error) {
+	s, err := st.State.RemoteServiceByURL(url)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

@@ -36,12 +36,12 @@ func init() {
 		reflect.TypeOf((*srvStringsWatcher)(nil)),
 	)
 	common.RegisterFacade(
-		"ServiceRelationsWatcher", 1, newServiceRelationsWatcher,
-		reflect.TypeOf((*srvServiceRelationsWatcher)(nil)),
+		"RemoteRelationsWatcher", 1, newRemoteRelationsWatcher,
+		reflect.TypeOf((*srvRemoteRelationsWatcher)(nil)),
 	)
 	common.RegisterFacade(
-		"ServiceWatcher", 1, newServiceWatcher,
-		reflect.TypeOf((*srvServiceWatcher)(nil)),
+		"RemoteServiceWatcher", 1, newRemoteServiceWatcher,
+		reflect.TypeOf((*srvRemoteServiceWatcher)(nil)),
 	)
 	common.RegisterFacade(
 		"RelationUnitsWatcher", 0, newRelationUnitsWatcher,
@@ -237,35 +237,35 @@ func (w *srvRelationUnitsWatcher) Stop() error {
 	return w.resources.Stop(w.id)
 }
 
-// srvServiceRelationsWatcher defines the API wrapping a ServiceRelationsWatcher.
+// srvRemoteRelationsWatcher defines the API wrapping a RemoteRelationsWatcher.
 // This watcher notifies about:
-//  - addition and removal of relations of the service
-//  - lifecycle changes to relations of the service
+//  - addition and removal of relations
+//  - lifecycle changes to relations
 //  - settings of relation units changing
 //  - units departing the relation (joining is implicit in seeing new settings)
-type srvServiceRelationsWatcher struct {
-	watcher   ServiceRelationsWatcher
+type srvRemoteRelationsWatcher struct {
+	watcher   RemoteRelationsWatcher
 	id        string
 	resources *common.Resources
 }
 
-// ServiceRelationsWatcher is a watcher that reports on changes to relations
-// and relation units related to those relations for a specified service.
-type ServiceRelationsWatcher interface {
-	Changes() <-chan params.ServiceRelationsChange
+// RemoteRelationsWatcher is a watcher that reports on remote changes to
+// relations and relation units.
+type RemoteRelationsWatcher interface {
+	Changes() <-chan params.RemoteRelationsChange
 	Err() error
 	Stop() error
 }
 
-func newServiceRelationsWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
+func newRemoteRelationsWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
 	if !auth.AuthEnvironManager() {
 		return nil, common.ErrPerm
 	}
-	watcher, ok := resources.Get(id).(ServiceRelationsWatcher)
+	watcher, ok := resources.Get(id).(RemoteRelationsWatcher)
 	if !ok {
 		return nil, common.ErrUnknownWatcher
 	}
-	return &srvServiceRelationsWatcher{
+	return &srvRemoteRelationsWatcher{
 		watcher:   watcher,
 		id:        id,
 		resources: resources,
@@ -274,10 +274,10 @@ func newServiceRelationsWatcher(st *state.State, resources *common.Resources, au
 
 // Next returns when a change has occured to an entity of the
 // collection being watched since the most recent call to Next
-// or the Watch call that created the srvServiceRelationsWatcher.
-func (w *srvServiceRelationsWatcher) Next() (params.ServiceRelationsWatchResult, error) {
+// or the Watch call that created the srvRemoteRelationsWatcher.
+func (w *srvRemoteRelationsWatcher) Next() (params.RemoteRelationsWatchResult, error) {
 	if changes, ok := <-w.watcher.Changes(); ok {
-		return params.ServiceRelationsWatchResult{
+		return params.RemoteRelationsWatchResult{
 			Changes: &changes,
 		}, nil
 	}
@@ -285,11 +285,11 @@ func (w *srvServiceRelationsWatcher) Next() (params.ServiceRelationsWatchResult,
 	if err == nil {
 		err = common.ErrStoppedWatcher
 	}
-	return params.ServiceRelationsWatchResult{}, err
+	return params.RemoteRelationsWatchResult{}, err
 }
 
 // Stop stops the watcher.
-func (w *srvServiceRelationsWatcher) Stop() error {
+func (w *srvRemoteRelationsWatcher) Stop() error {
 	return w.resources.Stop(w.id)
 }
 
@@ -300,29 +300,30 @@ func (w *srvServiceRelationsWatcher) Stop() error {
 //  - lifecycle changes to relations of the service
 //  - settings of relation units changing
 //  - units departing the relation (joining is implicit in seeing new settings)
-type srvServiceWatcher struct {
-	watcher   ServiceWatcher
+type srvRemoteServiceWatcher struct {
+	watcher   RemoteServiceWatcher
 	id        string
 	resources *common.Resources
 }
 
-// ServiceWatcher is a watcher that reports on changes to relations
-// and relation units related to those relations for a specified service.
-type ServiceWatcher interface {
-	Changes() <-chan params.ServiceChange
+// RemoteServiceWatcher is a watcher that reports on remote changes to the
+// lifecycle, status, relations and relation units for a specified remote
+// service.
+type RemoteServiceWatcher interface {
+	Changes() <-chan params.RemoteServiceChange
 	Err() error
 	Stop() error
 }
 
-func newServiceWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
+func newRemoteServiceWatcher(st *state.State, resources *common.Resources, auth common.Authorizer, id string) (interface{}, error) {
 	if !auth.AuthEnvironManager() {
 		return nil, common.ErrPerm
 	}
-	watcher, ok := resources.Get(id).(ServiceWatcher)
+	watcher, ok := resources.Get(id).(RemoteServiceWatcher)
 	if !ok {
 		return nil, common.ErrUnknownWatcher
 	}
-	return &srvServiceWatcher{
+	return &srvRemoteServiceWatcher{
 		watcher:   watcher,
 		id:        id,
 		resources: resources,
@@ -331,10 +332,10 @@ func newServiceWatcher(st *state.State, resources *common.Resources, auth common
 
 // Next returns when a change has occured to an entity of the
 // collection being watched since the most recent call to Next
-// or the Watch call that created the srvServiceWatcher.
-func (w *srvServiceWatcher) Next() (params.ServiceWatchResult, error) {
+// or the Watch call that created the srvRemoteServiceWatcher.
+func (w *srvRemoteServiceWatcher) Next() (params.RemoteServiceWatchResult, error) {
 	if change, ok := <-w.watcher.Changes(); ok {
-		return params.ServiceWatchResult{
+		return params.RemoteServiceWatchResult{
 			Change: &change,
 		}, nil
 	}
@@ -342,11 +343,11 @@ func (w *srvServiceWatcher) Next() (params.ServiceWatchResult, error) {
 	if err == nil {
 		err = common.ErrStoppedWatcher
 	}
-	return params.ServiceWatchResult{}, err
+	return params.RemoteServiceWatchResult{}, err
 }
 
 // Stop stops the watcher.
-func (w *srvServiceWatcher) Stop() error {
+func (w *srvRemoteServiceWatcher) Stop() error {
 	return w.resources.Stop(w.id)
 }
 

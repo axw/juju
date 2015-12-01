@@ -151,20 +151,32 @@ func (s *RelationUnitSuite) TestPeerSettings(c *gc.C) {
 }
 
 func (s *RelationUnitSuite) TestRemoteUnitErrors(c *gc.C) {
-	_, err := s.State.AddRemoteService("mysql", "local:/u/me/mysql", []charm.Relation{{
-		Interface: "mysql",
-		Name:      "server",
-		Role:      charm.RoleProvider,
-		Scope:     charm.ScopeGlobal,
-	}})
+	_, err := s.State.AddRemoteService(state.AddRemoteServiceParams{
+		Name:      "mysql",
+		URL:       "local:/u/me/mysql",
+		SourceEnv: s.State.EnvironTag(),
+		Token:     "t0",
+		Endpoints: []charm.Relation{{
+			Interface: "mysql",
+			Name:      "server",
+			Role:      charm.RoleProvider,
+			Scope:     charm.ScopeGlobal,
+		}},
+	})
 	c.Assert(err, jc.ErrorIsNil)
 
-	_, err = s.State.AddRemoteService("mysql1", "local:/u/me/mysql", []charm.Relation{{
-		Interface: "mysql",
-		Name:      "server",
-		Role:      charm.RoleProvider,
-		Scope:     charm.ScopeGlobal,
-	}})
+	_, err = s.State.AddRemoteService(state.AddRemoteServiceParams{
+		Name:      "mysql1",
+		URL:       "local:/u/me/mysql",
+		SourceEnv: s.State.EnvironTag(),
+		Token:     "t1",
+		Endpoints: []charm.Relation{{
+			Interface: "mysql",
+			Name:      "server",
+			Role:      charm.RoleProvider,
+			Scope:     charm.ScopeGlobal,
+		}},
+	})
 	c.Assert(err, jc.ErrorIsNil)
 	s.AddTestingService(c, "wordpress", s.AddTestingCharm(c, "wordpress"))
 
@@ -915,12 +927,18 @@ type RemoteProReqRelation struct {
 }
 
 func NewRemoteProReqRelation(c *gc.C, s *ConnSuite) *RemoteProReqRelation {
-	psvc, err := s.State.AddRemoteService("mysql", "local:/u/me/mysql", []charm.Relation{{
-		Interface: "mysql",
-		Name:      "server",
-		Role:      charm.RoleProvider,
-		Scope:     charm.ScopeGlobal,
-	}})
+	psvc, err := s.State.AddRemoteService(state.AddRemoteServiceParams{
+		Name:      "mysql",
+		URL:       "local:/u/me/mysql",
+		SourceEnv: s.State.EnvironTag(),
+		Token:     "t0",
+		Endpoints: []charm.Relation{{
+			Interface: "mysql",
+			Name:      "server",
+			Role:      charm.RoleProvider,
+			Scope:     charm.ScopeGlobal,
+		}},
+	})
 	c.Assert(err, jc.ErrorIsNil)
 	rsvc := s.AddTestingService(c, "wordpress", s.AddTestingCharm(c, "wordpress"))
 
@@ -1362,13 +1380,13 @@ func (s *WatchScopeSuite) TestProviderRequirerContainer(c *gc.C) {
 	// connections are in place.
 }
 
-type WatchCounterpartEndpointUnitsSuite struct {
+type WatchUnitsSuite struct {
 	ConnSuite
 }
 
-var _ = gc.Suite(&WatchCounterpartEndpointUnitsSuite{})
+var _ = gc.Suite(&WatchUnitsSuite{})
 
-func (s *WatchCounterpartEndpointUnitsSuite) TestProviderRequirerGlobal(c *gc.C) {
+func (s *WatchUnitsSuite) TestProviderRequirerGlobal(c *gc.C) {
 	// Create a pair of services and a relation between them.
 	mysql := s.AddTestingService(c, "mysql", s.AddTestingCharm(c, "mysql"))
 	mysqlEP, err := mysql.Endpoint("server")
@@ -1390,7 +1408,7 @@ func (s *WatchCounterpartEndpointUnitsSuite) TestProviderRequirerGlobal(c *gc.C)
 	mysql0 := addUnit(mysql)
 	wordpress0 := addUnit(wordpress)
 
-	wordpressWatcher, err := rel.WatchCounterpartEndpointUnits("mysql")
+	wordpressWatcher, err := rel.WatchUnits("wordpress")
 	c.Assert(err, jc.ErrorIsNil)
 	defer testing.AssertStop(c, wordpressWatcher)
 	wordpressWatcherC := testing.NewRelationUnitsWatcherC(c, s.State, wordpressWatcher)
@@ -1403,7 +1421,7 @@ func (s *WatchCounterpartEndpointUnitsSuite) TestProviderRequirerGlobal(c *gc.C)
 	c.Assert(err, jc.ErrorIsNil)
 	changeSettings(c, mysql0)
 
-	mysqlWatcher, err := rel.WatchCounterpartEndpointUnits("wordpress")
+	mysqlWatcher, err := rel.WatchUnits("mysql")
 	c.Assert(err, jc.ErrorIsNil)
 	defer testing.AssertStop(c, mysqlWatcher)
 	mysqlWatcherC := testing.NewRelationUnitsWatcherC(c, s.State, mysqlWatcher)
@@ -1420,7 +1438,7 @@ func (s *WatchCounterpartEndpointUnitsSuite) TestProviderRequirerGlobal(c *gc.C)
 	mysqlWatcherC.AssertNoChange()
 }
 
-func (s *WatchCounterpartEndpointUnitsSuite) TestProviderRequirerContainer(c *gc.C) {
+func (s *WatchUnitsSuite) TestProviderRequirerContainer(c *gc.C) {
 	// Create a pair of services and a relation between them.
 	mysql := s.AddTestingService(c, "mysql", s.AddTestingCharm(c, "mysql"))
 	mysqlEP, err := mysql.Endpoint("juju-info")
@@ -1431,9 +1449,9 @@ func (s *WatchCounterpartEndpointUnitsSuite) TestProviderRequirerContainer(c *gc
 	rel, err := s.State.AddRelation(mysqlEP, loggingEP)
 	c.Assert(err, jc.ErrorIsNil)
 
-	_, err = rel.WatchCounterpartEndpointUnits("mysql")
+	_, err = rel.WatchUnits("mysql")
 	c.Assert(err, gc.ErrorMatches, `"juju-info" endpoint is not globally scoped`)
-	_, err = rel.WatchCounterpartEndpointUnits("logging")
+	_, err = rel.WatchUnits("logging")
 	c.Assert(err, gc.ErrorMatches, `"info" endpoint is not globally scoped`)
 }
 

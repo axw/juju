@@ -180,6 +180,19 @@ func allCollections() collectionSchema {
 			}},
 		},
 
+		// remoteEntitiesC holds information about entities involved in
+		// cross-model relations.
+		remoteEntitiesC: {
+			indexes: []mgo.Index{{
+				Key: []string{"env-uuid", "source-env-uuid", "token"},
+			}, {
+				Key: []string{"env-uuid", "source-env-uuid"},
+			}},
+		},
+
+		// tokensC holds unique tokens for the environment.
+		tokensC: {},
+
 		// -----
 
 		// These collections hold information associated with services.
@@ -419,5 +432,7 @@ const (
 	envUserLastConnectionC = "envUserLastConnection"
 	volumeAttachmentsC     = "volumeattachments"
 	volumesC               = "volumes"
+	remoteEntitiesC        = "remoteentities"
+	tokensC                = "tokens"
 	// "payloads" (see payload/persistence/mongo.go)
 )

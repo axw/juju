@@ -29,6 +29,7 @@ type remoteServiceDoc struct {
 	DocID         string              `bson:"_id"`
 	Name          string              `bson:"name"`
 	URL           string              `bson:"url,omitempty"`
+	SourceEnvUUID string              `bson:"source-env-uuid"`
 	Endpoints     []remoteEndpointDoc `bson:"endpoints"`
 	Life          Life                `bson:"life"`
 	RelationCount int                 `bson:"relationcount"`
@@ -56,14 +57,28 @@ func (s *RemoteService) IsRemote() bool {
 	return true
 }
 
+// SourceEnviron returns the tag of the environment that the entity belongs to.
+func (s *RemoteService) SourceEnviron() names.EnvironTag {
+	return names.NewEnvironTag(s.doc.SourceEnvUUID)
+}
+
 // Name returns the service name.
 func (s *RemoteService) Name() string {
 	return s.doc.Name
 }
 
-// URL returns the remote service URL.
-func (s *RemoteService) URL() string {
-	return s.doc.URL
+// URL returns the remote service URL, and a boolean indicating whether or not
+// a URL is known for the remote service. A URL will only be available for the
+// consumer of an offered service.
+func (s *RemoteService) URL() (string, bool) {
+	return s.doc.URL, s.doc.URL != ""
+}
+
+// Token returns the token for the remote service, provided by the remote
+// environment to identify the service in future communications.
+func (s *RemoteService) Token() (string, error) {
+	r := newRemoteEntities(s.st)
+	return r.GetToken(s.SourceEnviron(), s.Tag())
 }
 
 // Tag returns a name identifying the service.
@@ -178,6 +193,7 @@ func (s *RemoteService) destroyOps() ([]txn.Op, error) {
 // removeOps returns the operations required to remove the service. Supplied
 // asserts will be included in the operation on the service document.
 func (s *RemoteService) removeOps(asserts bson.D) []txn.Op {
+	r := newRemoteEntities(s.st)
 	ops := []txn.Op{
 		{
 			C:      remoteServicesC,
@@ -185,6 +201,7 @@ func (s *RemoteService) removeOps(asserts bson.D) []txn.Op {
 			Assert: asserts,
 			Remove: true,
 		},
+		r.removeRemoteEntityOp(s.SourceEnviron(), s.Tag()),
 	}
 	return ops
 }
@@ -257,21 +274,59 @@ var (
 	errRemoteServiceExists        = errors.Errorf("remote service already exists")
 )
 
+// AddRemoteServiceParams contains the parameters for adding a remote service
+// to the environment.
+type AddRemoteServiceParams struct {
+	// Name is the name to give the remote service. This does not have to
+	// match the service name in the URL, or the name in the remote
+	// environment.
+	Name string
+
+	// URL is either empty, or the URL that the remote service was offered
+	// with.
+	URL string
+
+	// SourceEnv is the tag of the environment that the remote service
+	// belongs to.
+	SourceEnv names.EnvironTag
+
+	// Token is an opaque string that identifies the remote service in the
+	// source environment.
+	Token string
+
+	// Endpoints describes the endpoints that the remote service
+	// implements.
+	Endpoints []charm.Relation
+}
+
+func (p AddRemoteServiceParams) Validate() error {
+	if !names.IsValidService(p.Name) {
+		return errors.NotValidf("name %q", p.Name)
+	}
+	if p.URL != "" {
+		// URL may be empty, to represent remote services corresponding
+		// to consumers of an offered service.
+		if _, err := crossmodel.ParseServiceURL(p.URL); err != nil {
+			return errors.Annotate(err, "validating service URL")
+		}
+	}
+	if p.SourceEnv == (names.EnvironTag{}) {
+		return errors.NotValidf("empty source environment tag")
+	}
+	if p.Token == "" {
+		return errors.NotValidf("empty token")
+	}
+	return nil
+}
+
 // AddRemoteService creates a new remote service record, having the supplied relation endpoints,
 // with the supplied name (which must be unique across all services, local and remote).
-func (st *State) AddRemoteService(name, url string, endpoints []charm.Relation) (service *RemoteService, err error) {
-	defer errors.DeferredAnnotatef(&err, "cannot add remote service %q", name)
+func (st *State) AddRemoteService(args AddRemoteServiceParams) (service *RemoteService, err error) {
+	defer errors.DeferredAnnotatef(&err, "cannot add remote service %q", args.Name)
 
 	// Sanity checks.
-	if !names.IsValidService(name) {
-		return nil, errors.Errorf("invalid name")
-	}
-	if url != "" {
-		// url may be empty, to represent remote services corresponding
-		// to consumers of an offered service.
-		if _, err := crossmodel.ParseServiceURL(url); err != nil {
-			return nil, errors.Annotate(err, "validating service URL")
-		}
+	if err := args.Validate(); err != nil {
+		return nil, errors.Trace(err)
 	}
 	env, err := st.Environment()
 	if err != nil {
@@ -280,16 +335,17 @@ func (st *State) AddRemoteService(name, url string, endpoints []charm.Relation) 
 		return nil, errors.Errorf("environment is no longer alive")
 	}
 
-	serviceID := st.docID(name)
+	serviceID := st.docID(args.Name)
 	// Create the service addition operations.
 	svcDoc := &remoteServiceDoc{
-		DocID: serviceID,
-		Name:  name,
-		URL:   url,
-		Life:  Alive,
+		DocID:         serviceID,
+		Name:          args.Name,
+		SourceEnvUUID: args.SourceEnv.Id(),
+		URL:           args.URL,
+		Life:          Alive,
 	}
-	eps := make([]remoteEndpointDoc, len(endpoints))
-	for i, ep := range endpoints {
+	eps := make([]remoteEndpointDoc, len(args.Endpoints))
+	for i, ep := range args.Endpoints {
 		eps[i] = remoteEndpointDoc{
 			Name:      ep.Name,
 			Role:      ep.Role,
@@ -300,6 +356,9 @@ func (st *State) AddRemoteService(name, url string, endpoints []charm.Relation) 
 	}
 	svcDoc.Endpoints = eps
 	svc := newRemoteService(st, svcDoc)
+	importRemoteEntityOps := newRemoteEntities(st).importRemoteEntityOps(
+		args.SourceEnv, svc.Tag(), args.Token,
+	)
 
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		// If we've tried once already and failed, check that
@@ -309,13 +368,13 @@ func (st *State) AddRemoteService(name, url string, endpoints []charm.Relation) 
 				return nil, errors.Trace(err)
 			}
 			// Ensure a local service with the same name doesn't exist.
-			if localExists, err := isNotDead(st, servicesC, name); err != nil {
+			if localExists, err := isNotDead(st, servicesC, args.Name); err != nil {
 				return nil, errors.Trace(err)
 			} else if localExists {
 				return nil, errSameNameLocalServiceExists
 			}
 			// Ensure a remote service with the same name doesn't exist.
-			if exists, err := isNotDead(st, remoteServicesC, name); err != nil {
+			if exists, err := isNotDead(st, remoteServicesC, args.Name); err != nil {
 				return nil, errors.Trace(err)
 			} else if exists {
 				return nil, errRemoteServiceExists
@@ -334,6 +393,7 @@ func (st *State) AddRemoteService(name, url string, endpoints []charm.Relation) 
 				Assert: txn.DocMissing,
 			},
 		}
+		ops = append(ops, importRemoteEntityOps...)
 		return ops, nil
 	}
 	if err = st.run(buildTxn); err != nil {
@@ -361,21 +421,18 @@ func (st *State) RemoteService(name string) (service *RemoteService, err error) 
 	return newRemoteService(st, sdoc), nil
 }
 
-// RemoteService returns a remote service state by name.
-func (st *State) RemoteServiceByURL(url string) (service *RemoteService, err error) {
-	if _, err := crossmodel.ParseServiceURL(url); err != nil {
-		return nil, errors.Annotate(err, "validating service URL")
-	}
+// RemoteService returns a remote service state by token.
+func (st *State) RemoteServiceByToken(token string) (service *RemoteService, err error) {
 	services, closer := st.getCollection(remoteServicesC)
 	defer closer()
 
 	sdoc := &remoteServiceDoc{}
-	err = services.Find(bson.D{{"url", url}}).One(sdoc)
+	err = services.Find(bson.D{{"token", token}}).One(sdoc)
 	if err == mgo.ErrNotFound {
-		return nil, errors.NotFoundf("remote service with URL %q", url)
+		return nil, errors.NotFoundf("remote service with token %q", token)
 	}
 	if err != nil {
-		return nil, errors.Annotatef(err, "cannot get remote service with URL %q", url)
+		return nil, errors.Annotatef(err, "cannot get remote service with token %q", token)
 	}
 	return newRemoteService(st, sdoc), nil
 }

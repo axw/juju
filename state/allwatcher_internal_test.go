@@ -285,7 +285,13 @@ func addTestingRemoteService(
 	c *gc.C, st *State, name, url string, relations []charm.Relation,
 ) (*RemoteService, multiwatcher.RemoteServiceInfo) {
 
-	rs, err := st.AddRemoteService(name, url, relations)
+	rs, err := st.AddRemoteService(AddRemoteServiceParams{
+		Name:      name,
+		URL:       url,
+		SourceEnv: st.EnvironTag(),
+		Token:     "toeken",
+		Endpoints: relations,
+	})
 	c.Assert(err, jc.ErrorIsNil)
 	endpoints := make([]multiwatcher.Endpoint, len(relations))
 	for i, r := range relations {

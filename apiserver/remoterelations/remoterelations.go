@@ -63,71 +63,75 @@ func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
 		Results: make([]params.ErrorResult, len(changes.Changes)),
 	}
 	handleRemoteRelationsChange := func(change params.RemoteRelationsChange) error {
-		// For any relations that have been removed on the offering
-		// side, destroy them on the consuming side.
-		for _, relId := range change.RemovedRelations {
-			rel, err := api.st.Relation(relId)
-			if errors.IsNotFound(err) {
-				continue
-			} else if err != nil {
-				return errors.Trace(err)
-			}
-			if err := rel.Destroy(); err != nil {
-				return errors.Trace(err)
-			}
-			// TODO(axw) remove remote relation units.
-		}
-		for _, change := range change.ChangedRelations {
-			rel, err := api.st.Relation(change.RelationId)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			if change.Life != params.Alive {
+		/*
+			// For any relations that have been removed on the offering
+			// side, destroy them on the consuming side.
+			for _, relId := range change.RemovedRelations {
+				rel, err := api.st.Relation(relId)
+				if errors.IsNotFound(err) {
+					continue
+				} else if err != nil {
+					return errors.Trace(err)
+				}
 				if err := rel.Destroy(); err != nil {
 					return errors.Trace(err)
 				}
+				// TODO(axw) remove remote relation units.
 			}
-			for _, unitId := range change.DepartedUnits {
-				ru, err := rel.RemoteUnit(unitId)
+			for _, change := range change.ChangedRelations {
+				rel, err := api.st.Relation(change.RelationId)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				if err := ru.LeaveScope(); err != nil {
-					return errors.Trace(err)
+				if change.Life != params.Alive {
+					if err := rel.Destroy(); err != nil {
+						return errors.Trace(err)
+					}
+				}
+				for _, unitId := range change.DepartedUnits {
+					ru, err := rel.RemoteUnit(unitId)
+					if err != nil {
+						return errors.Trace(err)
+					}
+					if err := ru.LeaveScope(); err != nil {
+						return errors.Trace(err)
+					}
+				}
+				for unitId, change := range change.ChangedUnits {
+					ru, err := rel.RemoteUnit(unitId)
+					if err != nil {
+						return errors.Trace(err)
+					}
+					inScope, err := ru.InScope()
+					if err != nil {
+						return errors.Trace(err)
+					}
+					if !inScope {
+						err = ru.EnterScope(change.Settings)
+					} else {
+						err = ru.ReplaceSettings(change.Settings)
+					}
+					if err != nil {
+						return errors.Trace(err)
+					}
 				}
 			}
-			for unitId, change := range change.ChangedUnits {
-				ru, err := rel.RemoteUnit(unitId)
-				if err != nil {
-					return errors.Trace(err)
-				}
-				inScope, err := ru.InScope()
-				if err != nil {
-					return errors.Trace(err)
-				}
-				if !inScope {
-					err = ru.EnterScope(change.Settings)
-				} else {
-					err = ru.ReplaceSettings(change.Settings)
-				}
-				if err != nil {
-					return errors.Trace(err)
-				}
-			}
-		}
+		*/
 		return nil
 	}
 	handleServiceChange := func(change params.RemoteServiceChange) error {
-		service, err := api.st.RemoteServiceByURL(change.ServiceURL)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		// TODO(axw) update service status.
-		if change.Life != params.Alive {
-			if err := service.Destroy(); err != nil {
+		/*
+			service, err := api.st.RemoteServiceByURL(change.ServiceURL)
+			if err != nil {
 				return errors.Trace(err)
 			}
-		}
+			// TODO(axw) update service status.
+			if change.Life != params.Alive {
+				if err := service.Destroy(); err != nil {
+					return errors.Trace(err)
+				}
+			}
+		*/
 		return handleRemoteRelationsChange(change.Relations)
 	}
 	for i, change := range changes.Changes {
@@ -204,7 +208,10 @@ func (api *RemoteRelationsAPI) watchRemoteService(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	serviceURL := remoteService.URL()
+	serviceURL, ok := remoteService.URL()
+	if !ok {
+		return nil, errors.Errorf("cannot watch non-offered remote service")
+	}
 	directoryName, err := crossmodel.ServiceDirectoryForURL(serviceURL)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -215,14 +222,13 @@ func (api *RemoteRelationsAPI) watchRemoteService(
 	return api.watchRemoteServiceLocalController(serviceURL)
 }
 
-// WatchRemoteRelations starts a RemoteRelationsWatcher for each specified
-// remote service, and returns the watcher IDs and initial values, or an error
-// if the remote services could not be watched.
-func (api *RemoteRelationsAPI) WatchRemoteRelations(
-	args params.Entities,
-) (params.RemoteRelationsWatchResults, error) {
-	results := params.RemoteRelationsWatchResults{
-		make([]params.RemoteRelationsWatchResult, len(args.Entities)),
+// WatchServiceRelations starts a StringsWatcher for watching the relations of
+// each specified service in the local environment, and returns the watcher IDs
+// and initial values, or an error if the services' relations could not be
+// watched.
+func (api *RemoteRelationsAPI) WatchServiceRelations(args params.Entities) (params.StringsWatchResults, error) {
+	results := params.StringsWatchResults{
+		make([]params.StringsWatchResult, len(args.Entities)),
 	}
 	for i, arg := range args.Entities {
 		serviceTag, err := names.ParseServiceTag(arg.Tag)
@@ -230,7 +236,8 @@ func (api *RemoteRelationsAPI) WatchRemoteRelations(
 			results.Results[i].Error = common.ServerError(err)
 			continue
 		}
-		w, err := api.watchRemoteRelations(serviceTag)
+		serviceName := serviceTag.Id()
+		w, err := api.st.WatchRemoteServiceRelations(serviceName)
 		if err != nil {
 			results.Results[i].Error = common.ServerError(err)
 			continue
@@ -240,17 +247,60 @@ func (api *RemoteRelationsAPI) WatchRemoteRelations(
 			results.Results[i].Error = common.ServerError(watcher.EnsureErr(w))
 			continue
 		}
-		results.Results[i].RemoteRelationsWatcherId = api.resources.Register(w)
-		results.Results[i].Changes = &changes
+		results.Results[i].StringsWatcherId = api.resources.Register(w)
+		results.Results[i].Changes = changes
 	}
 	return results, nil
 }
 
-func (api *RemoteRelationsAPI) watchRemoteRelations(serviceTag names.ServiceTag) (*remoteRelationsWatcher, error) {
-	serviceName := serviceTag.Id()
-	relationsWatcher, err := api.st.WatchRemoteServiceRelations(serviceName)
+// WatchLocalRelationUnits starts a RelationUnitsWatcher for watching the local
+// relation units involved in each specified relation in the local environment,
+// and returns the watcher IDs and initial values, or an error if the relation
+// units could not be watched.
+func (api *RemoteRelationsAPI) WatchLocalRelationUnits(args params.Entities) (params.RelationUnitsWatchResults, error) {
+	results := params.RelationUnitsWatchResults{
+		make([]params.RelationUnitsWatchResult, len(args.Entities)),
+	}
+	for i, arg := range args.Entities {
+		relationTag, err := names.ParseRelationTag(arg.Tag)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
+		w, err := api.watchLocalRelationUnits(relationTag)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
+		changes, ok := <-w.Changes()
+		if !ok {
+			results.Results[i].Error = common.ServerError(watcher.EnsureErr(w))
+			continue
+		}
+		results.Results[i].RelationUnitsWatcherId = api.resources.Register(w)
+		results.Results[i].Changes = changes
+	}
+	return results, nil
+}
+
+func (api *RemoteRelationsAPI) watchLocalRelationUnits(tag names.RelationTag) (state.RelationUnitsWatcher, error) {
+	relation, err := api.st.KeyRelation(tag.Id())
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return newRemoteRelationsWatcher(api.st, serviceName, true, relationsWatcher), nil
+	for _, ep := range relation.Endpoints() {
+		_, err := api.st.Service(ep.ServiceName)
+		if errors.IsNotFound(err) {
+			// Not found, probably means it's the remote service. Try the next endpoint.
+			continue
+		} else if err != nil {
+			return nil, errors.Trace(err)
+		}
+		w, err := relation.WatchUnits(ep.ServiceName)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return w, nil
+	}
+	return nil, errors.NotFoundf("local service for %s", names.ReadableString(tag))
 }

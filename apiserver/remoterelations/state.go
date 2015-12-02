@@ -34,9 +34,6 @@ type RemoteRelationsState interface {
 	// RemoteService returns a remote service by name.
 	RemoteService(string) (RemoteService, error)
 
-	// RemoteServiceByURL returns a remote service by URL.
-	RemoteServiceByURL(string) (RemoteService, error)
-
 	// Service returns a local service by name.
 	Service(string) (Service, error)
 
@@ -63,6 +60,9 @@ type Relation interface {
 	// no units are currently in scope, it will be removed immediately.
 	Destroy() error
 
+	// Endpoints returns the endpoints that constitute the relation.
+	Endpoints() []state.Endpoint
+
 	// Id returns the integer internal relation key.
 	Id() int
 
@@ -75,11 +75,6 @@ type Relation interface {
 
 	// Unit returns a RelationUnit for the unit with the supplied ID.
 	Unit(unitId string) (RelationUnit, error)
-
-	// WatchCounterpartEndpointUnits returns a watcher that notifies of
-	// changes to the units with the endpoint counterpart to the specified
-	// service.
-	WatchCounterpartEndpointUnits(serviceName string) (state.RelationUnitsWatcher, error)
 
 	// WatchEndpointUnits returns a watcher that notifies of changes to
 	// the units of the specified service in the relation.
@@ -125,11 +120,10 @@ type RemoteService interface {
 	Name() string
 
 	// URL returns the remote service URL, at which it is offered.
-	URL() string
+	URL() (string, bool)
 }
 
-// RemoteService represents the state of a service hosted in the local
-// environment.
+// Service represents the state of a service hosted in the local environment.
 type Service interface {
 	// Life returns the lifecycle state of the service.
 	Life() state.Life
@@ -177,14 +171,6 @@ func (st stateShim) Relation(id int) (Relation, error) {
 
 func (st stateShim) RemoteService(name string) (RemoteService, error) {
 	s, err := st.State.RemoteService(name)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return remoteServiceShim{s}, nil
-}
-
-func (st stateShim) RemoteServiceByURL(url string) (RemoteService, error) {
-	s, err := st.State.RemoteServiceByURL(url)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

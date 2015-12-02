@@ -76,7 +76,7 @@ func (api *RemoteRelationsAPI) watchRemoteServiceLocalController(
 	}
 	remoteServiceWatcher := service.Watch()
 	relationsWatcher := service.WatchRelations()
-	rw := newRemoteRelationsWatcher(otherState, serviceName, false, relationsWatcher)
+	rw := newRemoteRelationsWatcher(otherState, serviceName, relationsWatcher)
 	return newRemoteServiceWatcher(otherState, serviceName, serviceURL, remoteServiceWatcher, rw), nil
 }
 
@@ -117,63 +117,66 @@ func newRemoteServiceWatcher(
 }
 
 func (w *remoteServiceWatcher) loop() error {
-	var out chan<- params.RemoteServiceChange
-	value := params.RemoteServiceChange{
-		ServiceURL: w.serviceURL,
-	}
-	var seenServiceChange, seenRelationsChange bool
-	for {
-		select {
-		case <-w.tomb.Dying():
-			return tomb.ErrDying
+	/*
+		var out chan<- params.RemoteServiceChange
+		value := params.RemoteServiceChange{
+			ServiceURL: w.serviceURL,
+		}
+		var seenServiceChange, seenRelationsChange bool
+		for {
+			select {
+			case <-w.tomb.Dying():
+				return tomb.ErrDying
 
-		case _, ok := <-w.remoteServiceWatcher.Changes():
-			if !ok {
-				return watcher.EnsureErr(w.remoteServiceWatcher)
-			}
-			seenServiceChange = true
-			var life params.Life
-			service, err := w.st.Service(w.serviceName)
-			if errors.IsNotFound(err) {
-				// Service has been removed. Just say it's
-				// Dead, because we don't have any other
-				// way of saying it's removed. The consumer
-				// will still remove it after destroying.
-				life = params.Dead
-			} else if err != nil {
-				return errors.Trace(err)
-			} else {
-				life = params.Life(service.Life().String())
-			}
-			var changed bool
-			if life != value.Life {
-				value.Life = life
-				changed = true
-			}
-			// Only send changes when there is a service change
-			// that we are interested in.
-			if changed && seenRelationsChange {
-				out = w.out
-			}
+			case _, ok := <-w.remoteServiceWatcher.Changes():
+				if !ok {
+					return watcher.EnsureErr(w.remoteServiceWatcher)
+				}
+				seenServiceChange = true
+				var life params.Life
+				service, err := w.st.Service(w.serviceName)
+				if errors.IsNotFound(err) {
+					// Service has been removed. Just say it's
+					// Dead, because we don't have any other
+					// way of saying it's removed. The consumer
+					// will still remove it after destroying.
+					life = params.Dead
+				} else if err != nil {
+					return errors.Trace(err)
+				} else {
+					life = params.Life(service.Life().String())
+				}
+				var changed bool
+				if life != value.Life {
+					value.Life = life
+					changed = true
+				}
+				// Only send changes when there is a service change
+				// that we are interested in.
+				if changed && seenRelationsChange {
+					out = w.out
+				}
 
-		case change, ok := <-w.relationsWatcher.Changes():
-			if !ok {
-				return watcher.EnsureErr(w.relationsWatcher)
-			}
-			seenRelationsChange = true
-			value.Relations = change
-			if seenServiceChange {
-				out = w.out
-			}
+			case change, ok := <-w.relationsWatcher.Changes():
+				if !ok {
+					return watcher.EnsureErr(w.relationsWatcher)
+				}
+				seenRelationsChange = true
+				value.Relations = change
+				if seenServiceChange {
+					out = w.out
+				}
 
-		case out <- value:
-			out = nil
-			value = params.RemoteServiceChange{
-				ServiceURL: value.ServiceURL,
-				Life:       value.Life,
+			case out <- value:
+				out = nil
+				value = params.RemoteServiceChange{
+					ServiceURL: value.ServiceURL,
+					Life:       value.Life,
+				}
 			}
 		}
-	}
+	*/
+	return errors.NotImplementedf("")
 }
 
 func (w *remoteServiceWatcher) Changes() <-chan params.RemoteServiceChange {
@@ -197,7 +200,6 @@ type remoteRelationsWatcher struct {
 	tomb                  tomb.Tomb
 	st                    RemoteRelationsState
 	serviceName           string
-	counterpartUnits      bool
 	relationsWatcher      state.StringsWatcher
 	relationUnitsChanges  chan relationUnitsChange
 	relationUnitsWatchers map[string]*relationWatcher
@@ -208,13 +210,11 @@ type remoteRelationsWatcher struct {
 func newRemoteRelationsWatcher(
 	st RemoteRelationsState,
 	serviceName string,
-	counterpartUnits bool,
 	rw state.StringsWatcher,
 ) *remoteRelationsWatcher {
 	w := &remoteRelationsWatcher{
 		st:                    st,
 		serviceName:           serviceName,
-		counterpartUnits:      counterpartUnits,
 		relationsWatcher:      rw,
 		relationUnitsChanges:  make(chan relationUnitsChange),
 		relationUnitsWatchers: make(map[string]*relationWatcher),
@@ -237,102 +237,101 @@ func newRemoteRelationsWatcher(
 }
 
 func (w *remoteRelationsWatcher) loop() error {
-	var out chan<- params.RemoteRelationsChange
-	var value params.RemoteRelationsChange
-	for {
-		select {
-		case <-w.tomb.Dying():
-			return tomb.ErrDying
+	/*
+		var out chan<- params.RemoteRelationsChange
+		var value params.RemoteRelationsChange
+		for {
+			select {
+			case <-w.tomb.Dying():
+				return tomb.ErrDying
 
-		case change, ok := <-w.relationsWatcher.Changes():
-			if !ok {
-				return watcher.EnsureErr(w.relationsWatcher)
-			}
-			for _, relationKey := range change {
-				relation, err := w.st.KeyRelation(relationKey)
-				if errors.IsNotFound(err) {
-					r, ok := w.relations[relationKey]
-					if !ok {
-						// Relation was not previously known, so
-						// don't report it as removed.
-						continue
-					}
-					delete(w.relations, relationKey)
-					relationId := r.relationId
-
-					// Relation has been removed, so stop and remove its
-					// relation units watcher, and then add the relation
-					// ID to the removed relations list.
-					watcher, ok := w.relationUnitsWatchers[relationKey]
-					if ok {
-						if err := watcher.Stop(); err != nil {
-							return errors.Trace(err)
-						}
-						delete(w.relationUnitsWatchers, relationKey)
-					}
-					value.RemovedRelations = append(
-						value.RemovedRelations, relationId,
-					)
-					continue
-				} else if err != nil {
-					return errors.Trace(err)
+			case change, ok := <-w.relationsWatcher.Changes():
+				if !ok {
+					return watcher.EnsureErr(w.relationsWatcher)
 				}
+				for _, relationKey := range change {
+					relation, err := w.st.KeyRelation(relationKey)
+					if errors.IsNotFound(err) {
+						r, ok := w.relations[relationKey]
+						if !ok {
+							// Relation was not previously known, so
+							// don't report it as removed.
+							continue
+						}
+						delete(w.relations, relationKey)
+						relationId := r.relationId
 
-				relationId := relation.Id()
-				relationChange, _ := getRelationChange(&value, relationId)
-				relationChange.Life = params.Life(relation.Life().String())
-				w.relations[relationKey] = relationInfo{relationId, relationChange.Life}
-				if _, ok := w.relationUnitsWatchers[relationKey]; !ok {
-					// Start a relation units watcher, wait for the initial
-					// value before informing the client of the relation.
-					var ruw state.RelationUnitsWatcher
-					if w.counterpartUnits {
-						ruw, err = relation.WatchCounterpartEndpointUnits(w.serviceName)
-					} else {
-						ruw, err = relation.WatchUnits(w.serviceName)
-					}
-					if err != nil {
+						// Relation has been removed, so stop and remove its
+						// relation units watcher, and then add the relation
+						// ID to the removed relations list.
+						watcher, ok := w.relationUnitsWatchers[relationKey]
+						if ok {
+							if err := watcher.Stop(); err != nil {
+								return errors.Trace(err)
+							}
+							delete(w.relationUnitsWatchers, relationKey)
+						}
+						value.RemovedRelations = append(
+							value.RemovedRelations, relationId,
+						)
+						continue
+					} else if err != nil {
 						return errors.Trace(err)
 					}
-					var knownUnits set.Strings
-					select {
-					case <-w.tomb.Dying():
-						return tomb.ErrDying
-					case change, ok := <-ruw.Changes():
-						if !ok {
-							return watcher.EnsureErr(ruw)
-						}
-						ru := relationUnitsChange{
-							relationKey: relationKey,
-						}
-						knownUnits = make(set.Strings)
-						if err := updateRelationUnits(
-							w.st, relation, knownUnits, change, &ru,
-						); err != nil {
-							watcher.Stop(ruw, &w.tomb)
+
+					relationId := relation.Id()
+					relationChange, _ := getRelationChange(&value, relationId)
+					relationChange.Life = params.Life(relation.Life().String())
+					w.relations[relationKey] = relationInfo{relationId, relationChange.Life}
+					if _, ok := w.relationUnitsWatchers[relationKey]; !ok {
+						// Start a relation units watcher, wait for the initial
+						// value before informing the client of the relation.
+						ruw, err := relation.WatchUnits(w.serviceName)
+						if err != nil {
 							return errors.Trace(err)
 						}
-						w.updateRelationUnits(ru, &value)
+						var knownUnits set.Strings
+						select {
+						case <-w.tomb.Dying():
+							return tomb.ErrDying
+						case change, ok := <-ruw.Changes():
+							if !ok {
+								return watcher.EnsureErr(ruw)
+							}
+							ru := relationUnitsChange{
+								relationKey: relationKey,
+							}
+							knownUnits = make(set.Strings)
+							if err := updateRelationUnits(
+								w.st, relation, knownUnits, change, &ru,
+							); err != nil {
+								watcher.Stop(ruw, &w.tomb)
+								return errors.Trace(err)
+							}
+							w.updateRelationUnits(ru, &value)
+						}
+						w.relationUnitsWatchers[relationKey] = newRelationWatcher(
+							w.st, relation, relationKey, knownUnits,
+							ruw, w.relationUnitsChanges,
+						)
 					}
-					w.relationUnitsWatchers[relationKey] = newRelationWatcher(
-						w.st, relation, relationKey, knownUnits,
-						ruw, w.relationUnitsChanges,
-					)
 				}
+				out = w.out
+
+			case change := <-w.relationUnitsChanges:
+				w.updateRelationUnits(change, &value)
+				out = w.out
+
+			case out <- value:
+				out = nil
+				value = params.RemoteRelationsChange{}
 			}
-			out = w.out
-
-		case change := <-w.relationUnitsChanges:
-			w.updateRelationUnits(change, &value)
-			out = w.out
-
-		case out <- value:
-			out = nil
-			value = params.RemoteRelationsChange{}
 		}
-	}
+	*/
+	return errors.NotImplementedf("")
 }
 
+/*
 func (w *remoteRelationsWatcher) updateRelationUnits(change relationUnitsChange, value *params.RemoteRelationsChange) {
 	relationInfo, ok := w.relations[change.relationKey]
 	r, ok := getRelationChange(value, relationInfo.relationId)
@@ -373,6 +372,7 @@ func (w *remoteRelationsWatcher) updateRelation(change params.RemoteRelationChan
 		}
 	}
 }
+*/
 
 func (w *remoteRelationsWatcher) Changes() <-chan params.RemoteRelationsChange {
 	return w.out
@@ -423,27 +423,30 @@ func newRelationWatcher(
 }
 
 func (w *relationWatcher) loop() error {
-	value := relationUnitsChange{relationKey: w.relationKey}
-	var out chan<- relationUnitsChange
-	for {
-		select {
-		case <-w.tomb.Dying():
-			return tomb.ErrDying
+	/*
+		value := relationUnitsChange{relationKey: w.relationKey}
+		var out chan<- relationUnitsChange
+		for {
+			select {
+			case <-w.tomb.Dying():
+				return tomb.ErrDying
 
-		case change, ok := <-w.watcher.Changes():
-			if !ok {
-				return watcher.EnsureErr(w.watcher)
-			}
-			if err := w.update(change, &value); err != nil {
-				return errors.Trace(err)
-			}
-			out = w.out
+			case change, ok := <-w.watcher.Changes():
+				if !ok {
+					return watcher.EnsureErr(w.watcher)
+				}
+				if err := w.update(change, &value); err != nil {
+					return errors.Trace(err)
+				}
+				out = w.out
 
-		case out <- value:
-			out = nil
-			value = relationUnitsChange{relationKey: w.relationKey}
+			case out <- value:
+				out = nil
+				value = relationUnitsChange{relationKey: w.relationKey}
+			}
 		}
-	}
+	*/
+	return errors.NotImplementedf("")
 }
 
 func (w *relationWatcher) update(change multiwatcher.RelationUnitsChange, value *relationUnitsChange) error {
@@ -459,46 +462,48 @@ func updateRelationUnits(
 	change multiwatcher.RelationUnitsChange,
 	value *relationUnitsChange,
 ) error {
-	if value.changedUnits == nil && len(change.Changed) > 0 {
-		value.changedUnits = make(map[string]params.RemoteRelationUnitChange)
-	}
-	if value.changedUnits != nil {
+	/*
+		if value.changedUnits == nil && len(change.Changed) > 0 {
+			value.changedUnits = make(map[string]params.RemoteRelationUnitChange)
+		}
+		if value.changedUnits != nil {
+			for _, unitId := range change.Departed {
+				delete(value.changedUnits, unitId)
+			}
+		}
 		for _, unitId := range change.Departed {
-			delete(value.changedUnits, unitId)
+			if knownUnits == nil || !knownUnits.Contains(unitId) {
+				// Unit hasn't previously been seen. This could happen
+				// if the unit is removed between the watcher firing
+				// when it was present and reading the unit's settings.
+				continue
+			}
+			knownUnits.Remove(unitId)
+			value.departedUnits = append(value.departedUnits, unitId)
 		}
-	}
-	for _, unitId := range change.Departed {
-		if knownUnits == nil || !knownUnits.Contains(unitId) {
-			// Unit hasn't previously been seen. This could happen
-			// if the unit is removed between the watcher firing
-			// when it was present and reading the unit's settings.
-			continue
-		}
-		knownUnits.Remove(unitId)
-		value.departedUnits = append(value.departedUnits, unitId)
-	}
 
-	// Fetch settings for each changed relation unit.
-	for unitId := range change.Changed {
-		ru, err := relation.Unit(unitId)
-		if errors.IsNotFound(err) {
-			// Relation unit removed between watcher firing and
-			// reading the unit's settings.
-			continue
-		} else if err != nil {
-			return errors.Trace(err)
+		// Fetch settings for each changed relation unit.
+		for unitId := range change.Changed {
+			ru, err := relation.Unit(unitId)
+			if errors.IsNotFound(err) {
+				// Relation unit removed between watcher firing and
+				// reading the unit's settings.
+				continue
+			} else if err != nil {
+				return errors.Trace(err)
+			}
+			settings, err := ru.Settings()
+			if err != nil {
+				return errors.Trace(err)
+			}
+			// TODO(axw) replace the value of settings where the value
+			// is the private-address of the unit.
+			value.changedUnits[unitId] = params.RemoteRelationUnitChange{settings}
+			if knownUnits != nil {
+				knownUnits.Add(unitId)
+			}
 		}
-		settings, err := ru.Settings()
-		if err != nil {
-			return errors.Trace(err)
-		}
-		// TODO(axw) replace the value of settings where the value
-		// is the private-address of the unit.
-		value.changedUnits[unitId] = params.RemoteRelationUnitChange{settings}
-		if knownUnits != nil {
-			knownUnits.Add(unitId)
-		}
-	}
+	*/
 	return nil
 }
 

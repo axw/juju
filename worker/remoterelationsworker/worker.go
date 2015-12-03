@@ -23,11 +23,15 @@ var logger = loggo.GetLogger("juju.worker.remoterelationsworker")
 // Config encapsulates the configuration for the worker.
 type Config struct {
 	RemoteServicesAccessor RemoteServicesAccessor
+	ServiceChangePublisher ServiceChangePublisher
 }
 
 func (cfg Config) Validate() error {
 	if cfg.RemoteServicesAccessor == nil {
 		return errors.NotValidf("nil RemoteServicesAccessor")
+	}
+	if cfg.ServiceChangePublisher == nil {
+		return errors.NotValidf("nil ServiceChangePublisher")
 	}
 	return nil
 }
@@ -35,29 +39,29 @@ func (cfg Config) Validate() error {
 // RemoteServicesAccessor is an interface that provides a means of watching
 // the lifecycle states of remote services known to the local environment.
 type RemoteServicesAccessor interface {
-	// ConsumeRemoteServiceChange consumes remote changes to a service
-	// into the local environment.
-	ConsumeRemoteServiceChange(params.RemoteServiceChange) error
-
+	// ExportEntities allocates unique, remote entity IDs for the
+	// given entities in the local environment.
 	ExportEntities([]names.Tag) ([]params.RemoteEntityIdResult, error)
 
 	// PublishLocalRelationChange publishes local relation changes to the
 	// environment hosting the remote service involved in the relation.
 	PublishLocalRelationChange(params.RemoteRelationChange) error
 
+	// RelationUnitSettings returns the relation unit settings for the
+	// given relation units in the local environment.
 	RelationUnitSettings([]params.RelationUnit) ([]params.SettingsResult, error)
 
+	// RemoteRelations returns information about the cross-model relations
+	// with the specified keys in the local environment.
 	RemoteRelations(keys []string) ([]params.RemoteRelationResult, error)
 
+	// RemoteServices returns the current state of the remote services with
+	// the specified names in the local environment.
 	RemoteServices(names []string) ([]params.RemoteServiceResult, error)
 
 	// WatchRemoteServices watches for addition, removal and lifecycle
 	// changes to remote services known to the local environment.
 	WatchRemoteServices() (watcher.StringsWatcher, error)
-
-	// WatchRemoteService watches for remote changes to the service
-	// with the given name.
-	WatchRemoteService(name string) (watcher.RemoteServiceWatcher, error)
 
 	// WatchServiceRelations watches for changes to relations in the
 	// local environment involving the service with the given name.
@@ -69,7 +73,15 @@ type RemoteServicesAccessor interface {
 	WatchLocalRelationUnits(relationKey string) (watcher.RelationUnitsWatcher, error)
 }
 
-type consumeFunc func(params.RemoteServiceChange) error
+// ServiceChangePublisher is an interface that provides a means of publishing
+// changes to cross-model relations,and the local services involved in them,
+// to the other side of the relation.
+type ServiceChangePublisher interface {
+	// PublishServiceChange publishes changes to a local service that is
+	// involved in one or more cross-model relations.
+	PublishServiceChange(params.RemoteServiceChange) error
+}
+
 type publishFunc func(params.RemoteRelationChange) error
 
 func NewWorker(config Config) (worker.Worker, error) {
@@ -119,21 +131,6 @@ func (h *remoteServicesHandler) TearDown() error {
 }
 
 func (h *remoteServicesHandler) Handle(serviceIds []string) error {
-	startWatchers := func(serviceId string) (watcher.StringsWatcher, watcher.RemoteServiceWatcher, error) {
-		localRelationsWatcher, err := h.config.RemoteServicesAccessor.WatchServiceRelations(serviceId)
-		if err != nil {
-			return nil, nil, errors.Trace(err)
-		}
-		remoteServiceWatcher, err := h.config.RemoteServicesAccessor.WatchRemoteService(serviceId)
-		if err != nil {
-			if err := localRelationsWatcher.Stop(); err != nil {
-				logger.Errorf("stopping local watcher while starting remote watcher: %v", err)
-			}
-			return nil, nil, errors.Trace(err)
-		}
-		return localRelationsWatcher, remoteServiceWatcher, nil
-	}
-
 	// Fetch the current state of each of the remote services that have changed.
 	results, err := h.config.RemoteServicesAccessor.RemoteServices(serviceIds)
 	if err != nil {
@@ -162,7 +159,7 @@ func (h *remoteServicesHandler) Handle(serviceIds []string) error {
 			// to do.
 			continue
 		}
-		localRelationsWatcher, remoteServiceWatcher, err := startWatchers(name)
+		relationsWatcher, err := h.config.RemoteServicesAccessor.WatchServiceRelations(name)
 		if errors.IsNotFound(err) {
 			w, ok := h.workers[name]
 			if ok {
@@ -176,12 +173,11 @@ func (h *remoteServicesHandler) Handle(serviceIds []string) error {
 			return errors.Annotatef(err, "watching relations for remote service %q", name)
 		}
 		h.workers[name] = newRemoteServiceWorker(
-			localRelationsWatcher, remoteServiceWatcher,
+			relationsWatcher,
 			h.config.RemoteServicesAccessor.ExportEntities,
 			h.config.RemoteServicesAccessor.RemoteRelations,
 			h.config.RemoteServicesAccessor.WatchLocalRelationUnits,
 			h.config.RemoteServicesAccessor.RelationUnitSettings,
-			h.config.RemoteServicesAccessor.ConsumeRemoteServiceChange,
 			h.config.RemoteServicesAccessor.PublishLocalRelationChange,
 		)
 	}
@@ -190,40 +186,36 @@ func (h *remoteServicesHandler) Handle(serviceIds []string) error {
 
 type remoteServiceWorker struct {
 	tomb                    tomb.Tomb
-	localLife               params.Life
-	localRelationsWatcher   watcher.StringsWatcher
-	remoteServiceWatcher    watcher.RemoteServiceWatcher
+	relationsWatcher        watcher.StringsWatcher
 	exportEntities          func([]names.Tag) ([]params.RemoteEntityIdResult, error)
-	getInfo                 func([]string) ([]params.RemoteRelationResult, error)
+	remoteRelations         func([]string) ([]params.RemoteRelationResult, error)
 	watchLocalRelationUnits func(string) (watcher.RelationUnitsWatcher, error)
 	relationUnitSettings    func([]params.RelationUnit) ([]params.SettingsResult, error)
-	consume                 consumeFunc
 	publish                 publishFunc
+	relationUnitsChanges    chan relationUnitsChange
 }
 
 func newRemoteServiceWorker(
-	localRelationsWatcher watcher.StringsWatcher,
-	remoteServiceWatcher watcher.RemoteServiceWatcher,
+	relationsWatcher watcher.StringsWatcher,
 	exportEntities func([]names.Tag) ([]params.RemoteEntityIdResult, error),
-	getInfo func([]string) ([]params.RemoteRelationResult, error),
+	remoteRelations func([]string) ([]params.RemoteRelationResult, error),
 	watchLocalRelationUnits func(string) (watcher.RelationUnitsWatcher, error),
 	relationUnitSettings func([]params.RelationUnit) ([]params.SettingsResult, error),
-	consume consumeFunc,
 	publish publishFunc,
 ) worker.Worker {
 	worker := &remoteServiceWorker{
-		localRelationsWatcher:   localRelationsWatcher,
-		remoteServiceWatcher:    remoteServiceWatcher,
+		relationsWatcher:        relationsWatcher,
 		exportEntities:          exportEntities,
-		getInfo:                 getInfo,
+		remoteRelations:         remoteRelations,
 		watchLocalRelationUnits: watchLocalRelationUnits,
 		relationUnitSettings:    relationUnitSettings,
-		consume:                 consume,
 		publish:                 publish,
+		relationUnitsChanges:    make(chan relationUnitsChange, 1),
 	}
 	go func() {
 		defer worker.tomb.Done()
-		defer statewatcher.Stop(worker.localRelationsWatcher, &worker.tomb)
+		defer close(worker.relationUnitsChanges)
+		defer statewatcher.Stop(worker.relationsWatcher, &worker.tomb)
 		worker.tomb.Kill(worker.loop())
 	}()
 	return worker
@@ -238,7 +230,7 @@ func (w *remoteServiceWorker) Wait() error {
 }
 
 func (w *remoteServiceWorker) loop() error {
-	relations := make(map[string]relation)
+	relations := make(map[string]*relation)
 	defer func() {
 		for _, r := range relations {
 			statewatcher.Stop(r.ruw, &w.tomb)
@@ -246,17 +238,16 @@ func (w *remoteServiceWorker) loop() error {
 	}()
 
 	for {
-		// TODO(axw) we must translate relation, unit and service IDs
-		// to the names that make sense to the other environment.
-
 		select {
 		case <-w.tomb.Dying():
 			return tomb.ErrDying
-		case change, ok := <-w.localRelationsWatcher.Changes():
+		case change, ok := <-w.relationsWatcher.Changes():
 			if !ok {
-				return statewatcher.EnsureErr(w.localRelationsWatcher)
+				return statewatcher.EnsureErr(w.relationsWatcher)
 			}
-			results, err := w.getInfo(change)
+			// TODO(axw) change this to fetch the *local* relation
+			// state, and then export the relation IDs separately..
+			results, err := w.remoteRelations(change)
 			if err != nil {
 				return errors.Annotate(err, "querying relations")
 			}
@@ -269,29 +260,21 @@ func (w *remoteServiceWorker) loop() error {
 					return errors.Annotatef(err, "handling change for relation %q", key)
 				}
 			}
-			// TODO(axw)
-			//if err := w.publish(change); err != nil {
-			//	return errors.Annotate(err, "publishing change to offering environment")
-			//}
-		case change, ok := <-w.remoteServiceWatcher.Changes():
-			if !ok {
-				return statewatcher.EnsureErr(w.remoteServiceWatcher)
+
+		case change := <-w.relationUnitsChanges:
+			r := relations[change.relationTag.Id()]
+			r.ChangedUnits = change.changed
+			r.DepartedUnits = change.departed
+			if err := w.publish(r.RemoteRelationChange); err != nil {
+				return errors.Annotate(err, "publishing change to offering environment")
 			}
-			// NOTE(axw) experimenting with push-only approach.
-			// Each side watches relations involving remote
-			// services and pushes changes to the other.
-			_ = change
-			/*
-				if err := w.consume(change); err != nil {
-					return errors.Annotate(err, "consuming change into local environment")
-				}
-			*/
+			r.Initial = false
 		}
 	}
 }
 
 func (w *remoteServiceWorker) relationChanged(
-	key string, result params.RemoteRelationResult, relations map[string]relation,
+	key string, result params.RemoteRelationResult, relations map[string]*relation,
 ) error {
 	if result.Error != nil {
 		if params.IsCodeNotFound(result.Error) {
@@ -313,41 +296,39 @@ func (w *remoteServiceWorker) relationChanged(
 		return result.Error
 	}
 
-	r := relations[key]
-	r.Id = result.Result.Id
-	r.Life = result.Result.Life
-	if r.Life == params.Dead {
-		if r.ruw != nil {
-			if err := r.ruw.Stop(); err != nil {
-				return err
+	if r := relations[key]; r != nil {
+		r.Life = result.Result.Life
+		if r.Life == params.Dead {
+			if r != nil {
+				r.Life = result.Result.Life
+				if err := r.ruw.Stop(); err != nil {
+					return err
+				}
+				r.ruw = nil
 			}
-			r.ruw = nil
 		}
-	} else if r.ruw == nil {
+		return nil
+	}
+
+	if result.Result.Life != params.Dead {
+		r := &relation{}
 		lruw, err := w.watchLocalRelationUnits(key)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		relationTag := names.NewRelationTag(key)
 		ruw := newRelationUnitsWatcher(
-			relationTag,
+			names.NewRelationTag(key),
 			lruw,
 			w.exportEntities,
 			w.relationUnitSettings,
+			w.relationUnitsChanges,
 		)
-		select {
-		case <-w.tomb.Dying():
-			return tomb.ErrDying
-		case change, ok := <-ruw.Changes():
-			if !ok {
-				return statewatcher.EnsureErr(ruw)
-			}
-			r.ChangedUnits = change.changed
-		}
+		r.Id = result.Result.Id
+		r.Life = result.Result.Life
 		r.Initial = true
 		r.ruw = ruw
+		relations[key] = r
 	}
-	relations[key] = r
 	return nil
 }
 
@@ -366,7 +347,7 @@ type relationUnitsWatcher struct {
 	remoteIds            map[string]params.RemoteEntityId
 	exportEntities       func([]names.Tag) ([]params.RemoteEntityIdResult, error)
 	relationUnitSettings func([]params.RelationUnit) ([]params.SettingsResult, error)
-	out                  chan relationUnitsChange
+	out                  chan<- relationUnitsChange
 }
 
 func newRelationUnitsWatcher(
@@ -374,6 +355,7 @@ func newRelationUnitsWatcher(
 	ruw watcher.RelationUnitsWatcher,
 	exportEntities func([]names.Tag) ([]params.RemoteEntityIdResult, error),
 	relationUnitSettings func([]params.RelationUnit) ([]params.SettingsResult, error),
+	out chan<- relationUnitsChange,
 ) *relationUnitsWatcher {
 	w := &relationUnitsWatcher{
 		relationTag:          relationTag,
@@ -391,10 +373,6 @@ func newRelationUnitsWatcher(
 	return w
 }
 
-func (w *relationUnitsWatcher) Changes() <-chan relationUnitsChange {
-	return w.out
-}
-
 func (w *relationUnitsWatcher) Stop() error {
 	w.tomb.Kill(nil)
 	return w.tomb.Wait()
@@ -405,7 +383,7 @@ func (w *relationUnitsWatcher) Err() error {
 }
 
 func (w *relationUnitsWatcher) loop() error {
-	var out chan relationUnitsChange
+	var out chan<- relationUnitsChange
 	value := relationUnitsChange{relationTag: w.relationTag}
 	for {
 		select {

@@ -83,6 +83,7 @@ type upgradeInfoDoc struct {
 	Started           time.Time      `bson:"started"`
 	StateServersReady []string       `bson:"stateServersReady"`
 	StateServersDone  []string       `bson:"stateServersDone"`
+	// TODO(axw) per-controller update status
 }
 
 // UpgradeInfo is used to synchronise state server upgrades.

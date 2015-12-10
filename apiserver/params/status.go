@@ -13,6 +13,7 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state/multiwatcher"
+	"github.com/juju/juju/version"
 )
 
 // StatusParams holds parameters for the Status call.
@@ -30,6 +31,7 @@ type FullStatus struct {
 	Services         map[string]ServiceStatus
 	Networks         map[string]NetworkStatus
 	Relations        []RelationStatus
+	Upgrade          *UpgradeStatus
 }
 
 // MachineStatus holds status info about a machine.
@@ -226,6 +228,19 @@ type ServiceStatusResults struct {
 	Results []ServiceStatusResult
 }
 
+type UpgradeStatus struct {
+	Status          Status
+	PreviousVersion version.Number
+	TargetVersion   version.Number
+	Started         time.Time
+}
+
+type ControllerUpgradeStatus struct {
+	MachineId string
+	Error     *Error
+	Status    Status
+}
+
 // HistoryKind represents the possible types of
 // status history entries.
 type HistoryKind string
@@ -390,4 +405,14 @@ const (
 
 	// StatusDestroying indicates that the storage is being destroyed.
 	StatusDestroying Status = "destroying"
+)
+
+const (
+	// Status values specific to upgrades.
+
+	StatusUpgradePending   Status = "pending"
+	StatusUpgradeRunning   Status = "running"
+	StatusUpgradeFinishing Status = "finishing"
+	StatusUpgradeComplete  Status = "complete"
+	StatusUpgradeAborted   Status = "aborted"
 )

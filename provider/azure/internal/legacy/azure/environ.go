@@ -542,7 +542,10 @@ func (env *azureEnviron) SupportedArchitectures() ([]string, error) {
 
 // selectInstanceTypeAndImage returns the appropriate instances.InstanceType and
 // the OS image name for launching a virtual machine with the given parameters.
-func (env *azureEnviron) selectInstanceTypeAndImage(constraint *instances.InstanceConstraint) (*instances.InstanceType, string, error) {
+func (env *azureEnviron) selectInstanceTypeAndImage(
+	constraint *instances.InstanceConstraint,
+	imageMetadata []*imagemetadata.ImageMetadata,
+) (*instances.InstanceType, string, error) {
 	ecfg := env.getSnapshot().ecfg
 	sourceImageName := ecfg.forceImageName()
 	if sourceImageName != "" {
@@ -562,7 +565,7 @@ func (env *azureEnviron) selectInstanceTypeAndImage(constraint *instances.Instan
 	}
 
 	// Choose the most suitable instance type and OS image, based on simplestreams information.
-	spec, err := findInstanceSpec(env, constraint)
+	spec, err := findInstanceSpec(env, imageMetadata, constraint)
 	if err != nil {
 		return nil, "", err
 	}
@@ -741,7 +744,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 		Series:      args.Tools.OneSeries(),
 		Arches:      args.Tools.Arches(),
 		Constraints: args.Constraints,
-	})
+	}, args.ImageMetadata)
 	if err != nil {
 		return nil, err
 	}

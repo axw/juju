@@ -55,7 +55,6 @@ func (s *providerSuite) SetUpTest(c *gc.C) {
 	s.BaseSuite.SetUpTest(c)
 	s.ToolsFixture.SetUpTest(c)
 	s.PatchValue(&imagemetadata.DefaultBaseURL, "test:")
-	s.PatchValue(&signedImageDataOnly, false)
 	s.PatchValue(&getVirtualNetwork, func(*azureEnviron) (*gwacl.VirtualNetworkSite, error) {
 		return &gwacl.VirtualNetworkSite{Name: "vnet", Location: "West US"}, nil
 	})

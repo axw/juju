@@ -129,44 +129,6 @@ func (s *instanceTypeSuite) setupEnvWithDummyMetadata(c *gc.C) *azureEnviron {
 	return env
 }
 
-func (s *instanceTypeSuite) TestFindMatchingImagesReturnsErrorIfNoneFound(c *gc.C) {
-	env := s.setupEnvWithDummyMetadata(c)
-	_, err := findMatchingImages(env, "West US", "saucy", []string{"amd64"})
-	c.Assert(err, gc.NotNil)
-	c.Assert(err, gc.ErrorMatches, "no OS images found for location .*")
-}
-
-func (s *instanceTypeSuite) TestFindMatchingImagesReturnsReleasedImages(c *gc.C) {
-	env := s.setupEnvWithDummyMetadata(c)
-	images, err := findMatchingImages(env, "West US", "precise", []string{"amd64"})
-	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(images, gc.HasLen, 1)
-	c.Check(images[0].Id, gc.Equals, "image-id")
-}
-
-func (s *instanceTypeSuite) TestFindMatchingImagesReturnsDailyImages(c *gc.C) {
-	envAttrs := makeAzureConfigMap(c)
-	envAttrs["image-stream"] = "daily"
-	envAttrs["location"] = "West US"
-	env := makeEnvironWithConfig(c, envAttrs)
-	s.setDummyStorage(c, env)
-	images := []*imagemetadata.ImageMetadata{
-		{
-			Id:         "image-id",
-			VirtType:   "Hyper-V",
-			Arch:       "amd64",
-			RegionName: "West US",
-			Endpoint:   "https://management.core.windows.net/",
-			Stream:     "daily",
-		},
-	}
-	s.makeTestMetadata(c, "precise", "West US", images)
-	images, err := findMatchingImages(env, "West US", "precise", []string{"amd64"})
-	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(images, gc.HasLen, 1)
-	c.Assert(images[0].Id, gc.Equals, "image-id")
-}
-
 func (s *instanceTypeSuite) TestNewInstanceTypeConvertsRoleSize(c *gc.C) {
 	const expectedRegion = "expected"
 	s.PatchValue(&roleSizeCost, func(region, roleSize string) (uint64, error) {
@@ -292,14 +254,15 @@ func (s *instanceTypeSuite) TestListInstanceTypesMaintainsOrder(c *gc.C) {
 
 func (s *instanceTypeSuite) TestFindInstanceSpecFailsImpossibleRequest(c *gc.C) {
 	impossibleConstraint := &instances.InstanceConstraint{
+		Region: "West US",
 		Series: "precise",
 		Arches: []string{"axp"},
 	}
 
 	env := s.setupEnvWithDummyMetadata(c)
-	_, err := findInstanceSpec(env, impossibleConstraint)
+	_, err := findInstanceSpec(env, nil, impossibleConstraint)
 	c.Assert(err, gc.NotNil)
-	c.Check(err, gc.ErrorMatches, "no OS images found for .*")
+	c.Check(err, gc.ErrorMatches, `no "precise" images in West US with arches \[axp\]`)
 }
 
 var findInstanceSpecTests = []struct {
@@ -319,6 +282,11 @@ var findInstanceSpecTests = []struct {
 
 func (s *instanceTypeSuite) TestFindInstanceSpec(c *gc.C) {
 	env := s.setupEnvWithDummyMetadata(c)
+	imageMetadata := []*imagemetadata.ImageMetadata{{
+		Id:       "image-id",
+		Arch:     "amd64",
+		VirtType: "Hyper-V",
+	}}
 	for i, t := range findInstanceSpecTests {
 		c.Logf("test %d", i)
 
@@ -331,7 +299,7 @@ func (s *instanceTypeSuite) TestFindInstanceSpec(c *gc.C) {
 		}
 
 		// Find a matching instance type and image.
-		spec, err := findInstanceSpec(env, constraints)
+		spec, err := findInstanceSpec(env, imageMetadata, constraints)
 		c.Assert(err, jc.ErrorIsNil)
 
 		// We got the instance type we described in our constraints, and
@@ -347,6 +315,11 @@ func (s *instanceTypeSuite) TestFindInstanceSpec(c *gc.C) {
 
 func (s *instanceTypeSuite) TestFindInstanceSpecFindsMatch(c *gc.C) {
 	env := s.setupEnvWithDummyMetadata(c)
+	imageMetadata := []*imagemetadata.ImageMetadata{{
+		Id:       "image-id",
+		Arch:     "amd64",
+		VirtType: "Hyper-V",
+	}}
 
 	// We'll tailor our constraints to describe one particular Azure
 	// instance type:
@@ -362,7 +335,7 @@ func (s *instanceTypeSuite) TestFindInstanceSpecFindsMatch(c *gc.C) {
 	}
 
 	// Find a matching instance type and image.
-	spec, err := findInstanceSpec(env, constraints)
+	spec, err := findInstanceSpec(env, imageMetadata, constraints)
 	c.Assert(err, jc.ErrorIsNil)
 
 	// We got the instance type we described in our constraints, and
@@ -373,6 +346,11 @@ func (s *instanceTypeSuite) TestFindInstanceSpecFindsMatch(c *gc.C) {
 
 func (s *instanceTypeSuite) TestFindInstanceSpecSetsBaseline(c *gc.C) {
 	env := s.setupEnvWithDummyMetadata(c)
+	imageMetadata := []*imagemetadata.ImageMetadata{{
+		Id:       "img-id",
+		Arch:     "amd64",
+		VirtType: "Hyper-V",
+	}}
 
 	// findInstanceSpec sets baseline constraints, so that it won't pick
 	// ExtraSmall (which is too small for routine tasks) if you fail to
@@ -383,7 +361,7 @@ func (s *instanceTypeSuite) TestFindInstanceSpecSetsBaseline(c *gc.C) {
 		Arches: []string{"amd64"},
 	}
 
-	spec, err := findInstanceSpec(env, anyInstanceType)
+	spec, err := findInstanceSpec(env, imageMetadata, anyInstanceType)
 	c.Assert(err, jc.ErrorIsNil)
 
 	c.Check(spec.InstanceType.Name, gc.Equals, "Small")

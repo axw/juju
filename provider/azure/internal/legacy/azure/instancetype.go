@@ -4,7 +4,6 @@
 package azure
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/juju/errors"
@@ -12,10 +11,8 @@ import (
 	"launchpad.net/gwacl"
 
 	"github.com/juju/juju/constraints"
-	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/imagemetadata"
 	"github.com/juju/juju/environs/instances"
-	"github.com/juju/juju/environs/simplestreams"
 )
 
 const defaultMem = 1 * gwacl.GB
@@ -60,39 +57,6 @@ func getEndpoint(location string) string {
 	// Simplestreams uses the management-API endpoint for the image, not
 	// the base managent API URL.
 	return gwacl.GetEndpoint(location).ManagementAPI()
-}
-
-// As long as this code only supports the default simplestreams
-// database, which is always signed, there is no point in accepting
-// unsigned metadata.
-//
-// For tests, however, unsigned data is more convenient.  They can override
-// this setting.
-var signedImageDataOnly = true
-
-// findMatchingImages queries simplestreams for OS images that match the given
-// requirements.
-//
-// If it finds no matching images, that's an error.
-func findMatchingImages(e *azureEnviron, location, series string, arches []string) ([]*imagemetadata.ImageMetadata, error) {
-	endpoint := getEndpoint(location)
-	constraint := imagemetadata.NewImageConstraint(simplestreams.LookupParams{
-		CloudSpec: simplestreams.CloudSpec{location, endpoint},
-		Series:    []string{series},
-		Arches:    arches,
-		Stream:    e.Config().ImageStream(),
-	})
-	sources, err := environs.ImageMetadataSources(e)
-	if err != nil {
-		return nil, err
-	}
-	images, _, err := imagemetadata.Fetch(sources, constraint, signedImageDataOnly)
-	if len(images) == 0 || errors.IsNotFound(err) {
-		return nil, fmt.Errorf("no OS images found for location %q, series %q, architectures %q (and endpoint: %q)", location, series, arches, endpoint)
-	} else if err != nil {
-		return nil, err
-	}
-	return images, nil
 }
 
 // newInstanceType creates an InstanceType based on a gwacl.RoleSize.
@@ -195,13 +159,13 @@ func isLimitedRoleSize(name string) bool {
 
 // findInstanceSpec returns the InstanceSpec that best satisfies the supplied
 // InstanceConstraint.
-func findInstanceSpec(env *azureEnviron, constraint *instances.InstanceConstraint) (*instances.InstanceSpec, error) {
+func findInstanceSpec(
+	env *azureEnviron,
+	imageMetadata []*imagemetadata.ImageMetadata,
+	constraint *instances.InstanceConstraint,
+) (*instances.InstanceSpec, error) {
 	constraint.Constraints = defaultToBaselineSpec(constraint.Constraints)
-	imageData, err := findMatchingImages(env, constraint.Region, constraint.Series, constraint.Arches)
-	if err != nil {
-		return nil, err
-	}
-	images := instances.ImageMetadataToImages(imageData)
+	images := instances.ImageMetadataToImages(imageMetadata)
 	instanceTypes, err := listInstanceTypes(env)
 	if err != nil {
 		return nil, err

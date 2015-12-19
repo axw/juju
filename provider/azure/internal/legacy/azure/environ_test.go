@@ -1443,7 +1443,7 @@ func (s *environSuite) TestSelectInstanceTypeAndImageUsesForcedImage(c *gc.C) {
 		Region:      "West US",
 		Series:      coretesting.FakeDefaultSeries,
 		Constraints: cons,
-	})
+	}, nil)
 	c.Assert(err, jc.ErrorIsNil)
 
 	c.Check(instanceType.Name, gc.Equals, aim.Name)
@@ -1472,6 +1472,11 @@ func (s *baseEnvironSuite) setupEnvWithDummyMetadata(c *gc.C) *azureEnviron {
 
 func (s *environSuite) TestSelectInstanceTypeAndImageUsesSimplestreamsByDefault(c *gc.C) {
 	env := s.setupEnvWithDummyMetadata(c)
+	imageMetadata := []*imagemetadata.ImageMetadata{{
+		Id:       "image-id",
+		Arch:     "amd64",
+		VirtType: "Hyper-V",
+	}}
 	// We'll tailor our constraints so as to get a specific instance type.
 	aim := roleSizeByName("ExtraSmall")
 	cons := constraints.Value{
@@ -1482,7 +1487,7 @@ func (s *environSuite) TestSelectInstanceTypeAndImageUsesSimplestreamsByDefault(
 		Region:      "North Europe",
 		Series:      coretesting.FakeDefaultSeries,
 		Constraints: cons,
-	})
+	}, imageMetadata)
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(instanceType.Name, gc.Equals, aim.Name)
 	c.Assert(image, gc.Equals, "image-id")

@@ -108,10 +108,14 @@ func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
 				if err != nil {
 					return errors.Trace(err)
 				}
+				settingsMap := make(map[string]interface{})
+				for k, v := range change.Settings {
+					settingsMap[k] = v
+				}
 				if !inScope {
-					err = ru.EnterScope(change.Settings)
+					err = ru.EnterScope(settingsMap)
 				} else {
-					err = ru.ReplaceSettings(change.Settings)
+					err = ru.ReplaceSettings(settingsMap)
 				}
 				if err != nil {
 					return errors.Trace(err)
@@ -719,9 +723,20 @@ func updateRelationUnits(
 		} else if err != nil {
 			return errors.Trace(err)
 		}
-		settings, err := ru.Settings()
+		settingsMap, err := ru.Settings()
 		if err != nil {
 			return errors.Trace(err)
+		}
+		settings := make(params.Settings)
+		for k, v := range settingsMap {
+			vString, ok := v.(string)
+			if !ok {
+				return errors.Errorf(
+					"unexpected relation setting %q for %q: expected strring, got %T",
+					k, unitId, v,
+				)
+			}
+			settings[k] = vString
 		}
 		// TODO(axw) replace the value of settings where the value
 		// is the private-address of the unit.

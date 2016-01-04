@@ -105,7 +105,7 @@ func (s *remoteRelationsSuite) TestWatchServiceRelations(c *gc.C) {
 		Life: params.Alive,
 		ChangedUnits: map[string]params.RelationUnitChange{
 			wordpress0.Name(): params.RelationUnitChange{
-				Settings: settings,
+				Settings: settingsToParams(settings),
 			},
 		},
 	}
@@ -115,15 +115,23 @@ func (s *remoteRelationsSuite) TestWatchServiceRelations(c *gc.C) {
 	// Change the settings, expect a change.
 	ruSettings, err := ru.Settings()
 	c.Assert(err, jc.ErrorIsNil)
-	settings["quay"] = 123
+	settings["quay"] = "123"
 	ruSettings.Update(settings)
 	_, err = ruSettings.Write()
 	c.Assert(err, jc.ErrorIsNil)
 	expect.ChangedRelations[rel.Id()].ChangedUnits[wordpress0.Name()] = params.RelationUnitChange{
-		Settings: settings,
+		Settings: settingsToParams(settings),
 	}
 	assertServiceRelationsChange(c, s.BackingState, w, expect)
 	assertNoServiceRelationsChange(c, s.BackingState, w)
+}
+
+func settingsToParams(settings map[string]interface{}) params.Settings {
+	paramsSettings := make(params.Settings)
+	for k, v := range settings {
+		paramsSettings[k] = v.(string)
+	}
+	return paramsSettings
 }
 
 func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
@@ -244,7 +252,7 @@ func (s *remoteRelationsSuite) TestWatchRemoteService(c *gc.C) {
 					"mysql/0": params.RelationUnitChange{
 						// TODO(axw) private address should
 						// be translated to public address.
-						Settings: map[string]interface{}{
+						Settings: params.Settings{
 							"host": privateAddress,
 						},
 					},

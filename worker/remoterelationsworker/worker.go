@@ -187,13 +187,13 @@ func (w *remoteServiceWorker) loop() error {
 		select {
 		case <-w.tomb.Dying():
 			return tomb.ErrDying
-		case change, ok := <-w.localWatcher.Changes():
-			if !ok {
-				return statewatcher.EnsureErr(w.localWatcher)
-			}
-			if err := w.publish(change); err != nil {
-				return errors.Annotate(err, "publishing change to offering environment")
-			}
+		//case change, ok := <-w.localWatcher.Changes():
+		//	if !ok {
+		//		return statewatcher.EnsureErr(w.localWatcher)
+		//	}
+		//	if err := w.publish(change); err != nil {
+		//		return errors.Annotate(err, "publishing change to offering environment")
+		//	}
 		case change, ok := <-w.remoteWatcher.Changes():
 			if !ok {
 				return statewatcher.EnsureErr(w.remoteWatcher)

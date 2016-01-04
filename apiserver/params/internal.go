@@ -572,7 +572,7 @@ type RelationChange struct {
 // RelationUnitChange describes a relation unit change.
 type RelationUnitChange struct {
 	// Settings is the current settings for the relation unit.
-	Settings map[string]interface{} `json:"settings,omitempty"`
+	Settings Settings `json:"settings,omitempty"`
 }
 
 // MachineStorageIdsWatchResult holds a MachineStorageIdsWatcher id,

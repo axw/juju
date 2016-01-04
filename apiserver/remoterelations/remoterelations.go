@@ -10,7 +10,6 @@ import (
 
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
-	"github.com/juju/juju/model/crossmodel"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/watcher"
 )
@@ -163,63 +162,6 @@ func (api *RemoteRelationsAPI) WatchRemoteServices() (params.StringsWatchResult,
 		}, nil
 	}
 	return params.StringsWatchResult{}, watcher.EnsureErr(w)
-}
-
-// WatchRemoteService returns a remote service watcher that delivers
-// changes made to the remote service in the offering environment.
-// This includes status, lifecycle and relation changes.
-func (api *RemoteRelationsAPI) WatchRemoteService(
-	args params.Entities,
-) (params.RemoteServiceWatchResults, error) {
-	results := params.RemoteServiceWatchResults{
-		make([]params.RemoteServiceWatchResult, len(args.Entities)),
-	}
-	for i, arg := range args.Entities {
-		serviceTag, err := names.ParseServiceTag(arg.Tag)
-		if err != nil {
-			results.Results[i].Error = common.ServerError(err)
-			continue
-		}
-		w, err := api.watchRemoteService(serviceTag)
-		if err != nil {
-			results.Results[i].Error = common.ServerError(err)
-			continue
-		}
-		change, ok := <-w.Changes()
-		if !ok {
-			results.Results[i].Error = common.ServerError(watcher.EnsureErr(w))
-			continue
-		}
-		results.Results[i].RemoteServiceWatcherId = api.resources.Register(w)
-		results.Results[i].Change = &change
-	}
-	return results, nil
-}
-
-func (api *RemoteRelationsAPI) watchRemoteService(
-	serviceTag names.ServiceTag,
-) (_ *remoteServiceWatcher, resultErr error) {
-	// TODO(axw) when we want to support cross-model relations involving
-	// non-local directories, we'll need to subscribe to some sort of
-	// message bus which will receive the changes from remote controllers.
-	// For now we only handle local.
-	serviceName := serviceTag.Id()
-	remoteService, err := api.st.RemoteService(serviceName)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	serviceURL, ok := remoteService.URL()
-	if !ok {
-		return nil, errors.Errorf("cannot watch non-offered remote service")
-	}
-	directoryName, err := crossmodel.ServiceDirectoryForURL(serviceURL)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if directoryName != "local" {
-		return nil, errors.NotSupportedf("non-local service URL %q", serviceURL)
-	}
-	return api.watchRemoteServiceLocalController(serviceURL)
 }
 
 // WatchServiceRelations starts a StringsWatcher for watching the relations of

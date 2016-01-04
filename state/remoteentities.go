@@ -30,12 +30,12 @@ type tokenDoc struct {
 	EnvUUID string `bson:"env-uuid"`
 }
 
-type remoteEntities struct {
+type RemoteEntities struct {
 	st *State
 }
 
-func newRemoteEntities(st *State) *remoteEntities {
-	return &remoteEntities{st}
+func (st *State) RemoteEntities() *RemoteEntities {
+	return &RemoteEntities{st}
 }
 
 // ExportLocalEntity adds an entity to the remote entities collection,
@@ -43,7 +43,7 @@ func newRemoteEntities(st *State) *remoteEntities {
 // the environment.
 //
 // It is an error to export an entity twice.
-func (r *remoteEntities) ExportLocalEntity(entity names.Tag) (string, error) {
+func (r *RemoteEntities) ExportLocalEntity(entity names.Tag) (string, error) {
 	var token string
 	sourceEnv := r.st.EnvironTag()
 	ops := func(attempt int) ([]txn.Op, error) {
@@ -98,7 +98,7 @@ func (r *remoteEntities) ExportLocalEntity(entity names.Tag) (string, error) {
 //
 // This method assumes that the provided token is unique within the
 // source environment, and does not perform any uniqueness checks on it.
-func (r *remoteEntities) ImportRemoteEntity(
+func (r *RemoteEntities) ImportRemoteEntity(
 	sourceEnv names.EnvironTag, entity names.Tag, token string,
 ) error {
 	ops := r.importRemoteEntityOps(sourceEnv, entity, token)
@@ -120,7 +120,7 @@ func (r *remoteEntities) ImportRemoteEntity(
 	return nil
 }
 
-func (r *remoteEntities) importRemoteEntityOps(
+func (r *RemoteEntities) importRemoteEntityOps(
 	sourceEnv names.EnvironTag, entity names.Tag, token string,
 ) []txn.Op {
 	return []txn.Op{{
@@ -137,7 +137,7 @@ func (r *remoteEntities) importRemoteEntityOps(
 
 // RemoveRemoteEntity removes the entity from the remote entities collection,
 // and releases the token if the entity belongs to the local environment.
-func (r *remoteEntities) RemoveRemoteEntity(
+func (r *RemoteEntities) RemoveRemoteEntity(
 	sourceEnv names.EnvironTag, entity names.Tag,
 ) error {
 	ops := func(attempt int) ([]txn.Op, error) {
@@ -160,7 +160,7 @@ func (r *remoteEntities) RemoveRemoteEntity(
 
 // removeRemoteEntityOp returns the txn.Op to remove the remote entity
 // document. It does not remove the token document for exported entities.
-func (r *remoteEntities) removeRemoteEntityOp(
+func (r *RemoteEntities) removeRemoteEntityOp(
 	sourceEnv names.EnvironTag, entity names.Tag,
 ) txn.Op {
 	return txn.Op{
@@ -172,7 +172,7 @@ func (r *remoteEntities) removeRemoteEntityOp(
 
 // GetToken returns the token associated with the entity with the given tag
 // and environment.
-func (r *remoteEntities) GetToken(sourceEnv names.EnvironTag, entity names.Tag) (string, error) {
+func (r *RemoteEntities) GetToken(sourceEnv names.EnvironTag, entity names.Tag) (string, error) {
 	remoteEntities, closer := r.st.getCollection(remoteEntitiesC)
 	defer closer()
 
@@ -197,7 +197,7 @@ func (r *remoteEntities) GetToken(sourceEnv names.EnvironTag, entity names.Tag) 
 
 // GetRemoteEntity returns the tag of the entity associated with the given
 // token and environment.
-func (r *remoteEntities) GetRemoteEntity(sourceEnv names.EnvironTag, token string) (names.Tag, error) {
+func (r *RemoteEntities) GetRemoteEntity(sourceEnv names.EnvironTag, token string) (names.Tag, error) {
 	remoteEntities, closer := r.st.getCollection(remoteEntitiesC)
 	defer closer()
 
@@ -221,11 +221,11 @@ func (r *remoteEntities) GetRemoteEntity(sourceEnv names.EnvironTag, token strin
 	return names.ParseTag(doc.EntityTag)
 }
 
-func (r *remoteEntities) docID(sourceEnv names.EnvironTag, entity names.Tag) string {
+func (r *RemoteEntities) docID(sourceEnv names.EnvironTag, entity names.Tag) string {
 	return sourceEnv.Id() + "-" + entity.String()
 }
 
-func (r *remoteEntities) tokenExists(token string) (bool, error) {
+func (r *RemoteEntities) tokenExists(token string) (bool, error) {
 	tokens, closer := r.st.getCollection(tokensC)
 	defer closer()
 	n, err := tokens.FindId(token).Count()

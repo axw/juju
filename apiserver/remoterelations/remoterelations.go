@@ -53,6 +53,25 @@ func NewRemoteRelationsAPI(
 	}, nil
 }
 
+func (api *RemoteRelationsAPI) ExportEntities(entities params.Entities) (params.RemoteEntityIdResults, error) {
+	results := params.RemoteEntityIdResults{
+		Results: make([]params.RemoteEntityIdResult, len(entities.Entities)),
+	}
+	for i, entity := range entities.Entities {
+		tag, err := names.ParseTag(entity.Tag)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
+		token, err := api.st.ExportLocalEntity(tag)
+		results.Results[i].Result = &params.RemoteEntityId{
+			EnvUUID: api.st.EnvironUUID(),
+			Token:   token,
+		}
+	}
+	return results, nil
+}
+
 // ConsumeRemoteServiceChange consumes remote changes to services into the
 // local environment.
 func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
@@ -143,10 +162,131 @@ func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
 
 // PublishLocalRelationChange publishes local relations changes to the
 // remote side offering those relations.
-func (api *RemoteRelationsAPI) PublishLocalRelationsChange(
-	changes params.RemoteRelationsChanges,
+func (api *RemoteRelationsAPI) PublishLocalRelationChange(
+	changes params.RemoteRelationChanges,
 ) (params.ErrorResults, error) {
-	return params.ErrorResults{}, errors.NotImplementedf("PublishLocalRelationChange")
+	results := params.ErrorResults{
+		Results: make([]params.ErrorResult, len(changes.Changes)),
+	}
+	for i, change := range changes.Changes {
+		if err := api.publishChange(change); err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
+	}
+	return results, nil
+}
+
+func (api *RemoteRelationsAPI) publishChange(change params.RemoteRelationChange) error {
+	logger.Debugf("publish change: %+v", change)
+	// TODO(axw) actually copy changes across to target env
+	return nil
+}
+
+func (api *RemoteRelationsAPI) RelationUnitSettings(relationUnits params.RelationUnits) (params.SettingsResults, error) {
+	results := params.SettingsResults{
+		Results: make([]params.SettingsResult, len(relationUnits.RelationUnits)),
+	}
+	one := func(ru params.RelationUnit) (params.Settings, error) {
+		relationTag, err := names.ParseRelationTag(ru.Relation)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		rel, err := api.st.KeyRelation(relationTag.Id())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		unitTag, err := names.ParseUnitTag(ru.Unit)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		unit, err := rel.Unit(unitTag.Id())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		settings, err := unit.Settings()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		paramsSettings := make(params.Settings)
+		for k, v := range settings {
+			vString, ok := v.(string)
+			if !ok {
+				return nil, errors.Errorf(
+					"invalid relation setting %q: expected string, got %T", k, v,
+				)
+			}
+			paramsSettings[k] = vString
+		}
+		return paramsSettings, nil
+	}
+	for i, ru := range relationUnits.RelationUnits {
+		settings, err := one(ru)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
+		results.Results[i].Settings = settings
+	}
+	return results, nil
+}
+
+func (api *RemoteRelationsAPI) RemoteRelations(entities params.Entities) (params.RemoteRelationResults, error) {
+	results := params.RemoteRelationResults{
+		Results: make([]params.RemoteRelationResult, len(entities.Entities)),
+	}
+	one := func(entity params.Entity) (*params.RemoteRelation, error) {
+		tag, err := names.ParseRelationTag(entity.Tag)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		rel, err := api.st.KeyRelation(tag.Id())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return &params.RemoteRelation{
+			// TODO(axw) remote entity ID
+			Life: params.Life(rel.Life().String()),
+		}, nil
+	}
+	for i, entity := range entities.Entities {
+		remoteRelation, err := one(entity)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
+		results.Results[i].Result = remoteRelation
+	}
+	return results, nil
+}
+
+func (api *RemoteRelationsAPI) RemoteServices(entities params.Entities) (params.RemoteServiceResults, error) {
+	results := params.RemoteServiceResults{
+		Results: make([]params.RemoteServiceResult, len(entities.Entities)),
+	}
+	one := func(entity params.Entity) (*params.RemoteService, error) {
+		tag, err := names.ParseServiceTag(entity.Tag)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		svc, err := api.st.RemoteService(tag.Id())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return &params.RemoteService{
+			// TODO(axw) remote entity ID
+			Life: params.Life(svc.Life().String()),
+		}, nil
+	}
+	for i, entity := range entities.Entities {
+		remoteService, err := one(entity)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
+		results.Results[i].Result = remoteService
+	}
+	return results, nil
 }
 
 // WatchRemoteServices starts a strings watcher that notifies of the addition,

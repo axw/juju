@@ -17,6 +17,7 @@ import (
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
+	"github.com/juju/juju/api/remoterelations"
 	apiundertaker "github.com/juju/juju/api/undertaker"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
@@ -94,6 +95,7 @@ import (
 	"github.com/juju/juju/worker/provisioner"
 	"github.com/juju/juju/worker/proxyupdater"
 	rebootworker "github.com/juju/juju/worker/reboot"
+	"github.com/juju/juju/worker/remoterelationsworker"
 	"github.com/juju/juju/worker/resumer"
 	"github.com/juju/juju/worker/rsyslog"
 	"github.com/juju/juju/worker/singular"
@@ -1276,6 +1278,10 @@ func (a *MachineAgent) startEnvWorkers(
 	})
 	singularRunner.StartWorker("addresserworker", func() (worker.Worker, error) {
 		return newAddresser(apiSt.Addresser())
+	})
+	singularRunner.StartWorker("remoterelations", func() (worker.Worker, error) {
+		config := remoterelationsworker.Config{remoterelations.NewState(apiSt)}
+		return remoterelationsworker.NewWorker(config)
 	})
 
 	if machine.IsManager() {

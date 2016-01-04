@@ -89,7 +89,7 @@ func (s *RemoteService) URL() (string, bool) {
 // Token returns the token for the remote service, provided by the remote
 // environment to identify the service in future communications.
 func (s *RemoteService) Token() (string, error) {
-	r := newRemoteEntities(s.st)
+	r := s.st.RemoteEntities()
 	return r.GetToken(s.SourceEnviron(), s.Tag())
 }
 
@@ -205,7 +205,7 @@ func (s *RemoteService) destroyOps() ([]txn.Op, error) {
 // removeOps returns the operations required to remove the service. Supplied
 // asserts will be included in the operation on the service document.
 func (s *RemoteService) removeOps(asserts bson.D) []txn.Op {
-	r := newRemoteEntities(s.st)
+	r := s.st.RemoteEntities()
 	ops := []txn.Op{
 		{
 			C:      remoteServicesC,
@@ -388,7 +388,7 @@ func (st *State) AddRemoteService(args AddRemoteServiceParams) (service *RemoteS
 	}
 	svcDoc.Endpoints = eps
 	svc := newRemoteService(st, svcDoc)
-	importRemoteEntityOps := newRemoteEntities(st).importRemoteEntityOps(
+	importRemoteEntityOps := st.RemoteEntities().importRemoteEntityOps(
 		args.SourceEnv, svc.Tag(), args.Token,
 	)
 

@@ -652,7 +652,7 @@ func (context *statusContext) processRemoteServices() map[string]params.RemoteSe
 }
 
 func (context *statusContext) processRemoteService(service *state.RemoteService) (status params.RemoteServiceStatus) {
-	status.ServiceURL = service.URL()
+	status.ServiceURL, _ = service.URL()
 	status.ServiceName = service.Name()
 	eps, err := service.Endpoints()
 	if err != nil {

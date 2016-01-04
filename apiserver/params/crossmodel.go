@@ -63,8 +63,8 @@ type AddServiceOffer struct {
 	UserTags []string `json:"users"`
 }
 
-// ServiceOffersResult is a result of listing service offers.
-type ServiceOffersResult struct {
+// ServiceOfferResults is a result of listing service offers.
+type ServiceOfferResults struct {
 	Offers []ServiceOffer
 	Error  *Error
 }
@@ -118,9 +118,9 @@ type ServiceOfferResult struct {
 	Error *Error `json:"error,omitempty"`
 }
 
-// ServiceOfferResults is a result of listing remote service offers.
-type ServiceOfferResults struct {
-	// Results contains collection of remote service results.
+// ServiceOffersResults is a result of listing remote service offers.
+type ServiceOffersResults struct {
+	// Result contains collection of remote service results.
 	Results []ServiceOfferResult `json:"results,omitempty"`
 }
 
@@ -251,6 +251,10 @@ type RemoteRelationResult struct {
 	Error  *Error          `json:"error,omitempty"`
 }
 
+type RemoteRelationResults struct {
+	Results []RemoteRelationResult `json:"results,omitempty"`
+}
+
 // RemoteService describes the current state of a service involved in a cross-
 // model relation, from the perspective of the local environment.
 type RemoteService struct {
@@ -361,6 +365,11 @@ type RemoteRelationChange struct {
 	// DepartedUnits contains the IDs identifying units that
 	// have departed the relation since the last change.
 	DepartedUnits []RemoteEntityId `json:"departedunits,omitempty"`
+}
+
+// RemoteRelationChanges holds a set of RemoteRelationChange structures.
+type RemoteRelationChanges struct {
+	Changes []RemoteRelationChange `json:"changes,omitempty"`
 }
 
 // RemoteRelationUnitChange describes a relation unit change.

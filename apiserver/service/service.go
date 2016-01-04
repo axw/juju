@@ -454,6 +454,10 @@ func saveRemoteService(
 
 	// Create a remote service entry in the model for the consumed service.
 	offer := offers.Offers[0]
+	sourceEnvTag, err := names.ParseEnvironTag(offer.SourceEnvironTag)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	rs, err := st.RemoteService(url.ServiceName)
 	if err != nil && !errors.IsNotFound(err) {
 		return nil, errors.Trace(err)
@@ -472,7 +476,13 @@ func saveRemoteService(
 			Scope:     ep.Scope,
 		}
 	}
-	rs, err = st.AddRemoteService(url.ServiceName, url.String(), remoteEps)
+	rs, err = st.AddRemoteService(state.AddRemoteServiceParams{
+		Name:      url.ServiceName,
+		URL:       url.String(),
+		SourceEnv: sourceEnvTag,
+		Token:     "not-blank", // FIXME shouldn't need to set it at all!
+		Endpoints: remoteEps,
+	})
 	if err != nil {
 		if !errors.IsAlreadyExists(err) {
 			return nil, errors.Trace(err)

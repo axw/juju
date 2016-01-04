@@ -23,16 +23,16 @@ var logger = loggo.GetLogger("juju.worker.remoterelationsworker")
 // Config encapsulates the configuration for the worker.
 type Config struct {
 	RemoteServicesAccessor RemoteServicesAccessor
-	ServiceChangePublisher ServiceChangePublisher
+	//ServiceChangePublisher ServiceChangePublisher
 }
 
 func (cfg Config) Validate() error {
 	if cfg.RemoteServicesAccessor == nil {
 		return errors.NotValidf("nil RemoteServicesAccessor")
 	}
-	if cfg.ServiceChangePublisher == nil {
-		return errors.NotValidf("nil ServiceChangePublisher")
-	}
+	//if cfg.ServiceChangePublisher == nil {
+	//	return errors.NotValidf("nil ServiceChangePublisher")
+	//}
 	return nil
 }
 
@@ -59,6 +59,11 @@ type RemoteServicesAccessor interface {
 	// the specified names in the local environment.
 	RemoteServices(names []string) ([]params.RemoteServiceResult, error)
 
+	// WatchLocalRelationUnits watches for changes to units of the
+	// local service involved in the relation with the specified relation
+	// key.
+	WatchLocalRelationUnits(relationKey string) (watcher.RelationUnitsWatcher, error)
+
 	// WatchRemoteServices watches for addition, removal and lifecycle
 	// changes to remote services known to the local environment.
 	WatchRemoteServices() (watcher.StringsWatcher, error)
@@ -66,11 +71,6 @@ type RemoteServicesAccessor interface {
 	// WatchServiceRelations watches for changes to relations in the
 	// local environment involving the service with the given name.
 	WatchServiceRelations(service string) (watcher.StringsWatcher, error)
-
-	// WatchLocalRelationUnits watches for changes to units of the
-	// local service involved in the relation with the specified relation
-	// key.
-	WatchLocalRelationUnits(relationKey string) (watcher.RelationUnitsWatcher, error)
 }
 
 // ServiceChangePublisher is an interface that provides a means of publishing

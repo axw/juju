@@ -20,6 +20,12 @@ type RemoteRelationsStateCloser interface {
 // RemoteRelationState provides the subset of global state required by the
 // remote relations facade.
 type RemoteRelationsState interface {
+	// TODO
+	EnvironUUID() string
+
+	// TODO
+	ExportLocalEntity(entity names.Tag) (string, error)
+
 	// ForEnviron returns a RemoteRelationsState for the specified
 	// environment.
 	ForEnviron(names.EnvironTag) (RemoteRelationsStateCloser, error)
@@ -111,6 +117,8 @@ type RelationUnit interface {
 // RemoteService represents the state of a service hosted in an external
 // (remote) environment.
 type RemoteService interface {
+	Life() state.Life
+
 	// Destroy ensures that the service and all its relations will be
 	// removed at some point; if no relation involving the service has
 	// any units in scope, they are all removed immediately.
@@ -139,6 +147,11 @@ type Service interface {
 
 type stateShim struct {
 	*state.State
+}
+
+func (st stateShim) ExportLocalEntity(entity names.Tag) (string, error) {
+	r := st.State.RemoteEntities()
+	return r.ExportLocalEntity(entity)
 }
 
 func (st stateShim) ForEnviron(tag names.EnvironTag) (RemoteRelationsStateCloser, error) {

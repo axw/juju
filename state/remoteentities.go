@@ -48,7 +48,7 @@ func (r *RemoteEntities) ExportLocalEntity(entity names.Tag) (string, error) {
 	sourceEnv := r.st.EnvironTag()
 	ops := func(attempt int) ([]txn.Op, error) {
 		// The entity must not already be exported.
-		_, err := r.GetRemoteEntity(sourceEnv, token)
+		_, err := r.GetToken(sourceEnv, entity)
 		if err == nil {
 			return nil, errors.AlreadyExistsf(
 				"token for %s",
@@ -74,13 +74,14 @@ func (r *RemoteEntities) ExportLocalEntity(entity names.Tag) (string, error) {
 
 		return []txn.Op{{
 			C:      tokensC,
+			Id:     token,
 			Assert: txn.DocMissing,
-			Insert: &tokenDoc{Token: token},
+			Insert: &tokenDoc{},
 		}, {
 			C:      remoteEntitiesC,
+			Id:     r.docID(sourceEnv, entity),
 			Assert: txn.DocMissing,
 			Insert: &remoteEntityDoc{
-				DocID:         r.docID(sourceEnv, entity),
 				SourceEnvUUID: sourceEnv.Id(),
 				EntityTag:     entity.String(),
 				Token:         token,

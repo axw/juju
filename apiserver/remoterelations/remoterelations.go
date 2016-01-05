@@ -64,6 +64,10 @@ func (api *RemoteRelationsAPI) ExportEntities(entities params.Entities) (params.
 			continue
 		}
 		token, err := api.st.ExportLocalEntity(tag)
+		if err != nil {
+			results.Results[i].Error = common.ServerError(err)
+			continue
+		}
 		results.Results[i].Result = &params.RemoteEntityId{
 			EnvUUID: api.st.EnvironUUID(),
 			Token:   token,

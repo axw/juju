@@ -131,6 +131,8 @@ func (h *remoteServicesHandler) TearDown() error {
 }
 
 func (h *remoteServicesHandler) Handle(serviceIds []string) error {
+	logger.Debugf("remote services changed: %s", serviceIds)
+
 	// Fetch the current state of each of the remote services that have changed.
 	results, err := h.config.RemoteServicesAccessor.RemoteServices(serviceIds)
 	if err != nil {
@@ -172,6 +174,7 @@ func (h *remoteServicesHandler) Handle(serviceIds []string) error {
 		} else if err != nil {
 			return errors.Annotatef(err, "watching relations for remote service %q", name)
 		}
+		logger.Debugf("started watcher for remote service %q", name)
 		h.workers[name] = newRemoteServiceWorker(
 			relationsWatcher,
 			h.config.RemoteServicesAccessor.ExportEntities,
@@ -238,10 +241,17 @@ func (w *remoteServiceWorker) loop() error {
 	}()
 
 	for {
+		logger.Debugf(
+			"remoteServiceWorker waiting for event (%p, %p)",
+			w.relationsWatcher.Changes(), w.relationUnitsChanges,
+		)
+
 		select {
 		case <-w.tomb.Dying():
 			return tomb.ErrDying
+
 		case change, ok := <-w.relationsWatcher.Changes():
+			logger.Debugf("relations changed: %#v, %v", change, ok)
 			if !ok {
 				return statewatcher.EnsureErr(w.relationsWatcher)
 			}
@@ -262,6 +272,7 @@ func (w *remoteServiceWorker) loop() error {
 			}
 
 		case change := <-w.relationUnitsChanges:
+			logger.Debugf("relation units changed: %#v", change)
 			r := relations[change.relationTag.Id()]
 			r.ChangedUnits = change.changed
 			r.DepartedUnits = change.departed
@@ -276,6 +287,7 @@ func (w *remoteServiceWorker) loop() error {
 func (w *remoteServiceWorker) relationChanged(
 	key string, result params.RemoteRelationResult, relations map[string]*relation,
 ) error {
+	logger.Debugf("relation %q changed: %+v", key, result)
 	if result.Error != nil {
 		if params.IsCodeNotFound(result.Error) {
 			// TODO(axw) we need to guarantee that the relation has
@@ -363,12 +375,17 @@ func newRelationUnitsWatcher(
 		remoteIds:            make(map[string]params.RemoteEntityId),
 		exportEntities:       exportEntities,
 		relationUnitSettings: relationUnitSettings,
-		out:                  make(chan relationUnitsChange, 1),
+		out:                  out,
 	}
 	go func() {
 		defer w.tomb.Done()
 		defer statewatcher.Stop(ruw, &w.tomb)
-		w.tomb.Kill(w.loop())
+		err := w.loop()
+		if err != nil {
+			logger.Debugf("RU watcher died: %v", err)
+		}
+		w.tomb.Kill(err)
+		//w.tomb.Kill(w.loop())
 	}()
 	return w
 }
@@ -393,11 +410,14 @@ func (w *relationUnitsWatcher) loop() error {
 			if !ok {
 				return statewatcher.EnsureErr(w.ruw)
 			}
+			logger.Debugf("relation units changed: %#v", change)
 			if err := w.updateRelationUnitsChange(change, &value); err != nil {
 				return errors.Trace(err)
 			}
+			logger.Debugf("alles gut!")
 			out = w.out
 		case out <- value:
+			logger.Debugf("sent RU change to %p!", out)
 			out = nil
 			value = relationUnitsChange{relationTag: w.relationTag}
 		}
@@ -408,17 +428,21 @@ func (w *relationUnitsWatcher) updateRelationUnitsChange(
 	change multiwatcher.RelationUnitsChange,
 	value *relationUnitsChange,
 ) error {
+	logger.Debugf("+update relation units")
+	defer logger.Debugf("-update relation units")
 	if len(change.Changed)+len(change.Departed) == 0 {
 		return nil
 	}
-	changedNames := make([]string, len(change.Changed))
+	changedNames := make([]string, 0, len(change.Changed))
 	for name := range change.Changed {
 		changedNames = append(changedNames, name)
 	}
+	logger.Debugf("exporting units")
 	remoteIds, err := w.exportUnits(append(changedNames, change.Departed...))
 	if err != nil {
 		return errors.Annotate(err, "exporting units")
 	}
+	logger.Debugf("exported %q: %q", append(changedNames, change.Departed...), remoteIds)
 	for i := range change.Departed {
 		remoteId := remoteIds[len(changedNames)+i]
 		for i, change := range value.changed {
@@ -436,7 +460,7 @@ func (w *relationUnitsWatcher) updateRelationUnitsChange(
 		for i, changedName := range changedNames {
 			relationUnits[i] = params.RelationUnit{
 				Relation: w.relationTag.String(),
-				Unit:     changedName,
+				Unit:     names.NewUnitTag(changedName).String(),
 			}
 		}
 		results, err := w.relationUnitSettings(relationUnits)
@@ -444,8 +468,9 @@ func (w *relationUnitsWatcher) updateRelationUnitsChange(
 			return errors.Annotate(err, "fetching relation units settings")
 		}
 		for _, result := range results {
+			logger.Debugf("result: %+v", result)
 			if result.Error != nil {
-				return errors.Annotate(err, "fetching relation unit settings")
+				return errors.Annotate(result.Error, "fetching relation unit settings")
 			}
 		}
 		for i, result := range results {
@@ -486,7 +511,7 @@ func (w *relationUnitsWatcher) exportUnits(unitNames []string) ([]params.RemoteE
 		}
 		for i, result := range results {
 			if result.Error != nil {
-				return nil, errors.Annotatef(err, "exporting unit %q", unexported[i].Id())
+				return nil, errors.Annotatef(result.Error, "exporting unit %q", unexported[i].Id())
 			}
 			w.remoteIds[unexported[i].Id()] = *result.Result
 		}

@@ -340,6 +340,9 @@ func fetchRemoteServices(st stateInterface) (map[string]*state.RemoteService, er
 		return nil, err
 	}
 	for _, s := range services {
+		if _, ok := s.URL(); !ok {
+			continue
+		}
 		svcMap[s.Name()] = s
 	}
 	return svcMap, nil

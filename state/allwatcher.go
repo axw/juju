@@ -483,6 +483,12 @@ func (svc *backingService) mongoId() string {
 type backingRemoteService remoteServiceDoc
 
 func (svc *backingRemoteService) updated(st *State, store *multiwatcherStore, id string) error {
+	if svc.URL == "" {
+		// Remote services without URLs are ignored. These exist
+		// only to represent the consumer of an offered service,
+		// and should not be visible to the user.
+		return nil
+	}
 	if svc.Name == "" {
 		return errors.Errorf("remote service name is not set")
 	}

@@ -219,6 +219,7 @@ func newRemoteServiceWorker(
 		defer worker.tomb.Done()
 		defer close(worker.relationUnitsChanges)
 		defer statewatcher.Stop(worker.relationsWatcher, &worker.tomb)
+		defer logger.Debugf("remote service worker dying")
 		worker.tomb.Kill(worker.loop())
 	}()
 	return worker

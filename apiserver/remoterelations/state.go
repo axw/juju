@@ -26,6 +26,17 @@ type RemoteRelationsState interface {
 	// TODO
 	ExportLocalEntity(entity names.Tag) (string, error)
 
+	// TODO
+	GetRemoteEntity(sourceEnv names.EnvironTag, token string) (names.Tag, error)
+
+	// TODO
+	GetToken(names.EnvironTag, names.Tag) (string, error)
+
+	// TODO
+	AddRemoteService(state.AddRemoteServiceParams) (*state.RemoteService, error)
+
+	AddRelation(...state.Endpoint) (*state.Relation, error)
+
 	// ForEnviron returns a RemoteRelationsState for the specified
 	// environment.
 	ForEnviron(names.EnvironTag) (RemoteRelationsStateCloser, error)
@@ -118,6 +129,7 @@ type RelationUnit interface {
 // (remote) environment.
 type RemoteService interface {
 	Life() state.Life
+	SourceEnviron() names.EnvironTag
 
 	// Destroy ensures that the service and all its relations will be
 	// removed at some point; if no relation involving the service has
@@ -152,6 +164,16 @@ type stateShim struct {
 func (st stateShim) ExportLocalEntity(entity names.Tag) (string, error) {
 	r := st.State.RemoteEntities()
 	return r.ExportLocalEntity(entity)
+}
+
+func (st stateShim) GetRemoteEntity(env names.EnvironTag, token string) (names.Tag, error) {
+	r := st.State.RemoteEntities()
+	return r.GetRemoteEntity(env, token)
+}
+
+func (st stateShim) GetToken(env names.EnvironTag, entity names.Tag) (string, error) {
+	r := st.State.RemoteEntities()
+	return r.GetToken(env, entity)
 }
 
 func (st stateShim) ForEnviron(tag names.EnvironTag) (RemoteRelationsStateCloser, error) {

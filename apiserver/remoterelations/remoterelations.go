@@ -7,6 +7,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/names"
+	"gopkg.in/juju/charm.v6-unstable"
 
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
@@ -76,94 +77,6 @@ func (api *RemoteRelationsAPI) ExportEntities(entities params.Entities) (params.
 	return results, nil
 }
 
-// ConsumeRemoteServiceChange consumes remote changes to services into the
-// local environment.
-func (api *RemoteRelationsAPI) ConsumeRemoteServiceChange(
-	changes params.RemoteServiceChanges,
-) (params.ErrorResults, error) {
-	results := params.ErrorResults{
-		Results: make([]params.ErrorResult, len(changes.Changes)),
-	}
-	handleRemoteRelationsChange := func(change params.RemoteRelationsChange) error {
-		/*
-			// For any relations that have been removed on the offering
-			// side, destroy them on the consuming side.
-			for _, relId := range change.RemovedRelations {
-				rel, err := api.st.Relation(relId)
-				if errors.IsNotFound(err) {
-					continue
-				} else if err != nil {
-					return errors.Trace(err)
-				}
-				if err := rel.Destroy(); err != nil {
-					return errors.Trace(err)
-				}
-				// TODO(axw) remove remote relation units.
-			}
-			for _, change := range change.ChangedRelations {
-				rel, err := api.st.Relation(change.RelationId)
-				if err != nil {
-					return errors.Trace(err)
-				}
-				if change.Life != params.Alive {
-					if err := rel.Destroy(); err != nil {
-						return errors.Trace(err)
-					}
-				}
-				for _, unitId := range change.DepartedUnits {
-					ru, err := rel.RemoteUnit(unitId)
-					if err != nil {
-						return errors.Trace(err)
-					}
-					if err := ru.LeaveScope(); err != nil {
-						return errors.Trace(err)
-					}
-				}
-				for unitId, change := range change.ChangedUnits {
-					ru, err := rel.RemoteUnit(unitId)
-					if err != nil {
-						return errors.Trace(err)
-					}
-					inScope, err := ru.InScope()
-					if err != nil {
-						return errors.Trace(err)
-					}
-					if !inScope {
-						err = ru.EnterScope(change.Settings)
-					} else {
-						err = ru.ReplaceSettings(change.Settings)
-					}
-					if err != nil {
-						return errors.Trace(err)
-					}
-				}
-			}
-		*/
-		return nil
-	}
-	handleServiceChange := func(change params.RemoteServiceChange) error {
-		/*
-			service, err := api.st.RemoteServiceByURL(change.ServiceURL)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			// TODO(axw) update service status.
-			if change.Life != params.Alive {
-				if err := service.Destroy(); err != nil {
-					return errors.Trace(err)
-				}
-			}
-		*/
-		return handleRemoteRelationsChange(change.Relations)
-	}
-	for i, change := range changes.Changes {
-		if err := handleServiceChange(change); err != nil {
-			results.Results[i].Error = common.ServerError(err)
-		}
-	}
-	return results, nil
-}
-
 // PublishLocalRelationChange publishes local relations changes to the
 // remote side offering those relations.
 func (api *RemoteRelationsAPI) PublishLocalRelationChange(
@@ -183,8 +96,118 @@ func (api *RemoteRelationsAPI) PublishLocalRelationChange(
 
 func (api *RemoteRelationsAPI) publishChange(change params.RemoteRelationChange) error {
 	logger.Debugf("publish change: %+v", change)
-	// TODO(axw) actually copy changes across to target env
+
+	relationTag, err := api.getRemoteEntityTag(change.Id)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	localRel, err := api.st.KeyRelation(relationTag.Id())
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Get the environment on the other side of the relation.
+	var localEndpoint, remoteEndpoint state.Endpoint
+	var remoteEnvTag names.EnvironTag
+	for _, ep := range localRel.Endpoints() {
+		svc, err := api.st.RemoteService(ep.ServiceName)
+		if errors.IsNotFound(err) {
+			localEndpoint = ep
+			continue
+		} else if err != nil {
+			return errors.Trace(err)
+		}
+		remoteEndpoint = ep
+		remoteEnvTag = svc.SourceEnviron()
+	}
+	st, err := api.st.ForEnviron(remoteEnvTag)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer st.Close()
+
+	// Ensure the relation exists on the remote side.
+	rel, err := st.KeyRelation(relationTag.Id())
+	if errors.IsNotFound(err) {
+		if change.Life != params.Alive {
+			return nil
+		}
+		_, err = st.AddRemoteService(state.AddRemoteServiceParams{
+			Name:      localEndpoint.ServiceName,
+			SourceEnv: names.NewEnvironTag(api.st.EnvironUUID()),
+			Token:     "whatever",
+			Endpoints: []charm.Relation{localEndpoint.Relation},
+		})
+		if err != nil {
+			return errors.Annotate(err, "adding remote service")
+		}
+		logger.Debugf("added service %v to remote environment", localEndpoint.ServiceName)
+		_, err = st.AddRelation(localEndpoint, remoteEndpoint)
+		if err != nil {
+			return errors.Annotate(err, "adding remote relation")
+		}
+		logger.Debugf("added relation %v to remote environment", relationTag.Id())
+		rel, err = st.KeyRelation(relationTag.Id())
+	}
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if change.Life != params.Alive {
+		if err := rel.Destroy(); err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	for _, id := range change.DepartedUnits {
+		entityTag, err := api.getRemoteEntityTag(id)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		ru, err := rel.RemoteUnit(entityTag.Id())
+		if err != nil {
+			return errors.Trace(err)
+		}
+		logger.Debugf("%s leaving scope", entityTag.Id())
+		if err := ru.LeaveScope(); err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	for _, change := range change.ChangedUnits {
+		entityTag, err := api.getRemoteEntityTag(change.Id)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		ru, err := rel.RemoteUnit(entityTag.Id())
+		if err != nil {
+			return errors.Trace(err)
+		}
+		inScope, err := ru.InScope()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		settings := make(map[string]interface{})
+		for k, v := range change.Settings {
+			settings[k] = v
+		}
+		if !inScope {
+			logger.Debugf("%s entering scope (%v)", entityTag.Id(), settings)
+			err = ru.EnterScope(settings)
+		} else {
+			logger.Debugf("%s updated settings (%v)", entityTag.Id(), settings)
+			err = ru.ReplaceSettings(settings)
+		}
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+
 	return nil
+}
+
+func (api *RemoteRelationsAPI) getRemoteEntityTag(id params.RemoteEntityId) (names.Tag, error) {
+	envTag := names.NewEnvironTag(id.EnvUUID)
+	return api.st.GetRemoteEntity(envTag, id.Token)
 }
 
 func (api *RemoteRelationsAPI) RelationUnitSettings(relationUnits params.RelationUnits) (params.SettingsResults, error) {
@@ -248,8 +271,19 @@ func (api *RemoteRelationsAPI) RemoteRelations(entities params.Entities) (params
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+		envUUID := api.st.EnvironUUID()
+		token, err := api.st.ExportLocalEntity(tag)
+		if errors.IsAlreadyExists(err) {
+			token, err = api.st.GetToken(names.NewEnvironTag(envUUID), tag)
+		}
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
 		return &params.RemoteRelation{
-			// TODO(axw) remote entity ID
+			Id: params.RemoteEntityId{
+				EnvUUID: api.st.EnvironUUID(),
+				Token:   token,
+			},
 			Life: params.Life(rel.Life().String()),
 		}, nil
 	}

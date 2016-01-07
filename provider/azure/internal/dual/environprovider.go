@@ -47,8 +47,8 @@ func (p *EnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*conf
 }
 
 // PrepareForBootstrap is part of the environs.EnvironProvider interface.
-func (p *EnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, cfg *config.Config) (environs.Environ, error) {
-	return p.ensureActive(cfg).PrepareForBootstrap(ctx, cfg)
+func (p *EnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, args environs.PrepareForBootstrapParams) (environs.Environ, error) {
+	return p.ensureActive(args.Config).PrepareForBootstrap(ctx, args)
 }
 
 // Open is part of the environs.EnvironProvider interface.

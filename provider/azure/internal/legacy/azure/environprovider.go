@@ -59,8 +59,8 @@ func (p azureEnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*
 }
 
 // PrepareForBootstrap is specified in the EnvironProvider interface.
-func (prov azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, cfg *config.Config) (environs.Environ, error) {
-	cfg, err := prov.PrepareForCreateEnvironment(cfg)
+func (prov azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, args environs.PrepareForBootstrapParams) (environs.Environ, error) {
+	cfg, err := prov.PrepareForCreateEnvironment(args.Config)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

@@ -3,6 +3,15 @@
 
 package cloud
 
+import (
+	"strings"
+
+	"github.com/juju/errors"
+	"github.com/juju/juju/juju/osenv"
+	"github.com/juju/schema"
+	"gopkg.in/yaml.v1"
+)
+
 // Credentials is a struct containing cloud credential information.
 type Credentials struct {
 	// Credentials is a map of cloud credentials, keyed on cloud name.
@@ -30,12 +39,108 @@ type Credential interface {
 	Attributes() map[string]string
 }
 
-type cloudCredentialYAML struct {
-	CloudCredential `yaml:",inline"`
-	AuthCredentials map[string]Credential `yaml:",omitempty,inline"`
+type cloudCredentialChecker struct{}
+
+func (cloudCredentialChecker) Coerce(v interface{}, path []string) (interface{}, error) {
+	out := CloudCredential{
+		AuthCredentials: make(map[string]Credential),
+	}
+	v, err := schema.StringMap(cloudCredentialValueChecker{}).Coerce(v, path)
+	if err != nil {
+		return nil, err
+	}
+	mapv := v.(map[string]interface{})
+	for k, v := range mapv {
+		switch k {
+		case "default-region":
+			out.DefaultRegion = v.(string)
+		case "default-credential":
+			out.DefaultCredential = v.(string)
+		default:
+			out.AuthCredentials[k] = v.(Credential)
+		}
+	}
+	return out, nil
+}
+
+type cloudCredentialValueChecker struct{}
+
+func (c cloudCredentialValueChecker) Coerce(v interface{}, path []string) (interface{}, error) {
+	field := path[len(path)-1]
+	switch field {
+	case "default-region", "default-credential":
+		return schema.String().Coerce(v, path)
+	}
+	v, err := schema.StringMap(schema.String()).Coerce(v, path)
+	if err != nil {
+		return nil, err
+	}
+	mapv := v.(map[string]interface{})
+	authType, _ := mapv["auth-type"].(string)
+	if authType == "" {
+		return nil, errors.Errorf("%v: missing auth-type", strings.Join(path, ""))
+	}
+	delete(mapv, "auth-type")
+
+	var out Credential
+	// TODO(axw) the checkers should reference a map
+	// of auth-type to credential parsers/factories.
+	switch AuthType(authType) {
+	case AccessKeyAuthType:
+		// TODO(axw) Credential implementations should
+		// support Coerce, or some way of feeding into
+		// Coerce.
+		v, err := schema.StrictFieldMap(
+			schema.Fields{
+				"key":    schema.String(),
+				"secret": schema.String(),
+			},
+			schema.Defaults{},
+		).Coerce(v, path)
+		if err != nil {
+			return nil, err
+		}
+		mapv := v.(map[string]interface{})
+		key, _ := mapv["key"].(string)
+		secret, _ := mapv["secret"].(string)
+		out = &AccessKeyCredentials{Key: key, Secret: secret}
+		return out, nil
+	case EmptyAuthType:
+		return EmptyCredentials{}, nil
+	}
+	err = errors.NotSupportedf("%s auth-type", authType)
+	return nil, errors.Annotate(err, strings.Join(path, ""))
 }
 
 var _ Credential = (*AccessKeyCredentials)(nil)
+
+// JujuCredentials is the location where credentials are
+// expected to be found. Requires JUJU_HOME to be set.
+func JujuCredentials() string {
+	return osenv.JujuHomePath("credentials.yaml")
+}
+
+// ParseCredentials parses the given yaml bytes into Credentials.
+func ParseCredentials(data []byte) (*Credentials, error) {
+	var credentialsYAML struct {
+		Credentials map[string]interface{} `yaml:"credentials"`
+	}
+	err := yaml.Unmarshal(data, &credentialsYAML)
+	if err != nil {
+		return nil, errors.Annotate(err, "cannot unmarshal yaml credentials")
+	}
+	credentials := Credentials{make(map[string]CloudCredential)}
+	for cloud, v := range credentialsYAML.Credentials {
+		v, err := cloudCredentialChecker{}.Coerce(
+			v, []string{"credentials." + cloud},
+		)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		credentials.Credentials[cloud] = v.(CloudCredential)
+	}
+	return &credentials, nil
+}
 
 // AccessKeyCredentials represent key/secret credentials.
 type AccessKeyCredentials struct {
@@ -206,4 +311,14 @@ func (c *OAuth2Credentials) Attributes() map[string]string {
 		"client-email": c.ClientEmail,
 		"private-key":  c.PrivateKey,
 	}
+}
+
+type EmptyCredentials struct{}
+
+func (EmptyCredentials) AuthType() AuthType {
+	return EmptyAuthType
+}
+
+func (EmptyCredentials) Attributes() map[string]string {
+	return map[string]string{}
 }

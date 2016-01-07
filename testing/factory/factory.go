@@ -517,7 +517,7 @@ func (factory *Factory) MakeEnvironment(c *gc.C, params *EnvParams) *state.State
 		// Prepare the environment.
 		provider, err := environs.Provider(cfg.Type())
 		c.Assert(err, jc.ErrorIsNil)
-		env, err := provider.PrepareForBootstrap(envtesting.BootstrapContext(c), cfg)
+		env, err := provider.PrepareForBootstrap(envtesting.BootstrapContext(c), environs.PrepareForBootstrapParams{}) // TODO
 		c.Assert(err, jc.ErrorIsNil)
 		// Now save the config back.
 		err = st.UpdateEnvironConfig(env.Config().AllAttrs(), nil, nil)

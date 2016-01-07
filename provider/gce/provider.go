@@ -21,8 +21,8 @@ func (environProvider) Open(cfg *config.Config) (environs.Environ, error) {
 }
 
 // PrepareForBootstrap implements environs.EnvironProvider.
-func (p environProvider) PrepareForBootstrap(ctx environs.BootstrapContext, cfg *config.Config) (environs.Environ, error) {
-	cfg, err := p.PrepareForCreateEnvironment(cfg)
+func (p environProvider) PrepareForBootstrap(ctx environs.BootstrapContext, args environs.PrepareForBootstrapParams) (environs.Environ, error) {
+	cfg, err := p.PrepareForCreateEnvironment(args.Config)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

@@ -50,8 +50,8 @@ func (joyentProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.C
 	return cfg.Apply(attrs)
 }
 
-func (p joyentProvider) PrepareForBootstrap(ctx environs.BootstrapContext, cfg *config.Config) (environs.Environ, error) {
-	cfg, err := p.PrepareForCreateEnvironment(cfg)
+func (p joyentProvider) PrepareForBootstrap(ctx environs.BootstrapContext, args environs.PrepareForBootstrapParams) (environs.Environ, error) {
+	cfg, err := p.PrepareForCreateEnvironment(args.Config)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

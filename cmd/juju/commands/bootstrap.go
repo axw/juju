@@ -5,6 +5,7 @@ package commands
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 	"time"
@@ -18,11 +19,13 @@ import (
 
 	apiblock "github.com/juju/juju/api/block"
 	"github.com/juju/juju/apiserver"
+	jujucloud "github.com/juju/juju/cloud"
 	"github.com/juju/juju/cmd/envcmd"
 	"github.com/juju/juju/cmd/juju/block"
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
+	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/feature"
 	"github.com/juju/juju/instance"
@@ -106,6 +109,11 @@ type bootstrapCommand struct {
 	NoAutoUpgrade         bool
 	AgentVersionParam     string
 	AgentVersion          *version.Number
+
+	ControllerName string
+	CredentialName string
+	Cloud          string
+	Region         string
 }
 
 func (c *bootstrapCommand) Info() *cmd.Info {
@@ -126,6 +134,7 @@ func (c *bootstrapCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.BoolVar(&c.KeepBrokenEnvironment, "keep-broken", false, "do not destroy the environment if bootstrap fails")
 	f.BoolVar(&c.NoAutoUpgrade, "no-auto-upgrade", false, "do not upgrade to newer tools on first bootstrap")
 	f.StringVar(&c.AgentVersionParam, "agent-version", "", "the version of tools to initially use for Juju agents")
+	f.StringVar(&c.CredentialName, "credential", "", "the credentials to use when bootstrapping")
 }
 
 func (c *bootstrapCommand) Init(args []string) (err error) {
@@ -169,7 +178,18 @@ func (c *bootstrapCommand) Init(args []string) (err error) {
 	if c.AgentVersion != nil && (c.AgentVersion.Major != version.Current.Major || c.AgentVersion.Minor != version.Current.Minor) {
 		return fmt.Errorf("requested agent version major.minor mismatch")
 	}
-	return cmd.CheckEmpty(args)
+
+	// The user must specify two positional arguments: the controller name,
+	// and the cloud name (optionally with region specified).
+	if len(args) < 2 {
+		return errors.New("controller name and cloud name are required")
+	}
+	c.ControllerName = args[0]
+	c.Cloud = args[1]
+	if i := strings.IndexRune(c.Cloud, '/'); i > 0 {
+		c.Cloud, c.Region = c.Cloud[:i], c.Cloud[i+1:]
+	}
+	return cmd.CheckEmpty(args[2:])
 }
 
 type seriesValue struct {
@@ -217,10 +237,6 @@ var getBootstrapFuncs = func() BootstrapInterface {
 	return &bootstrapFuncs{}
 }
 
-var getEnvName = func(c *bootstrapCommand) string {
-	return c.ConnectionName()
-}
-
 // Run connects to the environment specified on the command line and bootstraps
 // a juju in that environment if none already exists. If there is as yet no environments.yaml file,
 // the user is informed how to create one.
@@ -234,52 +250,97 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		fmt.Fprintln(ctx.Stderr, "Use of --upload-series is obsolete. --upload-tools now expands to all supported series of the same operating system.")
 	}
 
-	envName := getEnvName(c)
-	if envName == "" {
-		return errors.Errorf("the name of the environment must be specified")
+	// Get the cloud definition identified by c.Cloud. If c.Cloud does not
+	// identify a cloud in clouds.yaml, but is the name of a provider, we
+	// synthesise a Cloud structure with a single region and no auth-types.
+	cloud, err := c.getCloud()
+	if errors.IsNotFound(err) {
+		ctx.Verbosef("cloud %q not found, trying as a provider name", c.Cloud)
+		_, err := environs.Provider(c.Cloud)
+		if errors.IsNotFound(err) {
+			return errors.NotFoundf("cloud %s", c.Cloud)
+		} else if err != nil {
+			return errors.Trace(err)
+		}
+		cloud = &jujucloud.Cloud{
+			Type: c.Cloud,
+			Regions: map[string]jujucloud.Region{
+				c.Cloud: jujucloud.Region{},
+			},
+		}
+	} else if err != nil {
+		return errors.Trace(err)
 	}
-	if err := checkProviderType(envName); errors.IsNotFound(err) {
+	if err := checkProviderType(cloud.Type); errors.IsNotFound(err) {
 		// This error will get handled later.
 	} else if err != nil {
 		return errors.Trace(err)
 	}
 
-	environ, cleanup, err := environFromName(
-		ctx,
-		envName,
-		"Bootstrap",
-		bootstrapFuncs.EnsureNotBootstrapped,
-	)
+	// Get the credentials and region name. If there are no credentials,
+	// we pass "empty" credentials to the provider so that it can obtain
+	// them from environment variables, files, etc.
+	credential, regionName, err := c.getCredentials()
+	if errors.IsNotFound(err) {
+		credential = jujucloud.EmptyCredentials{}
+		regionName = c.Region
+		if regionName == "" {
+			regionName = c.Cloud
+		}
+	} else if err != nil {
+		return errors.Trace(err)
+	}
+	region, ok := cloud.Regions[regionName]
+	if !ok {
+		var regionNames []string
+		for name := range cloud.Regions {
+			regionNames = append(regionNames, name)
+		}
+		return errors.NotFoundf(
+			"region %q in cloud %q (expected one of %q)",
+			regionName, c.Cloud, regionNames,
+		)
+	}
+
+	// Create an environment config from the cloud and credentials.
+	cfg, err := config.New(config.UseDefaults, map[string]interface{}{
+		"type": cloud.Type,
+		"name": c.ControllerName,
+	})
+	if err != nil {
+		return errors.Annotate(err, "creating environment configuration")
+	}
+	store, err := configstore.Default()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	environ, err := environs.Prepare(envcmd.BootstrapContext(ctx), store, environs.PrepareForBootstrapParams{
+		Config:        cfg,
+		CloudRegion:   regionName,
+		CloudEndpoint: region.Endpoint,
+		Credentials:   credential,
+	})
+	if err != nil {
+		return errors.Annotate(err, "preparing bootstrap environment configuration")
+	}
 
 	// If we error out for any reason, clean up the environment.
 	defer func() {
-		if resultErr != nil && cleanup != nil {
+		if resultErr != nil {
 			if c.KeepBrokenEnvironment {
-				logger.Warningf("bootstrap failed but --keep-broken was specified so environment is not being destroyed.\n" +
-					"When you are finished diagnosing the problem, remember to run juju destroy-environment --force\n" +
-					"to clean up the environment.")
+				logger.Warningf(`
+bootstrap failed but --keep-broken was specified so environment is not being destroyed.
+When you are finished diagnosing the problem, remember to run juju destroy-environment --force
+to clean up the environment.`[1:])
 			} else {
-				handleBootstrapError(ctx, resultErr, cleanup)
+				handleBootstrapError(ctx, resultErr, func() {
+					// TODO(axw) copy logic that was in common.go.
+					// Don't destroy if env was previously bootstrapped.
+					environ.Destroy()
+				})
 			}
 		}
 	}()
-
-	// Handle any errors from environFromName(...).
-	if err != nil {
-		return errors.Annotatef(err, "there was an issue examining the environment")
-	}
-
-	// Check to see if this environment is already bootstrapped. If it
-	// is, we inform the user and exit early. If an error is returned
-	// but it is not that the environment is already bootstrapped,
-	// then we're in an unknown state.
-	if err := bootstrapFuncs.EnsureNotBootstrapped(environ); nil != err {
-		if environs.ErrAlreadyBootstrapped == err {
-			logger.Warningf("This juju environment is already bootstrapped. If you want to start a new Juju\nenvironment, first run juju destroy-environment to clean up, or switch to an\nalternative environment.")
-			return err
-		}
-		return errors.Annotatef(err, "cannot determine if environment is already bootstrapped.")
-	}
 
 	// Block interruption during bootstrap. Providers may also
 	// register for interrupt notification so they can exit early.
@@ -317,12 +378,14 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	if err != nil {
 		return errors.Annotate(err, "failed to bootstrap environment")
 	}
+
+	c.SetEnvName(c.ControllerName)
 	err = c.SetBootstrapEndpointAddress(environ)
 	if err != nil {
 		return errors.Annotate(err, "saving bootstrap endpoint address")
 	}
 
-	err = envcmd.SetCurrentEnvironment(ctx, envName)
+	err = envcmd.SetCurrentEnvironment(ctx, c.ControllerName)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -331,6 +394,56 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	// for the state server's machine agent to be ready to accept commands
 	// before exiting this bootstrap command.
 	return c.waitForAgentInitialisation(ctx)
+}
+
+func (c *bootstrapCommand) getCloud() (*jujucloud.Cloud, error) {
+	// First, read in cloud metadata and extract the cloud the user wants
+	// to bootstrap. Ensure the cloud type is usable with the current client
+	// configuration.
+	clouds, _, err := jujucloud.PublicCloudMetadata(jujucloud.JujuPublicClouds())
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	cloud, ok := clouds.Clouds[c.Cloud]
+	if !ok {
+		return nil, errors.NotFoundf("cloud %s", c.Cloud)
+	}
+	return &cloud, nil
+}
+
+func (c *bootstrapCommand) getCredentials() (_ jujucloud.Credential, region string, _ error) {
+	credentialsData, err := ioutil.ReadFile(jujucloud.JujuCredentials())
+	if os.IsNotExist(err) {
+		return nil, "", errors.NotFoundf("credentials file")
+	} else if err != nil {
+		return nil, "", errors.Trace(err)
+	}
+	credentials, err := jujucloud.ParseCredentials(credentialsData)
+	if err != nil {
+		return nil, "", errors.Annotate(err, "parsing credentials")
+	}
+	cloudCredentials, ok := credentials.Credentials[c.Cloud]
+	if !ok {
+		return nil, "", errors.NotFoundf("credentials for cloud %q", c.Cloud)
+	}
+	credentialName := c.CredentialName
+	if credentialName == "" {
+		credentialName = cloudCredentials.DefaultCredential
+	}
+	credential, ok := cloudCredentials.AuthCredentials[credentialName]
+	if !ok {
+		return nil, "", errors.NotFoundf(
+			"%q credential for cloud %q", credentialName, c.Cloud,
+		)
+	}
+	regionName := c.Region
+	if regionName == "" {
+		regionName = cloudCredentials.DefaultRegion
+	}
+	if regionName == "" {
+		regionName = c.Cloud
+	}
+	return credential, regionName, nil
 }
 
 var (
@@ -388,32 +501,14 @@ func (c *bootstrapCommand) waitForAgentInitialisation(ctx *cmd.Context) (err err
 	return err
 }
 
-var environType = func(envName string) (string, error) {
-	store, err := configstore.Default()
-	if err != nil {
-		return "", errors.Trace(err)
-	}
-	cfg, _, err := environs.ConfigForName(envName, store)
-	if err != nil {
-		return "", errors.Trace(err)
-	}
-	return cfg.Type(), nil
-}
-
 // checkProviderType ensures the provider type is okay.
-func checkProviderType(envName string) error {
-	envType, err := environType(envName)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
+func checkProviderType(envType string) error {
 	featureflag.SetFlagsFromEnvironment(osenv.JujuFeatureFlagEnvKey)
 	flag, ok := provisionalProviders[envType]
 	if ok && !featureflag.Enabled(flag) {
 		msg := `the %q provider is provisional in this version of Juju. To use it anyway, set JUJU_DEV_FEATURE_FLAGS="%s" in your shell environment`
 		return errors.Errorf(msg, envType, flag)
 	}
-
 	return nil
 }
 

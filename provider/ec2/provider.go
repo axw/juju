@@ -12,6 +12,7 @@ import (
 	"github.com/juju/utils/arch"
 	"gopkg.in/amz.v3/ec2"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/simplestreams"
@@ -56,8 +57,28 @@ func (p environProvider) Open(cfg *config.Config) (environs.Environ, error) {
 	return e, nil
 }
 
-func (p environProvider) PrepareForBootstrap(ctx environs.BootstrapContext, cfg *config.Config) (environs.Environ, error) {
-	cfg, err := p.PrepareForCreateEnvironment(cfg)
+func (p environProvider) PrepareForBootstrap(
+	ctx environs.BootstrapContext,
+	args environs.PrepareForBootstrapParams,
+) (environs.Environ, error) {
+
+	// Update the configuration with the region and credentials.
+	attrs := map[string]interface{}{
+		"region": args.CloudRegion,
+	}
+	switch credentials := args.Credentials.(type) {
+	case *cloud.AccessKeyCredentials:
+		attrs["access-key"] = credentials.Key
+		attrs["secret-key"] = credentials.Secret
+	default:
+		return nil, errors.NotSupportedf("%q auth-type", args.Credentials.AuthType())
+	}
+	cfg, err := args.Config.Apply(attrs)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err = p.PrepareForCreateEnvironment(cfg)
 	if err != nil {
 		return nil, err
 	}

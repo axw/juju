@@ -36,7 +36,10 @@ func (c *imageMetadataCommandBase) prepare(context *cmd.Context, store configsto
 	// image metadata. We don't need, nor want, credential verification.
 	// In most cases, credentials will not be available.
 	ctx := envcmd.BootstrapContextNoVerify(context)
-	return environs.Prepare(cfg, ctx, store)
+	_ = ctx
+	_ = cfg
+	panic("TODO") // TODO
+	//return environs.Prepare(cfg, ctx, store)
 }
 
 func newImageMetadataCommand() cmd.Command {

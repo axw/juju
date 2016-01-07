@@ -115,21 +115,6 @@ func NewFromName(name string, store configstore.Storage) (Environ, error) {
 	return env, err
 }
 
-// PrepareFromName is the same as NewFromName except
-// that the environment is is prepared as well as opened,
-// and environment information is created using the
-// given store. If the environment is already prepared,
-// it behaves like NewFromName.
-var PrepareFromName = prepareFromNameProductionFunc
-
-func prepareFromNameProductionFunc(name string, ctx BootstrapContext, store configstore.Storage) (Environ, error) {
-	cfg, _, err := ConfigForName(name, store)
-	if err != nil {
-		return nil, err
-	}
-	return Prepare(cfg, ctx, store)
-}
-
 // NewFromAttrs returns a new environment based on the provided configuration
 // attributes.
 // TODO(rog) remove this function - it's almost always wrong to use it.
@@ -152,13 +137,13 @@ func New(config *config.Config) (Environ, error) {
 
 // Prepare prepares a new environment based on the provided configuration.
 // If the environment is already prepared, it behaves like New.
-func Prepare(cfg *config.Config, ctx BootstrapContext, store configstore.Storage) (Environ, error) {
+func Prepare(ctx BootstrapContext, store configstore.Storage, args PrepareForBootstrapParams) (Environ, error) {
 
-	if p, err := Provider(cfg.Type()); err != nil {
+	if p, err := Provider(args.Config.Type()); err != nil {
 		return nil, errors.Trace(err)
-	} else if info, err := store.ReadInfo(cfg.Name()); errors.IsNotFound(errors.Cause(err)) {
-		info = store.CreateInfo(cfg.Name())
-		if env, err := prepare(ctx, cfg, info, p); err == nil {
+	} else if info, err := store.ReadInfo(args.Config.Name()); errors.IsNotFound(errors.Cause(err)) {
+		info = store.CreateInfo(args.Config.Name())
+		if env, err := prepare(ctx, args, info, p); err == nil {
 			return env, decorateAndWriteInfo(info, env.Config())
 		} else {
 			if err := info.Destroy(); err != nil {
@@ -167,21 +152,21 @@ func Prepare(cfg *config.Config, ctx BootstrapContext, store configstore.Storage
 			return nil, errors.Trace(err)
 		}
 	} else if err != nil {
-		return nil, errors.Annotatef(err, "error reading environment info %q", cfg.Name())
+		return nil, errors.Annotatef(err, "error reading environment info %q", args.Config.Name())
 	} else if !info.Initialized() {
 		return nil,
 			errors.Errorf(
 				"found uninitialized environment info for %q; environment preparation probably in progress or interrupted",
-				cfg.Name(),
+				args.Config.Name(),
 			)
 	} else if len(info.BootstrapConfig()) == 0 {
 		return nil, errors.New("found environment info but no bootstrap config")
 	} else {
-		cfg, err = config.New(config.NoDefaults, info.BootstrapConfig())
+		args.Config, err = config.New(config.NoDefaults, info.BootstrapConfig())
 		if err != nil {
 			return nil, errors.Annotate(err, "cannot parse bootstrap config")
 		}
-		return New(cfg)
+		return New(args.Config)
 	}
 }
 
@@ -222,8 +207,8 @@ func decorateAndWriteInfo(info configstore.EnvironInfo, cfg *config.Config) erro
 	return nil
 }
 
-func prepare(ctx BootstrapContext, cfg *config.Config, info configstore.EnvironInfo, p EnvironProvider) (Environ, error) {
-	cfg, err := ensureAdminSecret(cfg)
+func prepare(ctx BootstrapContext, args PrepareForBootstrapParams, info configstore.EnvironInfo, p EnvironProvider) (Environ, error) {
+	cfg, err := ensureAdminSecret(args.Config)
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot generate admin-secret")
 	}
@@ -235,8 +220,8 @@ func prepare(ctx BootstrapContext, cfg *config.Config, info configstore.EnvironI
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot ensure uuid")
 	}
-
-	return p.PrepareForBootstrap(ctx, cfg)
+	args.Config = cfg
+	return p.PrepareForBootstrap(ctx, args)
 }
 
 // ensureAdminSecret returns a config with a non-empty admin-secret.

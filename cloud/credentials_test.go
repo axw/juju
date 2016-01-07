@@ -205,3 +205,105 @@ credentials:
       private-key: secret
 `[1:])
 }
+
+func (s *credentialsSuite) TestParseCredentials(c *gc.C) {
+	s.testParseCredentials(c, []byte(`
+credentials:
+  aws:
+    default-credential: peter
+    default-region: us-east-2
+    peter:
+      auth-type: access-key
+      key: key
+      secret: secret
+  aws-china:
+    default-credential: zhu8jie
+    zhu8jie:
+      auth-type: access-key
+      key: key
+      secret: secret
+    sun5kong:
+      auth-type: access-key
+      key: quay
+      secret: sekrit
+  aws-gov:
+    default-region: us-gov-west-1
+    supersekrit:
+      auth-type: access-key
+      key: super
+      secret: sekrit
+`[1:]), &cloud.Credentials{
+		Credentials: map[string]cloud.CloudCredential{
+			"aws": cloud.CloudCredential{
+				DefaultCredential: "peter",
+				DefaultRegion:     "us-east-2",
+				AuthCredentials: map[string]cloud.Credential{
+					"peter": &cloud.AccessKeyCredentials{
+						Key:    "key",
+						Secret: "secret",
+					},
+				},
+			},
+			"aws-china": cloud.CloudCredential{
+				DefaultCredential: "zhu8jie",
+				AuthCredentials: map[string]cloud.Credential{
+					"zhu8jie": &cloud.AccessKeyCredentials{
+						Key:    "key",
+						Secret: "secret",
+					},
+					"sun5kong": &cloud.AccessKeyCredentials{
+						Key:    "quay",
+						Secret: "sekrit",
+					},
+				},
+			},
+			"aws-gov": cloud.CloudCredential{
+				DefaultRegion: "us-gov-west-1",
+				AuthCredentials: map[string]cloud.Credential{
+					"supersekrit": &cloud.AccessKeyCredentials{
+						Key:    "super",
+						Secret: "sekrit",
+					},
+				},
+			},
+		},
+	})
+}
+
+func (s *credentialsSuite) testParseCredentials(c *gc.C, input []byte, expect *cloud.Credentials) {
+	output, err := cloud.ParseCredentials(input)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(output, jc.DeepEquals, expect)
+}
+
+func (s *credentialsSuite) TestParseCredentialsMissingAuthType(c *gc.C) {
+	s.testParseCredentialsError(c, []byte(`
+credentials:
+  cloud-name:
+    credential-name:
+      doesnt: really-matter
+`[1:]), "credentials.cloud-name.credential-name: missing auth-type")
+}
+
+func (s *credentialsSuite) TestParseCredentialsUnknownAuthType(c *gc.C) {
+	s.testParseCredentialsError(c, []byte(`
+credentials:
+  cloud-name:
+    credential-name:
+      auth-type: woop
+`[1:]), `credentials\.cloud-name\.credential-name: woop auth-type not supported`)
+}
+
+func (s *credentialsSuite) TestParseCredentialsNonStringValue(c *gc.C) {
+	s.testParseCredentialsError(c, []byte(`
+credentials:
+  cloud-name:
+    credential-name:
+      non-string-value: 123
+`[1:]), `credentials\.cloud-name\.credential-name\.non-string-value: expected string, got int\(123\)`)
+}
+
+func (s *credentialsSuite) testParseCredentialsError(c *gc.C, input []byte, expect string) {
+	_, err := cloud.ParseCredentials(input)
+	c.Assert(err, gc.ErrorMatches, expect)
+}

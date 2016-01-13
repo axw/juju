@@ -7,9 +7,10 @@ import (
 	"strings"
 
 	"github.com/juju/errors"
-	"github.com/juju/juju/juju/osenv"
 	"github.com/juju/schema"
 	"gopkg.in/yaml.v1"
+
+	"github.com/juju/juju/juju/osenv"
 )
 
 // Credentials is a struct containing cloud credential information.

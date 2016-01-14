@@ -6,6 +6,8 @@ package cloud
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -57,8 +59,14 @@ func (c *listCredentialsCommand) SetFlags(f *gnuflag.FlagSet) {
 }
 
 func (c *listCredentialsCommand) Run(ctxt *cmd.Context) error {
-	credentials, err := jujucloud.ParseCredentials(jujucloud.JujuCredentials())
-	if err != nil {
+	var credentials *jujucloud.Credentials
+	data, err := ioutil.ReadFile(jujucloud.JujuCredentials())
+	if err == nil {
+		credentials, err = jujucloud.ParseCredentials(data)
+		if err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
 		return err
 	}
 	return c.out.Write(ctxt, credentials.Credentials)
@@ -104,23 +112,23 @@ func formatCredentialsTabular(value interface{}) ([]byte, error) {
 		for _, credentialName := range credentialNames {
 			credential := credentials.AuthCredentials[credentialName]
 			if credentialName == credentials.DefaultCredential {
-				credentialName += " *"
+				credentialName += "*"
 			}
 
-			// TODO(axw) sort these too
-			var attrs []string
-			for k, v := range credential.Attributes {
-				attrs = append(attrs, k+"="+v)
+			attrs := credential.Attributes()
+			var attrNames []string
+			for attrName := range attrs {
+				attrNames = append(attrNames, attrName)
 			}
-			sort.Strings(attrs)
-			credential.AuthType()
-		}
+			sort.Strings(attrNames)
 
-		var regions []string
-		for region, _ := range info.Regions {
-			regions = append(regions, region)
+			var kv []string
+			for _, attrName := range attrNames {
+				kv = append(kv, attrName+"="+attrs[attrName])
+			}
+
+			p(cloudName, credentialName, string(credential.AuthType()), strings.Join(kv, " "))
 		}
-		p(name, info.Type, regionText)
 	}
 	tw.Flush()
 

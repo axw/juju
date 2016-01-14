@@ -411,6 +411,11 @@ func (srv *Server) run(lis net.Listener) {
 			ctxt: httpCtxt,
 		},
 	)
+	handleAll(mux, "/credentials",
+		&credentialsHandler{
+			ctxt: httpCtxt,
+		},
+	)
 	handleAll(mux, "/", http.HandlerFunc(srv.apiHandler))
 
 	go func() {

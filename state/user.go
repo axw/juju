@@ -9,6 +9,7 @@
 package state
 
 import (
+	"crypto/rand"
 	"fmt"
 	"sort"
 	"strings"
@@ -48,12 +49,22 @@ func (st *State) AddUser(name, displayName, password, creator string) (*User, er
 		return nil, err
 	}
 	nameToLower := strings.ToLower(name)
+
+	// Generate a random, 32-byte secret key. This can be used
+	// to reset the user's password, and obtain the controller's
+	// (self-signed) CA certificate.
+	secretKey := [32]byte{}
+	if _, err := rand.Read(secretKey[:]); err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	user := &User{
 		st: st,
 		doc: userDoc{
 			DocID:        nameToLower,
 			Name:         name,
 			DisplayName:  displayName,
+			SecretKey:    string(secretKey[:]),
 			PasswordHash: utils.UserPasswordHash(password, salt),
 			PasswordSalt: salt,
 			CreatedBy:    creator,
@@ -163,6 +174,7 @@ type userDoc struct {
 	DisplayName string `bson:"displayname"`
 	// Removing users means they still exist, but are marked deactivated
 	Deactivated  bool      `bson:"deactivated"`
+	SecretKey    string    `bson:"secret-key,omitempty"`
 	PasswordHash string    `bson:"passwordhash"`
 	PasswordSalt string    `bson:"passwordsalt"`
 	CreatedBy    string    `bson:"createdby"`
@@ -287,6 +299,10 @@ func (u *User) UpdateLastLogin() (err error) {
 
 	_, err = lastLoginsW.UpsertId(lastLogin.DocID, lastLogin)
 	return errors.Trace(err)
+}
+
+func (u *User) SecretKey() string {
+	return u.doc.SecretKey
 }
 
 // SetPassword sets the password associated with the User.

@@ -59,6 +59,9 @@ type EnvironProvider interface {
 	// which are considered sensitive. All of the values of these secret
 	// attributes need to be strings.
 	SecretAttrs(cfg *config.Config) (map[string]string, error)
+
+	// CredentialSchemas returns provider-specific credential schemas.
+	CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema
 }
 
 // PrepareForBootstrapParams contains the parameters for

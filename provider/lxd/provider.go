@@ -110,3 +110,9 @@ func (environProvider) BoilerplateConfig() string {
 	// config will keep it up to date.
 	return boilerplateConfig
 }
+
+func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema {
+	return map[cloud.AuthType]cloud.CredentialSchema{
+		cloud.EmptyAuthType: cloud.CredentialSchema{},
+	}
+}

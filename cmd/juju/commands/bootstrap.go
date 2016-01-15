@@ -280,9 +280,10 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	// Get the credentials and region name. If there are no credentials,
 	// we pass "empty" credentials to the provider so that it can obtain
 	// them from environment variables, files, etc.
-	credential, regionName, err := c.getCredentials()
+	credential, regionName, err := c.getCredentials(c.Cloud, cloud)
 	if errors.IsNotFound(err) {
-		credential = jujucloud.EmptyCredentials{}
+		emptyCredential := jujucloud.EmptyCredential()
+		credential = &emptyCredential
 		regionName = c.Region
 		if regionName == "" {
 			regionName = c.Cloud
@@ -318,7 +319,7 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		Config:        cfg,
 		CloudRegion:   regionName,
 		CloudEndpoint: region.Endpoint,
-		Credentials:   credential,
+		Credentials:   *credential,
 	})
 	if err != nil {
 		return errors.Annotate(err, "preparing bootstrap environment configuration")
@@ -411,7 +412,10 @@ func (c *bootstrapCommand) getCloud() (*jujucloud.Cloud, error) {
 	return &cloud, nil
 }
 
-func (c *bootstrapCommand) getCredentials() (_ jujucloud.Credential, region string, _ error) {
+func (c *bootstrapCommand) getCredentials(
+	cloudName string,
+	cloud *jujucloud.Cloud,
+) (_ *jujucloud.Credential, region string, _ error) {
 	credentialsData, err := ioutil.ReadFile(jujucloud.JujuCredentials())
 	if os.IsNotExist(err) {
 		return nil, "", errors.NotFoundf("credentials file")
@@ -422,9 +426,9 @@ func (c *bootstrapCommand) getCredentials() (_ jujucloud.Credential, region stri
 	if err != nil {
 		return nil, "", errors.Annotate(err, "parsing credentials")
 	}
-	cloudCredentials, ok := credentials.Credentials[c.Cloud]
+	cloudCredentials, ok := credentials.Credentials[cloudName]
 	if !ok {
-		return nil, "", errors.NotFoundf("credentials for cloud %q", c.Cloud)
+		return nil, "", errors.NotFoundf("credentials for cloud %q", cloudName)
 	}
 	credentialName := c.CredentialName
 	if credentialName == "" {
@@ -433,7 +437,7 @@ func (c *bootstrapCommand) getCredentials() (_ jujucloud.Credential, region stri
 	credential, ok := cloudCredentials.AuthCredentials[credentialName]
 	if !ok {
 		return nil, "", errors.NotFoundf(
-			"%q credential for cloud %q", credentialName, c.Cloud,
+			"%q credential for cloud %q", credentialName, cloudName,
 		)
 	}
 	regionName := c.Region
@@ -441,9 +445,28 @@ func (c *bootstrapCommand) getCredentials() (_ jujucloud.Credential, region stri
 		regionName = cloudCredentials.DefaultRegion
 	}
 	if regionName == "" {
-		regionName = c.Cloud
+		// If no region is specified, attempt to bootstrap using the
+		// cloud name as the region name.
+		//
+		// TODO(axw) only do this if there is no cloud definition,
+		// e.g. for lxd.
+		regionName = cloudName
 	}
-	return credential, regionName, nil
+
+	// Validate credential by checking schemas supported by the provider.
+	provider, err := environs.Provider(cloud.Type)
+	if err != nil {
+		return nil, "", errors.Trace(err)
+	}
+	if err := jujucloud.ValidateCredential(
+		credential, provider.CredentialSchemas(),
+	); err != nil {
+		return nil, "", errors.Annotatef(
+			err, "validating %q credential for cloud %q",
+			credentialName, cloudName,
+		)
+	}
+	return &credential, regionName, nil
 }
 
 var (

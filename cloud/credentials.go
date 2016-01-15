@@ -8,9 +8,15 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/schema"
+	"gopkg.in/juju/environschema.v1"
 	"gopkg.in/yaml.v1"
 
 	"github.com/juju/juju/juju/osenv"
+)
+
+const (
+	AttrKey    = "key"
+	AttrSecret = "secret"
 )
 
 // Credentials is a struct containing cloud credential information.
@@ -32,17 +38,76 @@ type CloudCredential struct {
 }
 
 // Credential instances represent cloud credentials.
-type Credential interface {
-	// AuthType is the type of authorisation.
-	AuthType() AuthType
+type Credential struct {
+	authType   AuthType
+	attributes map[string]string
+}
 
-	// Attributes are the credential values.
-	Attributes() map[string]string
+// AuthType returns the authentication type.
+func (c Credential) AuthType() AuthType {
+	return c.authType
+}
+
+// Attributes returns the credential attributes.
+func (c Credential) Attributes() map[string]string {
+	m := make(map[string]string)
+	for k, v := range c.attributes {
+		m[k] = v
+	}
+	return m
+}
+
+type CredentialSchema struct {
+	Fields map[string]CredentialField
+}
+
+func ValidateCredential(credential Credential, schemas map[AuthType]CredentialSchema) error {
+	schema, ok := schemas[credential.authType]
+	if !ok {
+		return errors.NotSupportedf("%q auth-type", credential.authType)
+	}
+	return schema.Validate(credential.attributes)
+}
+
+func (s CredentialSchema) Validate(attrs map[string]string) error {
+	m := make(map[string]interface{})
+	for k, v := range attrs {
+		m[k] = v
+	}
+	fields := make(environschema.Fields)
+	for name, field := range s.Fields {
+		fields[name] = environschema.Attr{
+			Description: field.Description,
+			Type:        environschema.Tstring,
+			Group:       environschema.AccountGroup,
+			Immutable:   false,
+			Mandatory:   true,
+			Secret:      field.Secret,
+			EnvVar:      field.EnvVar,
+			EnvVars:     field.EnvVars,
+		}
+	}
+	schemaFields, schemaDefaults, err := fields.ValidationSchema()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	checker := schema.FieldMap(schemaFields, schemaDefaults)
+	if _, err := checker.Coerce(m, nil); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+type CredentialField struct {
+	Description string
+	Secret      bool
+	EnvVar      string
+	EnvVars     []string
 }
 
 type cloudCredentialChecker struct{}
 
-func (cloudCredentialChecker) Coerce(v interface{}, path []string) (interface{}, error) {
+func (c cloudCredentialChecker) Coerce(v interface{}, path []string) (interface{}, error) {
 	out := CloudCredential{
 		AuthCredentials: make(map[string]Credential),
 	}
@@ -77,43 +142,19 @@ func (c cloudCredentialValueChecker) Coerce(v interface{}, path []string) (inter
 		return nil, err
 	}
 	mapv := v.(map[string]interface{})
+
 	authType, _ := mapv["auth-type"].(string)
 	if authType == "" {
 		return nil, errors.Errorf("%v: missing auth-type", strings.Join(path, ""))
 	}
+
+	attrs := make(map[string]string)
 	delete(mapv, "auth-type")
-
-	var out Credential
-	// TODO(axw) the checkers should reference a map
-	// of auth-type to credential parsers/factories.
-	switch AuthType(authType) {
-	case AccessKeyAuthType:
-		// TODO(axw) Credential implementations should
-		// support Coerce, or some way of feeding into
-		// Coerce.
-		v, err := schema.StrictFieldMap(
-			schema.Fields{
-				"key":    schema.String(),
-				"secret": schema.String(),
-			},
-			schema.Defaults{},
-		).Coerce(v, path)
-		if err != nil {
-			return nil, err
-		}
-		mapv := v.(map[string]interface{})
-		key, _ := mapv["key"].(string)
-		secret, _ := mapv["secret"].(string)
-		out = &AccessKeyCredentials{Key: key, Secret: secret}
-		return out, nil
-	case EmptyAuthType:
-		return EmptyCredentials{}, nil
+	for k, v := range mapv {
+		attrs[k] = v.(string)
 	}
-	err = errors.NotSupportedf("%s auth-type", authType)
-	return nil, errors.Annotate(err, strings.Join(path, ""))
+	return Credential{AuthType(authType), attrs}, nil
 }
-
-var _ Credential = (*AccessKeyCredentials)(nil)
 
 // JujuCredentials is the location where credentials are
 // expected to be found. Requires JUJU_HOME to be set.
@@ -121,7 +162,8 @@ func JujuCredentials() string {
 	return osenv.JujuHomePath("credentials.yaml")
 }
 
-// ParseCredentials parses the given yaml bytes into Credentials.
+// ParseCredentials parses the given yaml bytes into Credentials, but does
+// not validate the credential attributes.
 func ParseCredentials(data []byte) (*Credentials, error) {
 	var credentialsYAML struct {
 		Credentials map[string]interface{} `yaml:"credentials"`
@@ -142,6 +184,9 @@ func ParseCredentials(data []byte) (*Credentials, error) {
 	}
 	return &credentials, nil
 }
+
+/*
+var _ Credential = (*AccessKeyCredentials)(nil)
 
 // AccessKeyCredentials represent key/secret credentials.
 type AccessKeyCredentials struct {
@@ -322,4 +367,9 @@ func (EmptyCredentials) AuthType() AuthType {
 
 func (EmptyCredentials) Attributes() map[string]string {
 	return map[string]string{}
+}
+*/
+
+func EmptyCredential() Credential {
+	return Credential{EmptyAuthType, nil}
 }

@@ -66,10 +66,11 @@ func (p environProvider) PrepareForBootstrap(
 	attrs := map[string]interface{}{
 		"region": args.CloudRegion,
 	}
-	switch credentials := args.Credentials.(type) {
-	case *cloud.AccessKeyCredentials:
-		attrs["access-key"] = credentials.Key
-		attrs["secret-key"] = credentials.Secret
+	switch args.Credentials.AuthType() {
+	case cloud.AccessKeyAuthType:
+		for k, v := range args.Credentials.Attributes() {
+			attrs[k] = v
+		}
 	default:
 		return nil, errors.NotSupportedf("%q auth-type", args.Credentials.AuthType())
 	}

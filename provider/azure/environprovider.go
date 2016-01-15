@@ -8,6 +8,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/provider/azure/internal/azurestorage"
@@ -67,6 +68,26 @@ func (prov *azureEnvironProvider) Open(cfg *config.Config) (environs.Environ, er
 		return nil, errors.Annotate(err, "opening environment")
 	}
 	return environ, nil
+}
+
+func (azureEnvironProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return map[cloud.AuthType]cloud.CredentialFields{
+		cloud.UserPassAuthType: {
+			configAttrAppId: {
+				Description: "Azure Active Directory application ID",
+			},
+			configAttrSubscriptionId: {
+				Description: "Azure subscription ID",
+			},
+			configAttrTenantId: {
+				Description: "Azure Active Directory tenant ID",
+			},
+			configAttrAppPassword: {
+				Description: "Azure Active Directory application password",
+				Secret:      true,
+			},
+		},
+	}
 }
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.

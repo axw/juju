@@ -542,7 +542,7 @@ func (p *environProvider) Schema() environschema.Fields {
 	return fields
 }
 
-func (p *environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema {
+func (p *environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
 	return nil
 }
 

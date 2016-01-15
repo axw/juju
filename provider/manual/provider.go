@@ -9,6 +9,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/utils"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/manual"
@@ -31,6 +32,12 @@ func ensureBootstrapUbuntuUser(ctx environs.BootstrapContext, cfg *environConfig
 	}
 	logger.Infof("initialized ubuntu user")
 	return nil
+}
+
+func (manualProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return map[cloud.AuthType]cloud.CredentialFields{
+		cloud.EmptyAuthType: {},
+	}
 }
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.

@@ -33,12 +33,6 @@ func (p environProvider) PrepareForBootstrap(
 	args environs.PrepareForBootstrapParams,
 ) (environs.Environ, error) {
 
-	switch authType := args.Credentials.AuthType(); authType {
-	case cloud.EmptyAuthType:
-	default:
-		return nil, errors.NotSupportedf("%q auth-type", authType)
-	}
-
 	cfg, err := p.PrepareForCreateEnvironment(args.Config)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -111,8 +105,8 @@ func (environProvider) BoilerplateConfig() string {
 	return boilerplateConfig
 }
 
-func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema {
-	return map[cloud.AuthType]cloud.CredentialSchema{
-		cloud.EmptyAuthType: cloud.CredentialSchema{},
+func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return map[cloud.AuthType]cloud.CredentialFields{
+		cloud.EmptyAuthType: {},
 	}
 }

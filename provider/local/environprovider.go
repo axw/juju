@@ -69,8 +69,10 @@ func (environProvider) Schema() environschema.Fields {
 	return fields
 }
 
-func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema {
-	return nil
+func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return map[cloud.AuthType]cloud.CredentialFields{
+		cloud.EmptyAuthType: {},
+	}
 }
 
 // correctLocalhostURLs exams proxy attributes and changes URL values pointing to localhost to use bridge IP.

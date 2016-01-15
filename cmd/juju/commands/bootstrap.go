@@ -304,10 +304,14 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	}
 
 	// Create an environment config from the cloud and credentials.
-	cfg, err := config.New(config.UseDefaults, map[string]interface{}{
+	configAttrs := map[string]interface{}{
 		"type": cloud.Type,
 		"name": c.ControllerName,
-	})
+	}
+	for k, v := range credential.Attributes() {
+		configAttrs[k] = v
+	}
+	cfg, err := config.New(config.UseDefaults, configAttrs)
 	if err != nil {
 		return errors.Annotate(err, "creating environment configuration")
 	}
@@ -319,7 +323,6 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		Config:        cfg,
 		CloudRegion:   regionName,
 		CloudEndpoint: region.Endpoint,
-		Credentials:   *credential,
 	})
 	if err != nil {
 		return errors.Annotate(err, "preparing bootstrap environment configuration")

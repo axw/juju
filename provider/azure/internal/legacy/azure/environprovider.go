@@ -8,6 +8,7 @@ import (
 	"github.com/juju/loggo"
 	"launchpad.net/gwacl"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 )
@@ -23,6 +24,10 @@ var _ environs.EnvironProvider = (*azureEnvironProvider)(nil)
 // EnvironProvider returns the legacy azure EnvironProvider.
 func EnvironProvider() environs.EnvironProvider {
 	return azureEnvironProvider{}
+}
+
+func (azureEnvironProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return nil
 }
 
 // Open is specified in the EnvironProvider interface.

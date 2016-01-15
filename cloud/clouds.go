@@ -30,11 +30,11 @@ const (
 	// UserPassAuthType is an authentication type using a username and password.
 	UserPassAuthType AuthType = "userpass"
 
-	// OAuthAuth1Type is an authentication type using oauth1.
-	OAuthAuth1Type AuthType = "oauth1"
+	// OAuth1AuthType is an authentication type using oauth1.
+	OAuth1AuthType AuthType = "oauth1"
 
-	// OAuthAuth2Type is an authentication type using oauth2.
-	OAuthAuth2Type AuthType = "oauth2"
+	// OAuth2AuthType is an authentication type using oauth2.
+	OAuth2AuthType AuthType = "oauth2"
 
 	// EmptyAuthType is the authentication type used when no credentials
 	// are specified, and there is no default. If the provider is able

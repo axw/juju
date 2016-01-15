@@ -61,7 +61,7 @@ type EnvironProvider interface {
 	SecretAttrs(cfg *config.Config) (map[string]string, error)
 
 	// CredentialSchemas returns provider-specific credential schemas.
-	CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema
+	CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields
 }
 
 // PrepareForBootstrapParams contains the parameters for
@@ -79,10 +79,6 @@ type PrepareForBootstrapParams struct {
 	// CloudEndpoint is the location of the API endpoint to use when
 	// communicating with the cloud.
 	CloudEndpoint string
-
-	// Credentials are the credentials to use when authenticating with
-	// the cloud.
-	Credentials cloud.Credential
 }
 
 // EnvironConfigUpgrader is an interface that an EnvironProvider may

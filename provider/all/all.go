@@ -5,11 +5,6 @@ package all
 
 // Register all the available providers.
 import (
-	_ "github.com/juju/juju/provider/ec2"
-)
-
-/*
-import (
 	_ "github.com/juju/juju/provider/azure"
 	_ "github.com/juju/juju/provider/cloudsigma"
 	_ "github.com/juju/juju/provider/ec2"
@@ -22,4 +17,3 @@ import (
 	_ "github.com/juju/juju/provider/rackspace"
 	_ "github.com/juju/juju/provider/vsphere"
 )
-*/

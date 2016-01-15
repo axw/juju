@@ -24,6 +24,7 @@ import (
 	"gopkg.in/goose.v1/nova"
 	"gopkg.in/goose.v1/swift"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/cloudconfig/providerinit"
 	"github.com/juju/juju/constraints"
@@ -253,6 +254,42 @@ func (p EnvironProvider) Open(cfg *config.Config) (environs.Environ, error) {
 	}
 	e.name = cfg.Name()
 	return e, nil
+}
+
+func (EnvironProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return map[cloud.AuthType]cloud.CredentialFields{
+		cloud.UserPassAuthType: {
+			"username": {
+				Description: "The user name to use when auth-mode is userpass.",
+				EnvVars:     identity.CredEnvUser,
+			},
+			"password": {
+				Description: "The password to use when auth-mode is userpass.",
+				EnvVars:     identity.CredEnvSecrets,
+				Secret:      true,
+			},
+			"tenant-name": {
+				Description: "The openstack tenant name.",
+				EnvVars:     identity.CredEnvTenantName,
+			},
+		},
+		cloud.AccessKeyAuthType: {
+			"access-key": {
+				Description: "The access key to use when auth-mode is keypair.",
+				EnvVars:     identity.CredEnvUser,
+				Secret:      true,
+			},
+			"secret-key": {
+				Description: "The secret key to use when auth-mode is keypair.",
+				EnvVars:     identity.CredEnvSecrets,
+				Secret:      true,
+			},
+			"tenant-name": {
+				Description: "The openstack tenant name.",
+				EnvVars:     identity.CredEnvTenantName,
+			},
+		},
+	}
 }
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.

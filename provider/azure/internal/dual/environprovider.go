@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/juju/errors"
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 )
@@ -49,6 +50,10 @@ func (p *EnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*conf
 // PrepareForBootstrap is part of the environs.EnvironProvider interface.
 func (p *EnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, args environs.PrepareForBootstrapParams) (environs.Environ, error) {
 	return p.ensureActive(args.Config).PrepareForBootstrap(ctx, args)
+}
+
+func (p *EnvironProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return p.Active().CredentialSchemas()
 }
 
 // Open is part of the environs.EnvironProvider interface.

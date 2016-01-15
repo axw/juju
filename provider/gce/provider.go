@@ -6,6 +6,7 @@ package gce
 import (
 	"github.com/juju/errors"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 )
@@ -37,6 +38,26 @@ func (p environProvider) PrepareForBootstrap(ctx environs.BootstrapContext, args
 		}
 	}
 	return env, nil
+}
+
+func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return map[cloud.AuthType]cloud.CredentialFields{
+		cloud.OAuth2AuthType: {
+			"client-id": {
+				Description: "client ID",
+			},
+			"client-email": {
+				Description: "client e-mail address",
+			},
+			"private-key": {
+				Description: "client secret",
+				Secret:      true,
+			},
+			"project-id": {
+				Description: "project ID",
+			},
+		},
+	}
 }
 
 // PrepareForCreateEnvironment is specified in the EnvironProvider interface.

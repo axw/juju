@@ -140,9 +140,9 @@ func (environProvider) Schema() environschema.Fields {
 	return fields
 }
 
-func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema {
-	return map[cloud.AuthType]cloud.CredentialSchema{
-		cloud.AccessKeyAuthType: {map[string]cloud.CredentialField{
+func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return map[cloud.AuthType]cloud.CredentialFields{
+		cloud.AccessKeyAuthType: {
 			"access-key": {
 				Description: "The EC2 access key",
 				EnvVar:      "AWS_ACCESS_KEY_ID",
@@ -152,7 +152,7 @@ func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialSc
 				EnvVar:      "AWS_SECRET_ACCESS_KEY",
 				Secret:      true,
 			},
-		}},
+		},
 	}
 }
 

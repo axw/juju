@@ -12,6 +12,7 @@ import (
 	"github.com/juju/loggo"
 	"github.com/juju/utils"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/simplestreams"
@@ -59,6 +60,20 @@ func init() {
 // function available, rand, which expands to a random hexadecimal string when invoked.
 func (environProvider) BoilerplateConfig() string {
 	return boilerplateConfig
+}
+
+func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+	return map[cloud.AuthType]cloud.CredentialFields{
+		cloud.UserPassAuthType: {
+			"username": {
+				Description: "account username",
+			},
+			"password": {
+				Description: "account password",
+				Secret:      true,
+			},
+		},
+	}
 }
 
 // Open opens the environment and returns it.

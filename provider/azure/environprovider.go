@@ -136,6 +136,7 @@ func (prov *azureEnvironProvider) PrepareForBootstrap(ctx environs.BootstrapCont
 
 	// Record the UUID that will be used for the controller environment.
 	cfg, err := cfg.Apply(map[string]interface{}{
+		configAttrLocation:                args.CloudRegion,
 		configAttrControllerResourceGroup: resourceGroupName(cfg),
 	})
 	if err != nil {

@@ -60,8 +60,24 @@ type EnvironProvider interface {
 	// attributes need to be strings.
 	SecretAttrs(cfg *config.Config) (map[string]string, error)
 
-	// CredentialSchemas returns provider-specific credential schemas.
-	CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields
+	ProviderCredentials
+}
+
+// ProviderCredentials is an interface that an EnvironProvider implements
+// in order to validate and automatically detect credentials for clouds
+// supported by the provider.
+type ProviderCredentials interface {
+	// CredentialSchemas returns credential schemas, keyed on
+	// authentication type. These may be used to validate existing
+	// credentials, or to generate new ones (e.g. to create an
+	// interactive form.)
+	CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchemas
+
+	// DetectCredentials automatically detects credentials from
+	// the environment. This may involve, for example, inspecting
+	// environment variables, or reading configuration files in
+	// well-defined locations.
+	DetectCredentials() ([]cloud.Credential, error)
 }
 
 // PrepareForBootstrapParams contains the parameters for

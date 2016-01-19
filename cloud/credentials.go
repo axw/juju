@@ -45,11 +45,19 @@ func (c Credential) AuthType() AuthType {
 
 // Attributes returns the credential attributes.
 func (c Credential) Attributes() map[string]string {
-	m := make(map[string]string)
-	for k, v := range c.attributes {
-		m[k] = v
-	}
-	return m
+	return copyStringMap(c.attributes)
+}
+
+// NewCredential returns a new, immutable, Credential with the supplied
+// auth-type and attributes.
+func NewCredential(authType AuthType, attributes map[string]string) Credential {
+	return Credential{authType, copyStringMap(attributes)}
+}
+
+// NewEmptyCredential returns a new Credential with the EmptyAuthType
+// auth-type.
+func NewEmptyCredential() Credential {
+	return Credential{EmptyAuthType, nil}
 }
 
 type CredentialFields map[string]CredentialField
@@ -178,6 +186,10 @@ func ParseCredentials(data []byte) (*Credentials, error) {
 	return &credentials, nil
 }
 
-func EmptyCredential() Credential {
-	return Credential{EmptyAuthType, nil}
+func copyStringMap(in map[string]string) map[string]string {
+	out := make(map[string]string)
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

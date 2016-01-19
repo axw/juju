@@ -45,13 +45,18 @@ import (
 var logger = loggo.GetLogger("juju.provider.openstack")
 
 type EnvironProvider struct {
+	environs.ProviderCredentials
 	Configurator      ProviderConfigurator
 	FirewallerFactory FirewallerFactory
 }
 
 var _ environs.EnvironProvider = (*EnvironProvider)(nil)
 
-var providerInstance *EnvironProvider = &EnvironProvider{&defaultConfigurator{}, &firewallerFactory{}}
+var providerInstance *EnvironProvider = &EnvironProvider{
+	OpenstackCredentials{},
+	&defaultConfigurator{},
+	&firewallerFactory{},
+}
 
 var makeServiceURL = client.AuthenticatingClient.MakeServiceURL
 
@@ -256,42 +261,6 @@ func (p EnvironProvider) Open(cfg *config.Config) (environs.Environ, error) {
 	return e, nil
 }
 
-func (EnvironProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
-	return map[cloud.AuthType]cloud.CredentialFields{
-		cloud.UserPassAuthType: {
-			"username": {
-				Description: "The user name to use when auth-mode is userpass.",
-				EnvVars:     identity.CredEnvUser,
-			},
-			"password": {
-				Description: "The password to use when auth-mode is userpass.",
-				EnvVars:     identity.CredEnvSecrets,
-				Secret:      true,
-			},
-			"tenant-name": {
-				Description: "The openstack tenant name.",
-				EnvVars:     identity.CredEnvTenantName,
-			},
-		},
-		cloud.AccessKeyAuthType: {
-			"access-key": {
-				Description: "The access key to use when auth-mode is keypair.",
-				EnvVars:     identity.CredEnvUser,
-				Secret:      true,
-			},
-			"secret-key": {
-				Description: "The secret key to use when auth-mode is keypair.",
-				EnvVars:     identity.CredEnvSecrets,
-				Secret:      true,
-			},
-			"tenant-name": {
-				Description: "The openstack tenant name.",
-				EnvVars:     identity.CredEnvTenantName,
-			},
-		},
-	}
-}
-
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.
 func (p EnvironProvider) RestrictedConfigAttributes() []string {
 	return []string{"region", "auth-url", "auth-mode"}
@@ -311,7 +280,26 @@ func (p EnvironProvider) PrepareForCreateEnvironment(cfg *config.Config) (*confi
 }
 
 func (p EnvironProvider) PrepareForBootstrap(ctx environs.BootstrapContext, args environs.PrepareForBootstrapParams) (environs.Environ, error) {
-	cfg, err := p.PrepareForCreateEnvironment(args.Config)
+	// TODO(axw) legacy auth-mode
+	var authMode string
+	switch args.AuthType {
+	case cloud.UserPassAuthType:
+		authMode = "userpass"
+	case cloud.AccessKeyAuthType:
+		authMode = "keypair"
+	default:
+		return nil, errors.NotSupportedf("auth-type %q", args.AuthType)
+	}
+	cfg, err := args.Config.Apply(map[string]interface{}{
+		"auth-mode": string(authMode),
+		"auth-url":  args.CloudEndpoint,
+		"region":    args.CloudRegion,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err = p.PrepareForCreateEnvironment(cfg)
 	if err != nil {
 		return nil, err
 	}

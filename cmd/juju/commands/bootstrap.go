@@ -262,6 +262,8 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		} else if err != nil {
 			return errors.Trace(err)
 		}
+		// TODO(axw) ask the provider to detect the cloud from the
+		// environment?
 		cloud = &jujucloud.Cloud{
 			Type: c.Cloud,
 			Regions: map[string]jujucloud.Region{
@@ -277,13 +279,23 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		return errors.Trace(err)
 	}
 
-	// Get the credentials and region name. If there are no credentials,
-	// we pass "empty" credentials to the provider so that it can obtain
-	// them from environment variables, files, etc.
+	// Get the credentials and region name.
 	credential, regionName, err := c.getCredentials(c.Cloud, cloud)
-	if errors.IsNotFound(err) {
-		emptyCredential := jujucloud.EmptyCredential()
-		credential = &emptyCredential
+	if errors.IsNotFound(err) && c.CredentialName == "" {
+		// No credential was explicitly specified, and no credential
+		// was found in credentials.yaml; have the provider detect
+		// credentials from the environment.
+		ctx.Verbosef("no credentials found, checking environment")
+		provider, err := environs.Provider(cloud.Type)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		detected, err := provider.DetectCredentials()
+		if err != nil {
+			return errors.Annotate(err, "detecting credentials")
+		}
+		ctx.Verbosef("provider detected credentials: %v", detected)
+		credential = detected
 		regionName = c.Region
 		if regionName == "" {
 			regionName = c.Cloud
@@ -321,6 +333,7 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	}
 	environ, err := environs.Prepare(envcmd.BootstrapContext(ctx), store, environs.PrepareForBootstrapParams{
 		Config:        cfg,
+		AuthType:      credential.AuthType(),
 		CloudRegion:   regionName,
 		CloudEndpoint: region.Endpoint,
 	})

@@ -11,7 +11,6 @@ import (
 	"github.com/juju/loggo"
 	"github.com/juju/utils"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 )
@@ -19,7 +18,9 @@ import (
 // Logger for the MAAS provider.
 var logger = loggo.GetLogger("juju.provider.maas")
 
-type maasEnvironProvider struct{}
+type maasEnvironProvider struct {
+	environProviderCredentials
+}
 
 var _ environs.EnvironProvider = (*maasEnvironProvider)(nil)
 
@@ -36,17 +37,6 @@ func (maasEnvironProvider) Open(cfg *config.Config) (environs.Environ, error) {
 
 var errAgentNameAlreadySet = errors.New(
 	"maas-agent-name is already set; this should not be set by hand")
-
-func (maasEnvironProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
-	return map[cloud.AuthType]cloud.CredentialFields{
-		cloud.OAuth1AuthType: {
-			"maas-oauth": {
-				Description: "OAuth/API-key credentials",
-				Secret:      true,
-			},
-		},
-	}
-}
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.
 func (p maasEnvironProvider) RestrictedConfigAttributes() []string {

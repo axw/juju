@@ -60,9 +60,9 @@ func NewEmptyCredential() Credential {
 	return Credential{EmptyAuthType, nil}
 }
 
-type CredentialFields map[string]CredentialField
+type CredentialSchema map[string]CredentialAttr
 
-func ValidateCredential(credential Credential, schemas map[AuthType]CredentialFields) error {
+func ValidateCredential(credential Credential, schemas map[AuthType]CredentialSchema) error {
 	schema, ok := schemas[credential.authType]
 	if !ok {
 		return errors.NotSupportedf("%q auth-type", credential.authType)
@@ -70,7 +70,7 @@ func ValidateCredential(credential Credential, schemas map[AuthType]CredentialFi
 	return schema.Validate(credential.attributes)
 }
 
-func (s CredentialFields) Validate(attrs map[string]string) error {
+func (s CredentialSchema) Validate(attrs map[string]string) error {
 	m := make(map[string]interface{})
 	for k, v := range attrs {
 		m[k] = v
@@ -81,11 +81,8 @@ func (s CredentialFields) Validate(attrs map[string]string) error {
 			Description: field.Description,
 			Type:        environschema.Tstring,
 			Group:       environschema.AccountGroup,
-			Immutable:   false,
 			Mandatory:   true,
-			Secret:      field.Secret,
-			EnvVar:      field.EnvVar,
-			EnvVars:     field.EnvVars,
+			Secret:      true,
 		}
 	}
 	schemaFields, schemaDefaults, err := fields.ValidationSchema()
@@ -99,11 +96,8 @@ func (s CredentialFields) Validate(attrs map[string]string) error {
 	return nil
 }
 
-type CredentialField struct {
+type CredentialAttr struct {
 	Description string
-	Secret      bool
-	EnvVar      string
-	EnvVars     []string
 }
 
 type cloudCredentialChecker struct{}

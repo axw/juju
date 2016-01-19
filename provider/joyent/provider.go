@@ -14,7 +14,6 @@ import (
 	"github.com/juju/loggo"
 	"github.com/juju/utils"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/simplestreams"
@@ -22,7 +21,9 @@ import (
 
 var logger = loggo.GetLogger("juju.provider.joyent")
 
-type joyentProvider struct{}
+type joyentProvider struct {
+	environProviderCredentials
+}
 
 var providerInstance = joyentProvider{}
 var _ environs.EnvironProvider = providerInstance
@@ -34,39 +35,6 @@ var errNotImplemented = errors.New("not implemented in Joyent provider")
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.
 func (joyentProvider) RestrictedConfigAttributes() []string {
 	return nil
-}
-
-func (joyentProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
-	return map[cloud.AuthType]cloud.CredentialFields{
-		// TODO(axw) need to set private-key from private-key-file if set.
-		// TODO(axw) we need a more appropriate name for this authentication
-		//           type. ssh?
-		cloud.UserPassAuthType: {
-			sdcUser: {
-				Description: "SmartDataCenter user ID",
-				EnvVar:      SdcAccount,
-			},
-			sdcKeyId: {
-				Description: "SmartDataCenter key ID",
-				EnvVar:      SdcKeyId,
-			},
-			mantaUser: {
-				Description: "Manta user ID",
-				EnvVar:      MantaUser,
-			},
-			mantaKeyId: {
-				Description: "Manta key ID",
-				EnvVar:      MantaKeyId,
-			},
-			privateKey: {
-				Description: "Private key used to sign requests",
-				Secret:      true,
-			},
-			algorithm: {
-				Description: "Algorithm used to generate the private key",
-			},
-		},
-	}
 }
 
 // PrepareForCreateEnvironment is specified in the EnvironProvider interface.

@@ -71,13 +71,16 @@ type ProviderCredentials interface {
 	// authentication type. These may be used to validate existing
 	// credentials, or to generate new ones (e.g. to create an
 	// interactive form.)
-	CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchemas
+	CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema
 
 	// DetectCredentials automatically detects credentials from
 	// the environment. This may involve, for example, inspecting
 	// environment variables, or reading configuration files in
 	// well-defined locations.
-	DetectCredentials() ([]cloud.Credential, error)
+	//
+	// If the no credentials can be detected, DetectCredentials
+	// must return an error satisfying errors.IsNotFound.
+	DetectCredentials() (*cloud.Credential, error)
 }
 
 // PrepareForBootstrapParams contains the parameters for
@@ -86,6 +89,10 @@ type PrepareForBootstrapParams struct {
 	// Config is the base configuration for the provider. This should
 	// be updated with the region, endpoint and credentials.
 	Config *config.Config
+
+	// AuthType is the auth-type of the credentials selected for
+	// bootstrapping.
+	AuthType cloud.AuthType
 
 	// CloudRegion is the name of the region of the cloud to create
 	// the Juju controller in. This will be empty for clouds without

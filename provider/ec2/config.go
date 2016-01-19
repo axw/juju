@@ -10,7 +10,6 @@ import (
 	"gopkg.in/amz.v3/aws"
 	"gopkg.in/juju/environschema.v1"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs/config"
 )
 
@@ -138,22 +137,6 @@ func (environProvider) Schema() environschema.Fields {
 		panic(err)
 	}
 	return fields
-}
-
-func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
-	return map[cloud.AuthType]cloud.CredentialFields{
-		cloud.AccessKeyAuthType: {
-			"access-key": {
-				Description: "The EC2 access key",
-				EnvVar:      "AWS_ACCESS_KEY_ID",
-			},
-			"secret-key": {
-				Description: "The EC2 secret key",
-				EnvVar:      "AWS_SECRET_ACCESS_KEY",
-				Secret:      true,
-			},
-		},
-	}
 }
 
 func validateConfig(cfg, old *config.Config) (*environConfig, error) {

@@ -9,12 +9,13 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 )
 
-type environProvider struct{}
+type environProvider struct {
+	environProviderCredentials
+}
 
 var providerInstance = environProvider{}
 var _ environs.EnvironProvider = providerInstance
@@ -25,20 +26,6 @@ var logger = loggo.GetLogger("juju.provider.vmware")
 func (environProvider) Open(cfg *config.Config) (environs.Environ, error) {
 	env, err := newEnviron(cfg)
 	return env, errors.Trace(err)
-}
-
-func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
-	return map[cloud.AuthType]cloud.CredentialFields{
-		cloud.UserPassAuthType: {
-			"user": {
-				Description: "The username to authenticate with.",
-			},
-			"password": {
-				Description: "The password to authenticate with.",
-				Secret:      true,
-			},
-		},
-	}
 }
 
 // PrepareForBootstrap implements environs.EnvironProvider.

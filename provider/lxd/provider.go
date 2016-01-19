@@ -8,12 +8,13 @@ package lxd
 import (
 	"github.com/juju/errors"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 )
 
-type environProvider struct{}
+type environProvider struct {
+	environProviderCredentials
+}
 
 var providerInstance environProvider
 
@@ -103,10 +104,4 @@ func (environProvider) BoilerplateConfig() string {
 	// boilerplateConfig is kept in config.go, in the hope that people editing
 	// config will keep it up to date.
 	return boilerplateConfig
-}
-
-func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
-	return map[cloud.AuthType]cloud.CredentialFields{
-		cloud.EmptyAuthType: {},
-	}
 }

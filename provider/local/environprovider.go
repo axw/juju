@@ -20,7 +20,6 @@ import (
 	"github.com/juju/utils/proxy"
 	"gopkg.in/juju/environschema.v1"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/instance"
@@ -33,7 +32,9 @@ var logger = loggo.GetLogger("juju.provider.local")
 
 var _ environs.EnvironProvider = (*environProvider)(nil)
 
-type environProvider struct{}
+type environProvider struct {
+	environProviderCredentials
+}
 
 var providerInstance = &environProvider{}
 
@@ -67,12 +68,6 @@ func (environProvider) Schema() environschema.Fields {
 		panic(err)
 	}
 	return fields
-}
-
-func (environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
-	return map[cloud.AuthType]cloud.CredentialFields{
-		cloud.EmptyAuthType: {},
-	}
 }
 
 // correctLocalhostURLs exams proxy attributes and changes URL values pointing to localhost to use bridge IP.

@@ -8,7 +8,6 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/provider/azure/internal/azurestorage"
@@ -49,6 +48,8 @@ func (cfg ProviderConfig) Validate() error {
 }
 
 type azureEnvironProvider struct {
+	environProviderCredentials
+
 	config ProviderConfig
 }
 
@@ -57,7 +58,7 @@ func NewEnvironProvider(config ProviderConfig) (*azureEnvironProvider, error) {
 	if err := config.Validate(); err != nil {
 		return nil, errors.Annotate(err, "validating environ provider configuration")
 	}
-	return &azureEnvironProvider{config}, nil
+	return &azureEnvironProvider{config: config}, nil
 }
 
 // Open is specified in the EnvironProvider interface.
@@ -68,26 +69,6 @@ func (prov *azureEnvironProvider) Open(cfg *config.Config) (environs.Environ, er
 		return nil, errors.Annotate(err, "opening environment")
 	}
 	return environ, nil
-}
-
-func (azureEnvironProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
-	return map[cloud.AuthType]cloud.CredentialFields{
-		cloud.UserPassAuthType: {
-			configAttrAppId: {
-				Description: "Azure Active Directory application ID",
-			},
-			configAttrSubscriptionId: {
-				Description: "Azure subscription ID",
-			},
-			configAttrTenantId: {
-				Description: "Azure Active Directory tenant ID",
-			},
-			configAttrAppPassword: {
-				Description: "Azure Active Directory application password",
-				Secret:      true,
-			},
-		},
-	}
 }
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.

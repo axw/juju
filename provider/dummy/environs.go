@@ -542,8 +542,12 @@ func (p *environProvider) Schema() environschema.Fields {
 	return fields
 }
 
-func (p *environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialFields {
+func (p *environProvider) CredentialSchemas() map[cloud.AuthType]cloud.CredentialSchema {
 	return nil
+}
+
+func (*environProvider) DetectCredentials() (*cloud.Credential, error) {
+	return nil, errors.NotFoundf("credentials")
 }
 
 func (p *environProvider) Validate(cfg, old *config.Config) (valid *config.Config, err error) {

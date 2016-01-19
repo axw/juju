@@ -97,7 +97,14 @@ func (s CredentialSchema) Validate(attrs map[string]string) error {
 }
 
 type CredentialAttr struct {
+	// Description is a human-readable description of the credential
+	// attribute.
 	Description string
+
+	// Secret controls whether or not the attribute value will be obscured
+	// when being entered interactively. Regardless of this, all credential
+	// attributes are provided only to the Juju controllers.
+	Secret bool
 }
 
 type cloudCredentialChecker struct{}

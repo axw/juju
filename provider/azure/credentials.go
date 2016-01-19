@@ -24,6 +24,7 @@ func (environProviderCredentials) CredentialSchemas() map[cloud.AuthType]cloud.C
 			},
 			configAttrAppPassword: {
 				Description: "Azure Active Directory application password",
+				Secret:      true,
 			},
 		},
 	}

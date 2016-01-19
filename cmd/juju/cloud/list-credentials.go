@@ -127,7 +127,14 @@ func formatCredentialsTabular(value interface{}) ([]byte, error) {
 				kv = append(kv, attrName+"="+attrs[attrName])
 			}
 
-			p(cloudName, credentialName, string(credential.AuthType()), strings.Join(kv, " "))
+			var kv0 string
+			if len(kv) > 0 {
+				kv0 = kv[0]
+			}
+			p(cloudName, credentialName, string(credential.AuthType()), kv0)
+			for _, kv := range kv[1:] {
+				p("", "", "", kv)
+			}
 		}
 	}
 	tw.Flush()

@@ -9,7 +9,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/schema"
 	"gopkg.in/juju/environschema.v1"
-	"gopkg.in/yaml.v1"
+	"gopkg.in/yaml.v2"
 
 	"github.com/juju/juju/juju/osenv"
 )
@@ -48,6 +48,14 @@ func (c Credential) Attributes() map[string]string {
 	return copyStringMap(c.attributes)
 }
 
+// MarshalYAML implements the yaml.Marshaler interface.
+func (c Credential) MarshalYAML() (interface{}, error) {
+	return struct {
+		AuthType   AuthType          `yaml:"auth-type"`
+		Attributes map[string]string `yaml:",omitempty,inline"`
+	}{c.authType, c.attributes}, nil
+}
+
 // NewCredential returns a new, immutable, Credential with the supplied
 // auth-type and attributes.
 func NewCredential(authType AuthType, attributes map[string]string) Credential {
@@ -60,8 +68,13 @@ func NewEmptyCredential() Credential {
 	return Credential{EmptyAuthType, nil}
 }
 
+// CredentialSchema describes the schema of a credential. Credential schemas
+// are specific to cloud providers.
 type CredentialSchema map[string]CredentialAttr
 
+// ValidateCredential validates a credential against the provided credential
+// schemas. If there is no schema with the matching auth-type, and error
+// satisfying errors.IsNotSupported will be returned.
 func ValidateCredential(credential Credential, schemas map[AuthType]CredentialSchema) error {
 	schema, ok := schemas[credential.authType]
 	if !ok {
@@ -70,6 +83,8 @@ func ValidateCredential(credential Credential, schemas map[AuthType]CredentialSc
 	return schema.Validate(credential.attributes)
 }
 
+// Validate validates the given credential attributes against the credential
+// schema.
 func (s CredentialSchema) Validate(attrs map[string]string) error {
 	m := make(map[string]interface{})
 	for k, v := range attrs {
@@ -96,6 +111,7 @@ func (s CredentialSchema) Validate(attrs map[string]string) error {
 	return nil
 }
 
+// CredentialAttr describes the properties of a credential attribute.
 type CredentialAttr struct {
 	// Description is a human-readable description of the credential
 	// attribute.

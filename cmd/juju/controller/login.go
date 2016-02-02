@@ -6,6 +6,7 @@ package controller
 import (
 	"os"
 	"path"
+	"strings"
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
@@ -41,7 +42,9 @@ type loginCommand struct {
 	// allow the use to specify the user and server address.
 	// user      string
 	// address   string
-	Server       cmd.FileVar
+	//Server       cmd.FileVar
+	User         string
+	Host         string
 	Name         string
 	KeepPassword bool
 }
@@ -92,8 +95,8 @@ func (c *loginCommand) Info() *cmd.Info {
 
 // SetFlags implements Command.SetFlags.
 func (c *loginCommand) SetFlags(f *gnuflag.FlagSet) {
-	f.Var(&c.Server, "server", "path to yaml-formatted server file")
-	f.BoolVar(&c.KeepPassword, "keep-password", false, "do not generate a new random password")
+	//f.Var(&c.Server, "server", "path to yaml-formatted server file")
+	//f.BoolVar(&c.KeepPassword, "keep-password", false, "do not generate a new random password")
 }
 
 // SetFlags implements Command.Init.
@@ -101,12 +104,19 @@ func (c *loginCommand) Init(args []string) error {
 	if c.GetUserManager == nil {
 		c.GetUserManager = getUserManager
 	}
-	if len(args) == 0 {
-		return errors.New("no name specified")
+	if len(args) < 2 {
+		return errors.New("user@host and controller name must be specified")
 	}
-
-	c.Name, args = args[0], args[1:]
-	return cmd.CheckEmpty(args)
+	c.Host, c.Name, args = args[0], args[1], args[2:]
+	if err := cmd.CheckEmpty(args); err != nil {
+		return err
+	}
+	if i := strings.IndexRune(c.Host, '@'); i > 0 {
+		c.User, c.Host = c.Host[:i], c.Host[i+1:]
+	} else {
+		return errors.Errorf("expected user@host")
+	}
+	return nil
 }
 
 // cookieFile returns the path to the cookie used to store authorization
@@ -168,12 +178,6 @@ func (c *loginCommand) Run(ctx *cmd.Context) error {
 
 	if serverDetails.Password == "" || serverDetails.Username == "" {
 		info.UseMacaroons = true
-	}
-	if c == nil {
-		panic("nil c")
-	}
-	if c.loginAPIOpen == nil {
-		panic("no loginAPIOpen")
 	}
 	apiState, err := c.loginAPIOpen(&info, api.DefaultDialOpts())
 	if err != nil {

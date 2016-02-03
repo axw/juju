@@ -10,27 +10,27 @@ type SecretKeyLoginRequest struct {
 
 	// Nonce is the nonce used by the client to encrypt
 	// and authenticate PayloadCiphertext.
-	Nonce string `json:"nonce"`
+	Nonce []byte `json:"nonce"`
 
 	// PayloadCiphertext is the encrypted and authenticated payload,
 	// which is a JSON-encoded SecretKeyLoginRequestPayload.
-	PayloadCiphertext string `json:"ciphertext"`
+	PayloadCiphertext []byte `json:"ciphertext"`
 }
 
 type SecretKeyLoginResponse struct {
 	// Nonce is the nonce used by the server to encrypt and
 	// authenticate PayloadCiphertext.
-	Nonce string `json:"nonce"`
+	Nonce []byte `json:"nonce"`
 
 	// PayloadCiphertext is the encrypted and authenticated payload,
 	// which is a JSON-encoded SecretKeyLoginResponsePayload.
-	PayloadCiphertext string `json:"ciphertext"`
+	PayloadCiphertext []byte `json:"ciphertext"`
 }
 
 // SecretKeyLoginRequestPayload contains the secret key, which the
 // requester must provide in order to prove its identity.
 type SecretKeyLoginRequestPayload struct {
-	SecretKey string `json:"secret-key"`
+	SecretKey []byte `json:"secret-key"`
 }
 
 // SecretKeyLoginResponsePayload is JSON-encoded and then encrypted

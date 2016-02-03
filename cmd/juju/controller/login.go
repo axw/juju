@@ -4,23 +4,27 @@
 package controller
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"strings"
+
+	"golang.org/x/crypto/nacl/secretbox"
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
 	"github.com/juju/names"
 	"github.com/juju/utils"
-	goyaml "gopkg.in/yaml.v2"
 	"launchpad.net/gnuflag"
 
 	"github.com/juju/juju/api"
-	"github.com/juju/juju/api/usermanager"
+	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/cmd/envcmd"
-	"github.com/juju/juju/environs/configstore"
-	"github.com/juju/juju/juju"
-	"github.com/juju/juju/network"
 )
 
 // NewLoginCommand returns a command to allow the user to login to a controller.
@@ -28,16 +32,11 @@ func NewLoginCommand() cmd.Command {
 	return envcmd.WrapBase(&loginCommand{})
 }
 
-// GetUserManagerFunc defines a function that takes an api connection
-// and returns the (locally defined) UserManager interface.
-type GetUserManagerFunc func(conn api.Connection) (UserManager, error)
-
 // loginCommand logs in to a Juju controller and caches the connection
 // information.
 type loginCommand struct {
 	envcmd.JujuCommandBase
-	loginAPIOpen   api.OpenFunc
-	GetUserManager GetUserManagerFunc
+	loginAPIOpen api.OpenFunc
 	// TODO (thumper): when we support local cert definitions
 	// allow the use to specify the user and server address.
 	// user      string
@@ -45,8 +44,8 @@ type loginCommand struct {
 	//Server       cmd.FileVar
 	User         string
 	Host         string
-	Name         string
 	KeepPassword bool
+	Key          []byte
 }
 
 var loginDoc = `
@@ -101,13 +100,11 @@ func (c *loginCommand) SetFlags(f *gnuflag.FlagSet) {
 
 // SetFlags implements Command.Init.
 func (c *loginCommand) Init(args []string) error {
-	if c.GetUserManager == nil {
-		c.GetUserManager = getUserManager
-	}
 	if len(args) < 2 {
 		return errors.New("user@host and controller name must be specified")
 	}
-	c.Host, c.Name, args = args[0], args[1], args[2:]
+	var keyBase64 string
+	c.Host, keyBase64, args = args[0], args[1], args[2:]
 	if err := cmd.CheckEmpty(args); err != nil {
 		return err
 	}
@@ -116,6 +113,11 @@ func (c *loginCommand) Init(args []string) error {
 	} else {
 		return errors.Errorf("expected user@host")
 	}
+	key, err := base64.StdEncoding.DecodeString(keyBase64)
+	if err != nil {
+		return errors.Annotate(err, "decoding key")
+	}
+	c.Key = key
 	return nil
 }
 
@@ -129,6 +131,90 @@ func cookieFile() string {
 	return path.Join(utils.Home(), ".go-cookies")
 }
 
+func (c *loginCommand) Run(ctx *cmd.Context) error {
+	// Generate a random nonce for encrypting the request.
+	var nonce [24]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return errors.Trace(err)
+	}
+
+	var key [32]byte
+	if len(c.Key) != len(key) {
+		return errors.NotValidf("secret key")
+	}
+	copy(key[:], c.Key)
+
+	payloadBytes, err := json.Marshal(params.SecretKeyLoginRequestPayload{
+		SecretKey: c.Key,
+	})
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	req := params.SecretKeyLoginRequest{
+		Nonce:             nonce[:],
+		User:              names.NewUserTag(c.User).String(),
+		PayloadCiphertext: secretbox.Seal(nil, payloadBytes, &nonce, &key),
+	}
+	resp, err := c.secretKeyLogin(req)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if len(resp.Nonce) != len(nonce) {
+		return errors.NotValidf("response nonce")
+	}
+	copy(nonce[:], resp.Nonce)
+	payloadBytes, ok := secretbox.Open(nil, resp.PayloadCiphertext, &nonce, &key)
+	if !ok {
+		return errors.NotValidf("response payload")
+	}
+	var responsePayload params.SecretKeyLoginResponsePayload
+	if err := json.Unmarshal(payloadBytes, &responsePayload); err != nil {
+		return errors.Annotate(err, "unmarshalling response payload")
+	}
+	fmt.Fprintf(ctx.Stdout, "%q\n", responsePayload)
+
+	return nil
+}
+
+func (c *loginCommand) secretKeyLogin(request params.SecretKeyLoginRequest) (*params.SecretKeyLoginResponse, error) {
+	buf, err := json.Marshal(&request)
+	if err != nil {
+		return nil, errors.Annotate(err, "marshalling request")
+	}
+	r := bytes.NewReader(buf)
+
+	// TODO(axw) port needs to be specified by user.
+	urlString := fmt.Sprintf("https://%s:%d/credentials", c.Host, 17070)
+	httpReq, err := http.NewRequest("POST", urlString, r)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpClient := utils.GetNonValidatingHTTPClient()
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		var resp params.ErrorResult
+		if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+			return nil, errors.Trace(err)
+		}
+		return nil, resp.Error
+	}
+
+	var resp params.SecretKeyLoginResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return nil, errors.Trace(err)
+	}
+	return &resp, nil
+}
+
+/*
 // Run implements Command.Run
 func (c *loginCommand) Run(ctx *cmd.Context) error {
 	if c.loginAPIOpen == nil {
@@ -285,3 +371,4 @@ type UserManager interface {
 func getUserManager(conn api.Connection) (UserManager, error) {
 	return usermanager.NewClient(conn), nil
 }
+*/

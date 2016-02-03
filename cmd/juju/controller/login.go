@@ -145,16 +145,12 @@ func (c *loginCommand) Run(ctx *cmd.Context) error {
 	}
 	copy(key[:], c.Key)
 
-	payloadBytes, err := json.Marshal(params.SecretKeyLoginRequestPayload{
-		SecretKey: c.Key,
-	})
-	if err != nil {
-		return errors.Trace(err)
-	}
+	userTag := names.NewUserTag(c.User).String()
+	payloadBytes := append([]byte(userTag), nonce[:]...)
 
 	req := params.SecretKeyLoginRequest{
 		Nonce:             nonce[:],
-		User:              names.NewUserTag(c.User).String(),
+		User:              userTag,
 		PayloadCiphertext: secretbox.Seal(nil, payloadBytes, &nonce, &key),
 	}
 	resp, err := c.secretKeyLogin(req)
@@ -175,6 +171,7 @@ func (c *loginCommand) Run(ctx *cmd.Context) error {
 		return errors.Annotate(err, "unmarshalling response payload")
 	}
 	fmt.Fprintf(ctx.Stdout, "%q\n", responsePayload)
+	// TODO(axw) register controller
 
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -24,7 +25,11 @@ import (
 
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/apiserver/params"
+	"github.com/juju/juju/cmd/envcmd"
 	"github.com/juju/juju/cmd/modelcmd"
+	"github.com/juju/juju/environs/configstore"
+	"github.com/juju/juju/juju"
+	"github.com/juju/juju/network"
 )
 
 // NewLoginCommand returns a command to allow the user to login to a controller.
@@ -43,10 +48,11 @@ type loginCommand struct {
 	// user      string
 	// address   string
 	//Server       cmd.FileVar
-	User         string
-	Host         string
-	KeepPassword bool
-	Key          []byte
+	ControllerName string
+	User           string
+	Host           string
+	KeepPassword   bool
+	Key            []byte
 }
 
 var loginDoc = `
@@ -95,12 +101,18 @@ func (c *loginCommand) Info() *cmd.Info {
 
 // SetFlags implements Command.SetFlags.
 func (c *loginCommand) SetFlags(f *gnuflag.FlagSet) {
+	f.StringVar(&c.ControllerName, "name", "", "name to give to the controller")
+	f.StringVar(&c.ControllerName, "n", "", "")
 	//f.Var(&c.Server, "server", "path to yaml-formatted server file")
 	//f.BoolVar(&c.KeepPassword, "keep-password", false, "do not generate a new random password")
 }
 
 // SetFlags implements Command.Init.
 func (c *loginCommand) Init(args []string) error {
+	if c.ControllerName == "" {
+		// TODO(axw) prompt user for controller name if not specified.
+		return errors.New("specify controller name with --name")
+	}
 	if len(args) < 2 {
 		return errors.New("user@host and controller name must be specified")
 	}
@@ -170,10 +182,10 @@ func (c *loginCommand) Run(ctx *cmd.Context) error {
 	if err := json.Unmarshal(payloadBytes, &responsePayload); err != nil {
 		return errors.Annotate(err, "unmarshalling response payload")
 	}
-	fmt.Fprintf(ctx.Stdout, "%q\n", responsePayload)
-	// TODO(axw) register controller
-
-	return nil
+	if err := c.passwordLogin(responsePayload.CACert, responsePayload.Password); err != nil {
+		return errors.Trace(err)
+	}
+	return errors.Trace(envcmd.SetCurrentController(ctx, c.ControllerName))
 }
 
 func (c *loginCommand) secretKeyLogin(request params.SecretKeyLoginRequest) (*params.SecretKeyLoginResponse, error) {
@@ -210,6 +222,29 @@ func (c *loginCommand) secretKeyLogin(request params.SecretKeyLoginRequest) (*pa
 		return nil, errors.Trace(err)
 	}
 	return &resp, nil
+}
+
+func (c *loginCommand) passwordLogin(caCert, password string) error {
+	info := api.Info{
+		Addrs:    []string{net.JoinHostPort(c.Host, "17070")},
+		CACert:   caCert,
+		Tag:      names.NewUserTag(c.User),
+		Password: password,
+	}
+	loginAPIOpen := c.loginAPIOpen
+	if loginAPIOpen == nil {
+		loginAPIOpen = c.JujuCommandBase.APIOpen
+	}
+	apiState, err := loginAPIOpen(&info, api.DefaultDialOpts())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer apiState.Close()
+
+	if _, err := c.cacheConnectionInfo(caCert, password, apiState); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 /*
@@ -290,13 +325,14 @@ func (c *loginCommand) Run(ctx *cmd.Context) error {
 
 	return errors.Trace(modelcmd.SetCurrentController(ctx, c.Name))
 }
+*/
 
-func (c *loginCommand) cacheConnectionInfo(serverDetails modelcmd.ServerFile, apiState api.Connection) (configstore.EnvironInfo, error) {
+func (c *loginCommand) cacheConnectionInfo(caCert, password string, apiState api.Connection) (configstore.EnvironInfo, error) {
 	store, err := configstore.Default()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	controllerInfo := store.CreateInfo(c.Name)
+	controllerInfo := store.CreateInfo(c.ControllerName)
 
 	controllerTag, err := apiState.ControllerTag()
 	if err != nil {
@@ -319,14 +355,14 @@ func (c *loginCommand) cacheConnectionInfo(serverDetails modelcmd.ServerFile, ap
 
 	controllerInfo.SetAPICredentials(
 		configstore.APICredentials{
-			User:     serverDetails.Username,
-			Password: serverDetails.Password,
+			User:     c.User,
+			Password: password,
 		})
 
 	controllerInfo.SetAPIEndpoint(configstore.APIEndpoint{
 		Addresses:  addrs,
 		Hostnames:  hosts,
-		CACert:     serverDetails.CACert,
+		CACert:     caCert,
 		ServerUUID: controllerTag.Id(),
 	})
 
@@ -336,6 +372,7 @@ func (c *loginCommand) cacheConnectionInfo(serverDetails modelcmd.ServerFile, ap
 	return controllerInfo, nil
 }
 
+/*
 func (c *loginCommand) updatePassword(ctx *cmd.Context, conn api.Connection, userTag names.UserTag, controllerInfo configstore.EnvironInfo) error {
 	password, err := utils.RandomPassword()
 	if err != nil {

@@ -87,7 +87,10 @@ func (api *UserManagerAPI) AddUser(args params.AddUsers) (params.AddUserResults,
 			err = errors.Annotate(err, "failed to create user")
 			result.Results[i].Error = common.ServerError(err)
 		} else {
-			result.Results[i].Tag = user.Tag().String()
+			result.Results[i] = params.AddUserResult{
+				Tag:       user.Tag().String(),
+				SecretKey: []byte(user.SecretKey()),
+			}
 		}
 	}
 	return result, nil
@@ -214,11 +217,14 @@ func (api *UserManagerAPI) setPassword(loggedInUser names.UserTag, arg params.En
 		return errors.Trace(common.ErrPerm)
 	}
 	if arg.Password == "" {
-		return errors.New("can not use an empty password")
+		return errors.New("cannot use an empty password")
 	}
-	err = user.SetPassword(arg.Password)
-	if err != nil {
+	if err := user.SetPassword(arg.Password); err != nil {
 		return errors.Annotate(err, "failed to set password")
+	}
+	// TODO(axw) find a more appropriate place for this.
+	if err := user.ClearSecretKey(); err != nil {
+		return errors.Annotate(err, "failed to clear secret key")
 	}
 	return nil
 }

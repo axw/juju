@@ -265,3 +265,9 @@ func (s *UserSuite) TestAllUsers(c *gc.C) {
 	c.Check(users[5].Name(), gc.Equals, "fred")
 	c.Check(users[6].Name(), gc.Equals, "test-admin")
 }
+
+func (s *UserSuite) TestAddUserSecretKey(c *gc.C) {
+	u, err := s.State.AddUser("bob", "ser", "", "admin")
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(u.SecretKey(), gc.Equals, "")
+}

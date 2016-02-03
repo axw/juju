@@ -10,7 +10,6 @@ package state
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/names"
+	jujutxn "github.com/juju/txn"
 	"github.com/juju/utils"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -41,45 +41,52 @@ func (st *State) checkUserExists(name string) (bool, error) {
 }
 
 // AddUser adds a user to the database.
+//
+// Iff the password is "", then a secret key will be generated. This is used
+// to perform mutual authentication of the user and controller, to complete
+// the user/controller registration.
 func (st *State) AddUser(name, displayName, password, creator string) (*User, error) {
 	if !names.IsValidUserName(name) {
 		return nil, errors.Errorf("invalid user name %q", name)
 	}
-	salt, err := utils.RandomSalt()
-	if err != nil {
-		return nil, err
-	}
 	nameToLower := strings.ToLower(name)
-
-	// Generate a random, 32-byte secret key. This can be used
-	// to reset the user's password, and obtain the controller's
-	// (self-signed) CA certificate.
-	secretKey := [32]byte{}
-	if _, err := rand.Read(secretKey[:]); err != nil {
-		return nil, errors.Trace(err)
-	}
-	logger.Debugf("secret key for %q: %q", name, base64.StdEncoding.EncodeToString(secretKey[:]))
 
 	user := &User{
 		st: st,
 		doc: userDoc{
-			DocID:        nameToLower,
-			Name:         name,
-			DisplayName:  displayName,
-			SecretKey:    string(secretKey[:]),
-			PasswordHash: utils.UserPasswordHash(password, salt),
-			PasswordSalt: salt,
-			CreatedBy:    creator,
-			DateCreated:  nowToTheSecond(),
+			DocID:       nameToLower,
+			Name:        name,
+			DisplayName: displayName,
+			CreatedBy:   creator,
+			DateCreated: nowToTheSecond(),
 		},
 	}
+
+	if password == "" {
+		// Generate a random, 32-byte secret key. This can be used
+		// to reset the user's password, and obtain the controller's
+		// (self-signed) CA certificate.
+		var secretKey [32]byte
+		if _, err := rand.Read(secretKey[:]); err != nil {
+			return nil, errors.Trace(err)
+		}
+		user.doc.SecretKey = string(secretKey[:])
+	} else {
+		salt, err := utils.RandomSalt()
+		if err != nil {
+			return nil, err
+		}
+		user.doc.PasswordHash = utils.UserPasswordHash(password, salt)
+		user.doc.PasswordSalt = salt
+	}
+
 	ops := []txn.Op{{
 		C:      usersC,
 		Id:     nameToLower,
 		Assert: txn.DocMissing,
 		Insert: &user.doc,
 	}}
-	err = st.runTransaction(ops)
+	err := st.runTransaction(ops)
 	if err == txn.ErrAborted {
 		err = errors.AlreadyExistsf("user")
 	}
@@ -176,7 +183,7 @@ type userDoc struct {
 	DisplayName string `bson:"displayname"`
 	// Removing users means they still exist, but are marked deactivated
 	Deactivated  bool      `bson:"deactivated"`
-	SecretKey    string    `bson:"secret-key,omitempty"`
+	SecretKey    string    `bson:"secretkey,omitempty"`
 	PasswordHash string    `bson:"passwordhash"`
 	PasswordSalt string    `bson:"passwordsalt"`
 	CreatedBy    string    `bson:"createdby"`
@@ -303,8 +310,35 @@ func (u *User) UpdateLastLogin() (err error) {
 	return errors.Trace(err)
 }
 
+// SecretKey returns the user's secret key, if any.
+// TODO(axw) store and return []byte
 func (u *User) SecretKey() string {
 	return u.doc.SecretKey
+}
+
+// ClearSecretKey clears the user's secret key, if it has one.
+func (u *User) ClearSecretKey() error {
+	buildTxn := func(attempt int) ([]txn.Op, error) {
+		if u.doc.SecretKey == "" {
+			return nil, jujutxn.ErrNoOperations
+		}
+		if attempt > 0 {
+			if err := u.Refresh(); err != nil {
+				return nil, err
+			}
+		}
+		return []txn.Op{{
+			C:      usersC,
+			Id:     u.Name(),
+			Assert: bson.D{{"secretkey", bson.D{{"$exists", true}}}},
+			Update: bson.D{{"$unset", bson.D{{"secretkey", ""}}}},
+		}}, nil
+	}
+	if err := u.st.run(buildTxn); err != nil {
+		return errors.Annotatef(err, "cannot clear secret key of user %q", u.Name())
+	}
+	u.doc.SecretKey = ""
+	return nil
 }
 
 // SetPassword sets the password associated with the User.

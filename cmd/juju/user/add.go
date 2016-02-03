@@ -4,6 +4,7 @@
 package user
 
 import (
+	"encoding/base64"
 	"fmt"
 
 	"github.com/juju/cmd"
@@ -35,7 +36,7 @@ See Also:
 
 // AddUserAPI defines the usermanager API methods that the add command uses.
 type AddUserAPI interface {
-	AddUser(username, displayName, password string) (names.UserTag, error)
+	AddUser(username, displayName, password string) (names.UserTag, []byte, error)
 	Close() error
 }
 
@@ -94,13 +95,8 @@ func (c *addCommand) Run(ctx *cmd.Context) error {
 		defer c.api.Close()
 	}
 
-	password, err := utils.RandomPassword()
+	_, secretKey, err := c.api.AddUser(c.User, c.DisplayName, "")
 	if err != nil {
-		return errors.Annotate(err, "failed to generate random password")
-	}
-	randomPasswordNotify(password)
-
-	if _, err := c.api.AddUser(c.User, c.DisplayName, password); err != nil {
 		return block.ProcessBlockedError(err, block.BlockChange)
 	}
 
@@ -109,7 +105,27 @@ func (c *addCommand) Run(ctx *cmd.Context) error {
 		displayName = fmt.Sprintf("%s (%s)", c.DisplayName, c.User)
 	}
 
-	ctx.Infof("user %q added", displayName)
+	// Generate the base64-encoded string for the user to pass to
+	// "juju register".
+	//info, err := c.ConnectionInfo()
+	//if err != nil {
+	//	return errors.Trace(err)
+	//}
+	//registrationData, err := json.Marshal(map[string]interface{}{
+	//	"a": info.APIEndpoint().Addresses,
+	//	"u": c.User,
+	//	"k": secretKey,
+	//})
+	//if err != nil {
+	//	return errors.Trace(err)
+	//}
+	registrationData := []byte(secretKey)
 
-	return writeServerFile(c, ctx, c.User, password, c.OutPath)
+	ctx.Infof("User %q added", displayName)
+	ctx.Infof("Please send this command to %v:", c.User)
+	ctx.Infof("    juju register %s",
+		utils.ShQuote(base64.StdEncoding.EncodeToString(registrationData)),
+	)
+
+	return nil
 }

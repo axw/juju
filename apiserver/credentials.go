@@ -4,8 +4,8 @@
 package apiserver
 
 import (
+	"bytes"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -66,6 +66,13 @@ func (h *credentialsHandler) processPost(req *http.Request, st *state.State) (*p
 	if len(loginRequest.Nonce) != 24 {
 		return nil, errors.NotValidf("nonce")
 	}
+	expectedPayloadBytes := append(
+		[]byte(loginRequest.User), loginRequest.Nonce...,
+	)
+	if len(loginRequest.PayloadCiphertext) != len(expectedPayloadBytes)+secretbox.Overhead {
+		// Ciphertext has the wrong length.
+		return nil, errors.NotValidf("payload")
+	}
 
 	user, err := st.User(userTag)
 	if err != nil {
@@ -84,12 +91,11 @@ func (h *credentialsHandler) processPost(req *http.Request, st *state.State) (*p
 		return nil, errors.NotValidf("payload")
 	}
 
-	var requestPayload params.SecretKeyLoginRequestPayload
-	if err := json.Unmarshal(payloadBytes, &requestPayload); err != nil {
-		return nil, errors.Trace(err)
-	}
-	if subtle.ConstantTimeCompare(requestPayload.SecretKey, key[:]) == 0 {
-		return nil, errors.NotValidf("secret key")
+	// Sanity check: payload should be concatenation of user tag and client
+	// nonce. This is not necessary for authentication purposes, as the
+	// Open call above will fail if the requester has the key.
+	if !bytes.Equal(payloadBytes, append([]byte(loginRequest.User), loginRequest.Nonce...)) {
+		return nil, errors.NotValidf("payload")
 	}
 
 	responsePayload, err := h.getSecretKeyLoginResponsePayload(st, user)

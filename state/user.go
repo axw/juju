@@ -10,6 +10,7 @@ package state
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strings"
@@ -57,6 +58,7 @@ func (st *State) AddUser(name, displayName, password, creator string) (*User, er
 	if _, err := rand.Read(secretKey[:]); err != nil {
 		return nil, errors.Trace(err)
 	}
+	logger.Debugf("secret key for %q: %q", name, base64.StdEncoding.EncodeToString(secretKey[:]))
 
 	user := &User{
 		st: st,

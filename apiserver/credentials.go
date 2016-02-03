@@ -57,6 +57,7 @@ func (h *credentialsHandler) processPost(req *http.Request, st *state.State) (*p
 	if err := json.Unmarshal(data, &loginRequest); err != nil {
 		return nil, err
 	}
+	logger.Debugf("request: %q", loginRequest)
 
 	userTag, err := names.ParseUserTag(loginRequest.User)
 	if err != nil {
@@ -78,7 +79,7 @@ func (h *credentialsHandler) processPost(req *http.Request, st *state.State) (*p
 	var nonce [24]byte
 	copy(key[:], user.SecretKey())
 	copy(nonce[:], loginRequest.Nonce)
-	payloadBytes, ok := secretbox.Open(nil, []byte(loginRequest.PayloadCiphertext), &nonce, &key)
+	payloadBytes, ok := secretbox.Open(nil, loginRequest.PayloadCiphertext, &nonce, &key)
 	if !ok {
 		return nil, errors.NotValidf("payload")
 	}
@@ -87,7 +88,7 @@ func (h *credentialsHandler) processPost(req *http.Request, st *state.State) (*p
 	if err := json.Unmarshal(payloadBytes, &requestPayload); err != nil {
 		return nil, errors.Trace(err)
 	}
-	if subtle.ConstantTimeCompare([]byte(requestPayload.SecretKey), key[:]) == 0 {
+	if subtle.ConstantTimeCompare(requestPayload.SecretKey, key[:]) == 0 {
 		return nil, errors.NotValidf("secret key")
 	}
 
@@ -104,8 +105,8 @@ func (h *credentialsHandler) processPost(req *http.Request, st *state.State) (*p
 		return nil, errors.Trace(err)
 	}
 	response := &params.SecretKeyLoginResponse{
-		Nonce:             string(nonce[:]),
-		PayloadCiphertext: string(secretbox.Seal(nil, payloadBytes, &nonce, &key)),
+		Nonce:             nonce[:],
+		PayloadCiphertext: secretbox.Seal(nil, payloadBytes, &nonce, &key),
 	}
 	return response, nil
 }
@@ -126,7 +127,6 @@ func (h *credentialsHandler) getSecretKeyLoginResponsePayload(
 		Password: password,
 	}
 	return &payload, nil
-
 }
 
 // sendError sends a JSON-encoded error response.

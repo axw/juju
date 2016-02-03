@@ -616,32 +616,3 @@ func (c *Client) WatchDebugLog(args DebugLogParams) (io.ReadCloser, error) {
 	}
 	return connection, nil
 }
-
-func GetCredentials(user, key string) (*tools.Tools, error) {
-	req, err := http.NewRequest("POST", "/credentials", nil)
-	if err != nil {
-		return nil, errors.Annotate(err, "cannot create upload request")
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	//ioutil.ReadAll(resp
-
-	err = httpClient.Do(req, r, &resp)
-	if err != nil {
-		msg := err.Error()
-		if params.ErrCode(err) == "" && strings.Contains(msg, params.CodeOperationBlocked) {
-			// We're probably talking to an old version of the API server
-			// that doesn't provide error codes.
-			// See https://bugs.launchpad.net/juju-core/+bug/1499277
-			err = &params.Error{
-				Code:    params.CodeOperationBlocked,
-				Message: msg,
-			}
-		}
-		return nil, errors.Trace(err)
-	}
-	return resp.Tools, nil
-}

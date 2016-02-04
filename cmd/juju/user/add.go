@@ -95,6 +95,9 @@ func (c *addCommand) Run(ctx *cmd.Context) error {
 		defer c.api.Close()
 	}
 
+	// Add a user without a password. This will generate a temporary
+	// secret key, which we'll print out for the user to supply to
+	// "juju register".
 	_, secretKey, err := c.api.AddUser(c.User, c.DisplayName, "")
 	if err != nil {
 		return block.ProcessBlockedError(err, block.BlockChange)

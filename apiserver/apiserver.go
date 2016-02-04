@@ -402,7 +402,7 @@ func (srv *Server) run(lis net.Listener) {
 		},
 	)
 	handleAll(mux, "/credentials",
-		&credentialsHandler{
+		&registerUserHandler{
 			ctxt: httpCtxt,
 		},
 	)

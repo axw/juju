@@ -80,9 +80,7 @@ See Also:
 // Info implements Command.Info
 func (c *registerCommand) Info() *cmd.Info {
 	return &cmd.Info{
-		Name: "register",
-		// TODO(thumper): support user and address options
-		// Args: "<name> [<server address>[:<server port>]]"
+		Name:    "register",
 		Args:    "<name>",
 		Purpose: "register a Juju Controller",
 		Doc:     registerDoc,
@@ -93,8 +91,6 @@ func (c *registerCommand) Info() *cmd.Info {
 func (c *registerCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.StringVar(&c.ControllerName, "name", "", "name to give to the controller")
 	f.StringVar(&c.ControllerName, "n", "", "")
-	//f.Var(&c.Server, "server", "path to yaml-formatted server file")
-	//f.BoolVar(&c.KeepPassword, "keep-password", false, "do not generate a new random password")
 }
 
 // SetFlags implements Command.Init.

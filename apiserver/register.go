@@ -6,6 +6,7 @@ package apiserver
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/names"
-	"github.com/juju/utils"
 
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
@@ -137,23 +137,21 @@ func (h *registerUserHandler) processPost(req *http.Request, st *state.State) (*
 	return response, nil
 }
 
-// getSecretKeyLoginResponsePayload generates a new password for the user, and
-// then returns the information required by the client to login to the controller
-// securely.
+// getSecretKeyLoginResponsePayload returns the information required by the
+// client to login to the controller securely.
 func (h *registerUserHandler) getSecretKeyLoginResponsePayload(
 	st *state.State,
 	user *state.User,
 ) (*params.SecretKeyLoginResponsePayload, error) {
-	password, err := utils.RandomPassword()
-	if err != nil {
-		return nil, err
-	}
-	if err := user.SetPassword(password); err != nil {
-		return nil, err
-	}
 	payload := params.SecretKeyLoginResponsePayload{
-		CACert:   st.CACert(),
-		Password: password,
+		CACert: st.CACert(),
+		// The password is initially set to the base64-encoded
+		// secret key, to avoid having to expose the password
+		// hash in state or reset it here. Even though the client
+		// can compute this, we return it though the API so that
+		// we can change this if necessary, without affecting the
+		// client.
+		Password: base64.StdEncoding.EncodeToString(user.SecretKey()),
 	}
 	return &payload, nil
 }

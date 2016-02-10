@@ -338,12 +338,11 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	controllerStore, err := jujuclient.DefaultControllerStore()
-	if err != nil {
-		return errors.Trace(err)
-	}
+	controllerStore := c.ClientStore()
 	environ, err := environsPrepare(
-		modelcmd.BootstrapContext(ctx), store, controllerStore, c.ControllerName,
+		modelcmd.BootstrapContext(ctx),
+		store, controllerStore,
+		c.ControllerName,
 		environs.PrepareForBootstrapParams{
 			Config:        cfg,
 			Credentials:   *credential,
@@ -423,7 +422,7 @@ to clean up the model.`[1:])
 	}
 
 	c.SetModelName(c.ControllerName)
-	err = c.SetBootstrapEndpointAddress(environ)
+	err = c.SetBootstrapEndpointAddress(controllerStore, environ)
 	if err != nil {
 		return errors.Annotate(err, "saving bootstrap endpoint address")
 	}
@@ -564,7 +563,7 @@ var prepareEndpointsForCaching = juju.PrepareEndpointsForCaching
 // bootstrap server into the connection information. This should only be run
 // once directly after Bootstrap. It assumes that there is just one instance
 // in the environment - the bootstrap instance.
-func (c *bootstrapCommand) SetBootstrapEndpointAddress(environ environs.Environ) error {
+func (c *bootstrapCommand) SetBootstrapEndpointAddress(store jujuclient.ControllerStore, environ environs.Environ) error {
 	instances, err := allInstances(environ)
 	if err != nil {
 		return errors.Trace(err)
@@ -611,11 +610,7 @@ func (c *bootstrapCommand) SetBootstrapEndpointAddress(environ environs.Environ)
 		return errors.Annotate(err, "failed to write API endpoint to connection info")
 	}
 
-	controllerStore, err := jujuclient.DefaultControllerStore()
-	if err != nil {
-		return errors.Annotate(err, "failed to access juju client cache")
-	}
-	err = controllerStore.UpdateController(c.ControllerName, jujuclient.ControllerDetails{
+	err = store.UpdateController(c.ControllerName, jujuclient.ControllerDetails{
 		hosts,
 		endpoint.ServerUUID,
 		addrs,

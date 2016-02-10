@@ -47,7 +47,6 @@ func NewAPIState(user names.Tag, environ environs.Environ, dialOpts api.DialOpts
 	if err != nil {
 		return nil, err
 	}
-
 	st, err := api.Open(info, dialOpts)
 	if err != nil {
 		return nil, err
@@ -57,8 +56,8 @@ func NewAPIState(user names.Tag, environ environs.Environ, dialOpts api.DialOpts
 
 // NewAPIClientFromName returns an api.Client connected to the API Server for
 // the named environment.
-func NewAPIClientFromName(envName string, bClient *httpbakery.Client) (*api.Client, error) {
-	st, err := newAPIClient(envName, bClient)
+func NewAPIClientFromName(envName string, store jujuclient.ControllerStore, bClient *httpbakery.Client) (*api.Client, error) {
+	st, err := newAPIClient(envName, store, bClient)
 	if err != nil {
 		return nil, err
 	}
@@ -67,23 +66,18 @@ func NewAPIClientFromName(envName string, bClient *httpbakery.Client) (*api.Clie
 
 // NewAPIFromName returns an api.State connected to the API Server for
 // the named environment.
-func NewAPIFromName(envName string, bClient *httpbakery.Client) (api.Connection, error) {
-	return newAPIClient(envName, bClient)
+func NewAPIFromName(envName string, store jujuclient.ControllerStore, bClient *httpbakery.Client) (api.Connection, error) {
+	return newAPIClient(envName, store, bClient)
 }
 
 var defaultAPIOpen = api.Open
 
-func newAPIClient(envName string, bClient *httpbakery.Client) (api.Connection, error) {
-	store, err := configstore.Default()
+func newAPIClient(envName string, store jujuclient.ControllerStore, bClient *httpbakery.Client) (api.Connection, error) {
+	configstore, err := configstore.Default()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	controllerStore, err := jujuclient.DefaultControllerStore()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	st, err := newAPIFromStore(envName, store, controllerStore, defaultAPIOpen, bClient)
+	st, err := newAPIFromStore(envName, configstore, store, defaultAPIOpen, bClient)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/juju"
+	"github.com/juju/juju/jujuclient"
 )
 
 var errNoNameSpecified = errors.New("no name specified")
@@ -46,12 +47,15 @@ func (c *JujuCommandBase) closeContext() {
 }
 
 // NewAPIRoot returns a new connection to the API server for the given
-// model or system.
-func (c *JujuCommandBase) NewAPIRoot(modelOrControllerName string) (api.Connection, error) {
+// model or controller.
+func (c *JujuCommandBase) NewAPIRoot(
+	store jujuclient.ClientStore,
+	modelOrControllerName string,
+) (api.Connection, error) {
 	if err := c.initAPIContext(); err != nil {
 		return nil, errors.Trace(err)
 	}
-	return c.apiContext.newAPIRoot(modelOrControllerName)
+	return c.apiContext.newAPIRoot(store, modelOrControllerName)
 }
 
 // HTTPClient returns an http.Client that contains the loaded
@@ -174,21 +178,11 @@ func (ctx *apiContext) apiOpen(info *api.Info, opts api.DialOpts) (api.Connectio
 
 // newAPIRoot establishes a connection to the API server for
 // the named system or model.
-func (ctx *apiContext) newAPIRoot(name string) (api.Connection, error) {
+func (ctx *apiContext) newAPIRoot(store jujuclient.ClientStore, name string) (api.Connection, error) {
 	if name == "" {
 		return nil, errors.Trace(errNoNameSpecified)
 	}
-	return juju.NewAPIFromName(name, ctx.client)
-}
-
-// newAPIClient returns an api.Client connecte to the API server
-// for the named system or model.
-func (ctx *apiContext) newAPIClient(name string) (*api.Client, error) {
-	root, err := ctx.newAPIRoot(name)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return root.Client(), nil
+	return juju.NewAPIFromName(name, store, ctx.client)
 }
 
 // httpClient returns an http.Client that contains the loaded

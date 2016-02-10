@@ -4,74 +4,57 @@
 package commands
 
 import (
-	"fmt"
 	"os"
+	"strings"
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
-	"github.com/juju/utils/set"
-	"launchpad.net/gnuflag"
 
+	"github.com/juju/juju/api/modelmanager"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/configstore"
+	"github.com/juju/juju/juju/osenv"
+	"github.com/juju/juju/jujuclient"
 )
 
 func newSwitchCommand() cmd.Command {
-	return &switchCommand{}
+	return modelcmd.WrapBase(&switchCommand{
+		Store: jujuclient.NewFileClientStore(),
+	})
 }
 
 type switchCommand struct {
-	cmd.CommandBase
-	ModelName string
-	List      bool
+	modelcmd.JujuCommandBase
+	Store  jujuclient.ClientStore
+	Target string
 }
 
 var switchDoc = `
-Show or change the default juju model or controller name.
+Switch to the specified model, or controller.
 
-If no command line parameters are passed, switch will output the current
-model as defined by the file $JUJU_DATA/current-model.
-
-If a command line parameter is passed in, that value will is stored in the
-current model file if it represents a valid model name.
+If the name identifies controller, the client will switch to the
+active model for that controller. Otherwise, the name must specify
+either the name of a model within the active controller, or a
+fully-qualified model with the format "controller:model".
 `
-
-const controllerSuffix = " (controller)"
 
 func (c *switchCommand) Info() *cmd.Info {
 	return &cmd.Info{
 		Name:    "switch",
-		Args:    "[model name]",
-		Purpose: "show or change the default juju model or controller name",
+		Args:    "<controller>|<model>|<controller>:<model>",
+		Purpose: "change the active Juju model",
 		Doc:     switchDoc,
 	}
 }
 
-func (c *switchCommand) SetFlags(f *gnuflag.FlagSet) {
-	f.BoolVar(&c.List, "l", false, "list the model names")
-	f.BoolVar(&c.List, "list", false, "")
-}
-
-func (c *switchCommand) Init(args []string) (err error) {
-	c.ModelName, err = cmd.ZeroOrOneArgs(args)
-	return
-}
-
-func getConfigstoreOptions() (set.Strings, set.Strings, error) {
-	store, err := configstore.Default()
-	if err != nil {
-		return nil, nil, errors.Annotate(err, "failed to get config store")
+func (c *switchCommand) Init(args []string) error {
+	if len(args) == 0 {
+		return errors.Errorf("missing controller or model name")
 	}
-	environmentNames, err := store.List()
-	if err != nil {
-		return nil, nil, errors.Annotate(err, "failed to list models in config store")
+	if err := cmd.CheckEmpty(args[1:]); err != nil {
+		return err
 	}
-	controllerNames, err := store.ListSystems()
-	if err != nil {
-		return nil, nil, errors.Annotate(err, "failed to list controllers in config store")
-	}
-	// Also include the controllers.
-	return set.NewStrings(environmentNames...), set.NewStrings(controllerNames...), nil
+	c.Target = args[0]
+	return nil
 }
 
 func (c *switchCommand) Run(ctx *cmd.Context) error {
@@ -79,72 +62,78 @@ func (c *switchCommand) Run(ctx *cmd.Context) error {
 	// the JUJU_MODEL environment setting, and as such, doesn't play too well.
 	// If JUJU_MODEL is set we should report that as the current environment,
 	// and not allow switching when it is set.
-
-	// Passing through the empty string reads the default environments.yaml file.
-	// If the environments.yaml file doesn't exist, just list environments in
-	// the configstore.
-	configEnvirons, configControllers, err := getConfigstoreOptions()
-	if err != nil {
-		return err
-	}
-	names := set.NewStrings()
-	names = names.Union(configEnvirons)
-	names = names.Union(configControllers)
-
-	if c.List {
-		// List all environments and controllers.
-		if c.ModelName != "" {
-			return errors.New("cannot switch and list at the same time")
-		}
-		for _, name := range names.SortedValues() {
-			if configControllers.Contains(name) && !configEnvirons.Contains(name) {
-				name += controllerSuffix
-			}
-			fmt.Fprintf(ctx.Stdout, "%s\n", name)
-		}
-		return nil
+	if env := os.Getenv(osenv.JujuModelEnvKey); env != "" {
+		return errors.Errorf("cannot switch when JUJU_MODEL is overriding the model (set to %q)", env)
 	}
 
-	jujuEnv := os.Getenv("JUJU_MODEL")
-	if jujuEnv != "" {
-		if c.ModelName == "" {
-			fmt.Fprintf(ctx.Stdout, "%s\n", jujuEnv)
-			return nil
-		} else {
-			return errors.Errorf("cannot switch when JUJU_MODEL is overriding the model (set to %q)", jujuEnv)
-		}
+	// If the name identifies a controller, then set that as the current one.
+	if _, err := c.Store.ControllerByName(c.Target); err == nil {
+		return modelcmd.SetCurrentController(ctx, c.Target)
+	} else if !errors.IsNotFound(err) {
+		return errors.Trace(err)
 	}
 
-	current, isController, err := modelcmd.CurrentConnectionName()
+	// The target is not a controller, so check for a model with
+	// the given name. The name can be qualified with the controller
+	// name (<controller>:<model>), or unqualified; in the latter
+	// case, the model must exist in the current controller.
+	currentControllerName, err := modelcmd.ReadCurrentController()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if current != "" && isController {
-		current += controllerSuffix
+	var controllerName, modelName string
+	if i := strings.IndexRune(c.Target, ':'); i > 0 {
+		controllerName, modelName = c.Target[:i], c.Target[i+1:]
+	} else {
+		controllerName = currentControllerName
+		modelName = c.Target
 	}
 
-	// Handle the different operation modes.
-	switch {
-	case c.ModelName == "" && current == "":
-		// Nothing specified and nothing to switch to.
-		return errors.New("no currently specified model")
-	case c.ModelName == "":
-		// Simply print the current environment.
-		fmt.Fprintf(ctx.Stdout, "%s\n", current)
-		return nil
-	default:
-		// Switch the environment.
-		if !names.Contains(c.ModelName) {
-			return errors.Errorf("%q is not a name of an existing defined model or controller", c.ModelName)
+	err = c.Store.SetCurrentModel(controllerName, modelName)
+	if errors.IsNotFound(err) {
+		// The model isn't known locally, so we must query the controller.
+		if err := c.refreshModels(ctx, controllerName); err != nil {
+			return errors.Annotate(err, "refreshing models cache")
 		}
-		// If the name is not in the environment set, but is in the controller
-		// set, then write the name into the current controller file.
-		logger.Debugf("controllers: %v", configControllers)
-		logger.Debugf("models: %v", configEnvirons)
-		newEnv := c.ModelName
-		if configControllers.Contains(newEnv) && !configEnvirons.Contains(newEnv) {
-			return modelcmd.SetCurrentController(ctx, newEnv)
+		if err := c.Store.SetCurrentModel(controllerName, modelName); err != nil {
+			return errors.Trace(err)
 		}
-		return modelcmd.SetCurrentModel(ctx, newEnv)
+	} else if err != nil {
+		return errors.Trace(err)
 	}
+	if currentControllerName != controllerName {
+		if err := modelcmd.SetCurrentController(ctx, controllerName); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	// TODO(axw) log transition here, rather than in modelcmd.SetCurrent...
+	return nil
+}
+
+func (c *switchCommand) refreshModels(ctx *cmd.Context, controllerName string) error {
+	// TODO(axw) need to get the user name from accounts.yaml.
+	userName := "admin"
+
+	ctx.Verbosef("listing models for %q on %q", userName, controllerName)
+	conn, err := c.NewAPIRoot(c.Store, controllerName)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer conn.Close()
+	modelManager := modelmanager.NewClient(conn)
+	models, err := modelManager.ListModels(userName)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Cache model information locally.
+	for _, model := range models {
+		err := c.Store.UpdateModel(controllerName, model.Name, jujuclient.ModelDetails{
+			model.UUID,
+		})
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }

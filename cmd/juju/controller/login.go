@@ -25,7 +25,7 @@ import (
 
 // NewLoginCommand returns a command to allow the user to login to a controller.
 func NewLoginCommand() cmd.Command {
-	return modelcmd.WrapBase(&loginCommand{})
+	return modelcmd.WrapController(&loginCommand{})
 }
 
 // GetUserManagerFunc defines a function that takes an api connection
@@ -35,7 +35,7 @@ type GetUserManagerFunc func(conn api.Connection) (UserManager, error)
 // loginCommand logs in to a Juju controller and caches the connection
 // information.
 type loginCommand struct {
-	modelcmd.JujuCommandBase
+	modelcmd.ControllerCommandBase
 	loginAPIOpen   api.OpenFunc
 	GetUserManager GetUserManagerFunc
 	// TODO (thumper): when we support local cert definitions
@@ -123,7 +123,7 @@ func cookieFile() string {
 // Run implements Command.Run
 func (c *loginCommand) Run(ctx *cmd.Context) error {
 	if c.loginAPIOpen == nil {
-		c.loginAPIOpen = c.JujuCommandBase.APIOpen
+		c.loginAPIOpen = c.ControllerCommandBase.APIOpen
 	}
 
 	// TODO(thumper): as we support the user and address
@@ -247,11 +247,11 @@ func (c *loginCommand) cacheConnectionInfo(serverDetails modelcmd.ServerFile, ap
 		return nil, errors.Trace(err)
 	}
 
-	controllerStore, err := jujuclient.DefaultControllerStore()
+	clientStore := c.ClientStore()
 	if err != nil {
 		return nil, errors.Annotate(err, "failed to access juju client cache")
 	}
-	err = controllerStore.UpdateController(c.Name, jujuclient.ControllerDetails{
+	err = clientStore.UpdateController(c.Name, jujuclient.ControllerDetails{
 		addrs,
 		controllerTag.Id(),
 		addrs,

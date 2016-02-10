@@ -37,8 +37,8 @@ func Prepare(
 	controllerName string,
 	args PrepareForBootstrapParams,
 ) (Environ, error) {
-	info, err := store.ReadInfo(controllerName)
-	if err == nil {
+
+	if _, err := clientStore.ControllerByName(controllerName); err == nil {
 		return nil, errors.AlreadyExistsf("controller %q", controllerName)
 	} else if !errors.IsNotFound(err) {
 		return nil, errors.Annotatef(err, "error reading controller %q info", controllerName)
@@ -48,7 +48,7 @@ func Prepare(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	info = store.CreateInfo(controllerName)
+	info := store.CreateInfo(controllerName)
 	env, err := prepare(ctx, info, p, args)
 	if err != nil {
 		if err := info.Destroy(); err != nil {
@@ -106,17 +106,17 @@ func decorateAndWriteInfo(
 		endpoint.CACert,
 	}
 	if err := store.UpdateController(controllerName, controllerDetails); err != nil {
-		return errors.Trace(err)
+		return errors.Annotate(err, "writing controller details")
 	}
 
 	modelDetails := jujuclient.ModelDetails{
 		endpoint.ServerUUID,
 	}
 	if err := store.UpdateModel(controllerName, cfg.Name(), modelDetails); err != nil {
-		return errors.Trace(err)
+		return errors.Annotate(err, "writing admin model details")
 	}
 	if err := store.SetCurrentModel(controllerName, cfg.Name()); err != nil {
-		return errors.Trace(err)
+		return errors.Annotate(err, "setting current mode")
 	}
 
 	return errors.Trace(info.Write())

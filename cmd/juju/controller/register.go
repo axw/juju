@@ -163,7 +163,7 @@ func (c *registerCommand) Run(ctx *cmd.Context) error {
 
 	// Log into the controller to verify the credentials, and
 	// refresh the connection information.
-	apiConn, err := c.newAPIRoot(c.store, registrationParams.controllerName)
+	apiConn, err := c.newAPIRoot(c.store, registrationParams.controllerName, "")
 	if err != nil {
 		return errors.Trace(err)
 	}

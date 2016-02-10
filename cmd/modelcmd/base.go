@@ -50,12 +50,12 @@ func (c *JujuCommandBase) closeContext() {
 // model or controller.
 func (c *JujuCommandBase) NewAPIRoot(
 	store jujuclient.ClientStore,
-	modelOrControllerName string,
+	controllerName, modelName string,
 ) (api.Connection, error) {
 	if err := c.initAPIContext(); err != nil {
 		return nil, errors.Trace(err)
 	}
-	return c.apiContext.newAPIRoot(store, modelOrControllerName)
+	return c.apiContext.newAPIRoot(store, controllerName, modelName)
 }
 
 // HTTPClient returns an http.Client that contains the loaded
@@ -178,11 +178,11 @@ func (ctx *apiContext) apiOpen(info *api.Info, opts api.DialOpts) (api.Connectio
 
 // newAPIRoot establishes a connection to the API server for
 // the named system or model.
-func (ctx *apiContext) newAPIRoot(store jujuclient.ClientStore, name string) (api.Connection, error) {
-	if name == "" {
+func (ctx *apiContext) newAPIRoot(store jujuclient.ClientStore, controllerName, modelName string) (api.Connection, error) {
+	if controllerName == "" {
 		return nil, errors.Trace(errNoNameSpecified)
 	}
-	return juju.NewAPIFromName(name, store, ctx.client)
+	return juju.NewAPIConnection(controllerName, modelName, store, ctx.client)
 }
 
 // httpClient returns an http.Client that contains the loaded

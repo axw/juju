@@ -6,6 +6,7 @@ package modelcmd
 import (
 	"io"
 	"os"
+	"strings"
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
@@ -160,7 +161,18 @@ func (c *ModelCommandBase) NewAPIRoot() (api.Connection, error) {
 	if opener == nil {
 		opener = OpenFunc(c.JujuCommandBase.NewAPIRoot)
 	}
-	return opener.Open(c.store, c.modelName)
+
+	var controllerName, modelName string
+	if i := strings.IndexRune(c.modelName, ':'); i > 0 {
+		controllerName, modelName = c.modelName[:i], c.modelName[i:]
+	} else {
+		currentController, err := ReadCurrentController()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		controllerName, modelName = currentController, c.modelName
+	}
+	return opener.Open(c.store, controllerName, modelName)
 }
 
 // ConnectionCredentials returns the credentials used to connect to the API for
@@ -214,17 +226,6 @@ func (c *ModelCommandBase) ConnectionEndpoint(refresh bool) (configstore.APIEndp
 	return info.APIEndpoint(), nil
 }
 
-// ConnectionWriter defines the methods needed to write information about
-// a given connection.  This is a subset of the methods in the interface
-// defined in configstore.EnvironInfo.
-type ConnectionWriter interface {
-	Write() error
-	SetAPICredentials(configstore.APICredentials)
-	SetAPIEndpoint(configstore.APIEndpoint)
-	SetBootstrapConfig(map[string]interface{})
-	Location() string
-}
-
 var endpointRefresher = func(c *ModelCommandBase) (io.Closer, error) {
 	return c.NewAPIRoot()
 }
@@ -249,19 +250,6 @@ func ConnectionInfoForName(modelName string) (configstore.EnvironInfo, error) {
 		return nil, errors.Trace(err)
 	}
 	return info, nil
-}
-
-// ConnectionWriter returns an instance that is able to be used
-// to record information about the connection.  When the connection
-// is determined through either command line parameters or environment
-// variables, an error is returned.
-func (c *ModelCommandBase) ConnectionWriter() (ConnectionWriter, error) {
-	// TODO: when accessing with just command line params or environment
-	// variables, this should error.
-	if c.modelName == "" {
-		return nil, errors.Trace(ErrNoModelSpecified)
-	}
-	return ConnectionInfoForName(c.modelName)
 }
 
 // ConnectionName returns the name of the connection if there is one.

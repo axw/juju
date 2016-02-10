@@ -115,7 +115,7 @@ func (c *switchCommand) refreshModels(ctx *cmd.Context, controllerName string) e
 	userName := "admin"
 
 	ctx.Verbosef("listing models for %q on %q", userName, controllerName)
-	conn, err := c.NewAPIRoot(c.Store, controllerName)
+	conn, err := c.NewAPIRoot(c.Store, controllerName, "")
 	if err != nil {
 		return errors.Trace(err)
 	}

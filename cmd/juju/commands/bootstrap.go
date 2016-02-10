@@ -93,13 +93,17 @@ See Also:
 `
 
 func newBootstrapCommand() cmd.Command {
-	return modelcmd.Wrap(&bootstrapCommand{})
+	return modelcmd.WrapBase(&bootstrapCommand{
+		Store: jujuclient.NewFileClientStore(),
+	})
 }
 
 // bootstrapCommand is responsible for launching the first machine in a juju
 // environment, and setting up everything necessary to continue working.
 type bootstrapCommand struct {
-	modelcmd.ModelCommandBase
+	modelcmd.JujuCommandBase
+	Store jujuclient.ClientStore
+
 	Constraints           constraints.Value
 	BootstrapConstraints  constraints.Value
 	BootstrapSeries       string
@@ -338,10 +342,9 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	controllerStore := c.ClientStore()
 	environ, err := environsPrepare(
 		modelcmd.BootstrapContext(ctx),
-		store, controllerStore,
+		store, c.Store,
 		c.ControllerName,
 		environs.PrepareForBootstrapParams{
 			Config:        cfg,
@@ -421,8 +424,7 @@ to clean up the model.`[1:])
 		return errors.Annotate(err, "failed to bootstrap model")
 	}
 
-	c.SetModelName(c.ControllerName)
-	err = c.SetBootstrapEndpointAddress(controllerStore, environ)
+	err = c.SetBootstrapEndpointAddress(environ)
 	if err != nil {
 		return errors.Annotate(err, "saving bootstrap endpoint address")
 	}
@@ -478,8 +480,12 @@ var (
 )
 
 // getBlockAPI returns a block api for listing blocks.
-func getBlockAPI(c *modelcmd.ModelCommandBase) (block.BlockListAPI, error) {
-	root, err := c.NewAPIRoot()
+func getBlockAPI(
+	c *modelcmd.JujuCommandBase,
+	store jujuclient.ClientStore,
+	controllerName string,
+) (block.BlockListAPI, error) {
+	root, err := c.NewAPIRoot(store, controllerName, "admin")
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +502,7 @@ func (c *bootstrapCommand) waitForAgentInitialisation(ctx *cmd.Context) (err err
 	}
 	var client block.BlockListAPI
 	for attempt := attempts.Start(); attempt.Next(); {
-		client, err = blockAPI(&c.ModelCommandBase)
+		client, err = blockAPI(&c.JujuCommandBase, c.Store, c.ControllerName)
 		if err != nil {
 			return err
 		}
@@ -563,7 +569,7 @@ var prepareEndpointsForCaching = juju.PrepareEndpointsForCaching
 // bootstrap server into the connection information. This should only be run
 // once directly after Bootstrap. It assumes that there is just one instance
 // in the environment - the bootstrap instance.
-func (c *bootstrapCommand) SetBootstrapEndpointAddress(store jujuclient.ControllerStore, environ environs.Environ) error {
+func (c *bootstrapCommand) SetBootstrapEndpointAddress(environ environs.Environ) error {
 	instances, err := allInstances(environ)
 	if err != nil {
 		return errors.Trace(err)
@@ -577,7 +583,7 @@ func (c *bootstrapCommand) SetBootstrapEndpointAddress(store jujuclient.Controll
 	}
 	bootstrapInstance := instances[0]
 	cfg := environ.Config()
-	info, err := modelcmd.ConnectionInfoForName(c.ConnectionName())
+	info, err := modelcmd.ConnectionInfoForName(c.ControllerName)
 	if err != nil {
 		return errors.Annotate(err, "failed to get connection info")
 	}
@@ -600,17 +606,13 @@ func (c *bootstrapCommand) SetBootstrapEndpointAddress(store jujuclient.Controll
 	}
 	endpoint.Addresses = addrs
 	endpoint.Hostnames = hosts
-	writer, err := c.ConnectionWriter()
-	if err != nil {
-		return errors.Annotate(err, "failed to get connection writer")
-	}
-	writer.SetAPIEndpoint(endpoint)
-	err = writer.Write()
+	info.SetAPIEndpoint(endpoint)
+	err = info.Write()
 	if err != nil {
 		return errors.Annotate(err, "failed to write API endpoint to connection info")
 	}
 
-	err = store.UpdateController(c.ControllerName, jujuclient.ControllerDetails{
+	err = c.Store.UpdateController(c.ControllerName, jujuclient.ControllerDetails{
 		hosts,
 		endpoint.ServerUUID,
 		addrs,

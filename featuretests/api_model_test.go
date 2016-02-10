@@ -30,10 +30,10 @@ type apiEnvironmentSuite struct {
 
 func (s *apiEnvironmentSuite) SetUpTest(c *gc.C) {
 	s.JujuConnSuite.SetUpTest(c)
-	var err error
-	s.client, err = juju.NewAPIClientFromName("dummymodel", nil)
+	conn, err := juju.NewAPIFromName("dummymodel", nil)
 	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(s.client, gc.NotNil)
+	c.Assert(conn, gc.NotNil)
+	s.client = conn.Client()
 }
 
 func (s *apiEnvironmentSuite) TearDownTest(c *gc.C) {

@@ -98,7 +98,7 @@ func (s *store) AllControllers() (map[string]ControllerDetails, error) {
 // ControllerByName implements ControllersGetter.ControllerByName.
 func (s *store) ControllerByName(name string) (*ControllerDetails, error) {
 	if err := ValidateControllerName(name); err != nil {
-		return nil, errors.Annotate(err, "zip")
+		return nil, errors.Trace(err)
 	}
 
 	lock, err := s.lock("read-controller-by-name")

@@ -129,7 +129,7 @@ func (c *ControllerCommandBase) NewAPIRoot() (api.Connection, error) {
 	if opener == nil {
 		opener = OpenFunc(c.JujuCommandBase.NewAPIRoot)
 	}
-	return opener.Open(c.store, c.controllerName)
+	return opener.Open(c.store, c.controllerName, "")
 }
 
 // ConnectionCredentials returns the credentials used to connect to the API for

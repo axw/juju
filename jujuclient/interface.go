@@ -32,14 +32,14 @@ type ControllerUpdater interface {
 	//
 	// If the controller does not already exist, it will be added.
 	// Otherwise, it will be overwritten with the new details.
-	UpdateController(name string, one ControllerDetails) error
+	UpdateController(controllerName string, details ControllerDetails) error
 }
 
 // ControllerRemover removes controllers.
 type ControllerRemover interface {
 	// RemoveController removes the controller with the given name from the
 	// controllers collection.
-	RemoveController(name string) error
+	RemoveController(controllerName string) error
 }
 
 // ControllerGetter gets controllers.
@@ -50,7 +50,7 @@ type ControllerGetter interface {
 	// ControllerByName returns the controller with the specified name.
 	// If there exists no controller with the specified name, an error
 	// satisfying errors.IsNotFound will be returned.
-	ControllerByName(name string) (*ControllerDetails, error)
+	ControllerByName(controllerName string) (*ControllerDetails, error)
 }
 
 // ModelUpdater stores model details.
@@ -71,20 +71,26 @@ type ModelUpdater interface {
 // ModelRemover removes models.
 type ModelRemover interface {
 	// RemoveModel removes the model with the given controller and model
-	// names from the models collection.
+	// names from the models collection. If there is no model with the
+	// specified names, an errors satisfying errors.IsNotFound will be
+	// returned.
 	RemoveModel(controllerName, modelName string) error
 }
 
 // ModelGetter gets models.
 type ModelGetter interface {
 	// AllModels gets all models for the specified controller.
-	AllModels(controller string) (map[string]ModelDetails, error)
+	//
+	// If there is no controller with the specified name, or
+	// no models cached for the controller, an error satisfying
+	// errors.IsNotFound will be returned.
+	AllModels(controllerName string) (map[string]ModelDetails, error)
 
 	// CurrentModel returns the name of the current model for
 	// the specified controller. If there is no current model
 	// for the controller, an error satisfying errors.IsNotFound
 	// is returned.
-	CurrentModel(controller string) (string, error)
+	CurrentModel(controllerName string) (string, error)
 
 	// ModelByName returns the model with the specified controller
 	// and model names. If there exists no model with the specified

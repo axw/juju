@@ -97,6 +97,10 @@ func (s *store) AllControllers() (map[string]ControllerDetails, error) {
 
 // ControllerByName implements ControllersGetter.ControllerByName.
 func (s *store) ControllerByName(name string) (*ControllerDetails, error) {
+	if err := ValidateControllerName(name); err != nil {
+		return nil, errors.Annotate(err, "zip")
+	}
+
 	lock, err := s.lock("read-controller-by-name")
 	if err != nil {
 		return nil, errors.Annotatef(err, "cannot read controller %v", name)
@@ -116,10 +120,10 @@ func (s *store) ControllerByName(name string) (*ControllerDetails, error) {
 // UpdateController implements ControllersUpdater.UpdateController.
 func (s *store) UpdateController(name string, details ControllerDetails) error {
 	if err := ValidateControllerName(name); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	if err := ValidateControllerDetails(details); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	lock, err := s.lock("update-controller")
@@ -143,6 +147,10 @@ func (s *store) UpdateController(name string, details ControllerDetails) error {
 
 // RemoveController implements ControllersRemover.RemoveController
 func (s *store) RemoveController(name string) error {
+	if err := ValidateControllerName(name); err != nil {
+		return errors.Trace(err)
+	}
+
 	lock, err := s.lock("remove-controller")
 	if err != nil {
 		return errors.Annotatef(err, "cannot remove controller %v", name)
@@ -160,30 +168,184 @@ func (s *store) RemoveController(name string) error {
 
 // UpdateModel implements ModelUpdater.
 func (s *store) UpdateModel(controllerName, modelName string, details ModelDetails) error {
-	return errors.NotImplementedf("UpdateModel")
+	if err := ValidateControllerName(controllerName); err != nil {
+		return errors.Trace(err)
+	}
+	if err := ValidateModelName(modelName); err != nil {
+		return errors.Trace(err)
+	}
+	if err := ValidateModelDetails(details); err != nil {
+		return errors.Trace(err)
+	}
+
+	lock, err := s.lock("update-model")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer s.unlock(lock)
+
+	controllerModels, err := ReadModelsFile(JujuModelsPath())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if controllerModels == nil {
+		controllerModels = make(map[string]*ControllerModels)
+	}
+	models, ok := controllerModels[controllerName]
+	if !ok {
+		models = &ControllerModels{
+			Models: make(map[string]ModelDetails),
+		}
+		controllerModels[controllerName] = models
+	}
+	if oldDetails, ok := models.Models[modelName]; ok && details == oldDetails {
+		return nil
+	}
+
+	models.Models[modelName] = details
+	return errors.Trace(WriteModelsFile(controllerModels))
 }
 
 // CurrentModel implements ModelUpdater.
 func (s *store) SetCurrentModel(controllerName, modelName string) error {
-	return errors.NotFoundf("model %s:%s", controllerName, modelName)
+	if err := ValidateControllerName(controllerName); err != nil {
+		return errors.Trace(err)
+	}
+	if err := ValidateModelName(modelName); err != nil {
+		return errors.Trace(err)
+	}
+
+	lock, err := s.lock("set-current-model")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer s.unlock(lock)
+
+	controllerModels, err := ReadModelsFile(JujuModelsPath())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	models, ok := controllerModels[controllerName]
+	if !ok {
+		return errors.NotFoundf("controller %q")
+	}
+	if models.CurrentModel == modelName {
+		return nil
+	}
+	if _, ok := models.Models[modelName]; !ok {
+		return errors.NotFoundf("model %q", fmt.Sprintf("%s:%s", controllerName, modelName))
+	}
+
+	models.CurrentModel = modelName
+	return errors.Trace(WriteModelsFile(controllerModels))
 }
 
 // AllModels implements ModelGetter.
 func (s *store) AllModels(controllerName string) (map[string]ModelDetails, error) {
-	return nil, nil
+	if err := ValidateControllerName(controllerName); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	lock, err := s.lock("read-all-models")
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	defer s.unlock(lock)
+
+	controllerModels, err := ReadModelsFile(JujuModelsPath())
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	models, ok := controllerModels[controllerName]
+	if !ok {
+		return nil, errors.NotFoundf("models for controller %q")
+	}
+	return models.Models, nil
 }
 
 // CurrentModel implements ModelGetter.
 func (s *store) CurrentModel(controllerName string) (string, error) {
-	return "", nil
+	if err := ValidateControllerName(controllerName); err != nil {
+		return "", errors.Trace(err)
+	}
+
+	lock, err := s.lock("read-current-model")
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+	defer s.unlock(lock)
+
+	controllerModels, err := ReadModelsFile(JujuModelsPath())
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+	models, ok := controllerModels[controllerName]
+	if !ok || models.CurrentModel == "" {
+		return "", errors.NotFoundf("current model for controller %q")
+	}
+	return models.CurrentModel, nil
 }
 
 // ModelByName implements ModelGetter.
 func (s *store) ModelByName(controllerName, modelName string) (*ModelDetails, error) {
-	return nil, errors.NotFoundf("model %s:%s", controllerName, modelName)
+	if err := ValidateControllerName(controllerName); err != nil {
+		return nil, errors.Trace(err)
+	}
+	if err := ValidateModelName(modelName); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	lock, err := s.lock("model-by-name")
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	defer s.unlock(lock)
+
+	controllerModels, err := ReadModelsFile(JujuModelsPath())
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	models, ok := controllerModels[controllerName]
+	if !ok {
+		return nil, errors.NotFoundf("controller %q")
+	}
+	details, ok := models.Models[modelName]
+	if !ok {
+		return nil, errors.NotFoundf("model %q", fmt.Sprintf("%s:%s", controllerName, modelName))
+	}
+	return &details, nil
 }
 
 // RemoveModel implements ModelRemover.
 func (s *store) RemoveModel(controllerName, modelName string) error {
-	return errors.NotImplementedf("RemoveModel")
+	if err := ValidateControllerName(controllerName); err != nil {
+		return errors.Trace(err)
+	}
+	if err := ValidateModelName(modelName); err != nil {
+		return errors.Trace(err)
+	}
+
+	lock, err := s.lock("remove-model")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer s.unlock(lock)
+
+	controllerModels, err := ReadModelsFile(JujuModelsPath())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	models, ok := controllerModels[controllerName]
+	if !ok {
+		return errors.NotFoundf("controller %q")
+	}
+	if _, ok := models.Models[modelName]; !ok {
+		return errors.NotFoundf("model %q", fmt.Sprintf("%s:%s", controllerName, modelName))
+	}
+
+	delete(models.Models, modelName)
+	if models.CurrentModel == modelName {
+		models.CurrentModel = ""
+	}
+	return errors.Trace(WriteModelsFile(controllerModels))
 }

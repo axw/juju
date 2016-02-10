@@ -33,7 +33,7 @@ func New(config *config.Config) (Environ, error) {
 func Prepare(
 	ctx BootstrapContext,
 	store configstore.Storage,
-	controllerStore jujuclient.ControllerStore,
+	clientStore jujuclient.ClientStore,
 	controllerName string,
 	args PrepareForBootstrapParams,
 ) (Environ, error) {
@@ -59,7 +59,7 @@ func Prepare(
 		}
 		return nil, errors.Trace(err)
 	}
-	if err := decorateAndWriteInfo(info, controllerStore, env.Config()); err != nil {
+	if err := decorateAndWriteInfo(info, clientStore, controllerName, env.Config()); err != nil {
 		return nil, errors.Annotatef(err, "cannot create controller %q info", controllerName)
 	}
 	return env, nil
@@ -67,7 +67,12 @@ func Prepare(
 
 // decorateAndWriteInfo decorates the info struct with information
 // from the given cfg, and the writes that out to the filesystem.
-func decorateAndWriteInfo(info configstore.EnvironInfo, controllerStore jujuclient.ControllerStore, cfg *config.Config) error {
+func decorateAndWriteInfo(
+	info configstore.EnvironInfo,
+	store jujuclient.ClientStore,
+	controllerName string,
+	cfg *config.Config,
+) error {
 
 	// Sanity check our config.
 	var endpoint configstore.APIEndpoint
@@ -94,13 +99,23 @@ func decorateAndWriteInfo(info configstore.EnvironInfo, controllerStore jujuclie
 	info.SetBootstrapConfig(cfg.AllAttrs())
 
 	connectionDetails := info.APIEndpoint()
-	c := jujuclient.ControllerDetails{
+	controllerDetails := jujuclient.ControllerDetails{
 		connectionDetails.Hostnames,
 		endpoint.ServerUUID,
 		connectionDetails.Addresses,
 		endpoint.CACert,
 	}
-	if err := controllerStore.UpdateController(cfg.Name(), c); err != nil {
+	if err := store.UpdateController(controllerName, controllerDetails); err != nil {
+		return errors.Trace(err)
+	}
+
+	modelDetails := jujuclient.ModelDetails{
+		endpoint.ServerUUID,
+	}
+	if err := store.UpdateModel(controllerName, cfg.Name(), modelDetails); err != nil {
+		return errors.Trace(err)
+	}
+	if err := store.SetCurrentModel(controllerName, cfg.Name()); err != nil {
 		return errors.Trace(err)
 	}
 

@@ -427,7 +427,7 @@ to clean up the model.`[1:])
 		return errors.Annotate(err, "saving bootstrap endpoint address")
 	}
 
-	err = modelcmd.SetCurrentModel(ctx, c.ControllerName)
+	err = modelcmd.SetCurrentController(ctx, c.ControllerName)
 	if err != nil {
 		return errors.Trace(err)
 	}

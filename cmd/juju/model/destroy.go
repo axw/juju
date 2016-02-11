@@ -15,8 +15,6 @@ import (
 	jujucmd "github.com/juju/juju/cmd"
 	"github.com/juju/juju/cmd/juju/block"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs"
-	"github.com/juju/juju/environs/configstore"
 )
 
 var logger = loggo.GetLogger("juju.cmd.juju.model")
@@ -33,13 +31,12 @@ func NewDestroyCommand() cmd.Command {
 // destroyCommand destroys the specified model.
 type destroyCommand struct {
 	modelcmd.ModelCommandBase
-	envName   string
 	assumeYes bool
 	api       DestroyEnvironmentAPI
 }
 
 var destroyDoc = `Destroys the specified model`
-var destroyEnvMsg = `
+var destroyModelMsg = `
 WARNING! This command will destroy the %q model.
 This includes all machines, services, data and other resources.
 
@@ -74,9 +71,7 @@ func (c *destroyCommand) Init(args []string) error {
 	case 0:
 		return errors.New("no model specified")
 	case 1:
-		c.envName = args[0]
-		c.SetModelName(c.envName)
-		return nil
+		return errors.Trace(c.SetModelName(args[0]))
 	default:
 		return cmd.CheckEmpty(args[1:])
 	}
@@ -91,25 +86,16 @@ func (c *destroyCommand) getAPI() (DestroyEnvironmentAPI, error) {
 
 // Run implements Command.Run
 func (c *destroyCommand) Run(ctx *cmd.Context) error {
-	store, err := configstore.Default()
-	if err != nil {
-		return errors.Annotate(err, "cannot open model info storage")
-	}
 
-	cfgInfo, err := store.ReadInfo(c.envName)
-	if err != nil {
-		return errors.Annotate(err, "cannot read model info")
-	}
-
-	// Verify that we're not destroying a controller
-	apiEndpoint := cfgInfo.APIEndpoint()
-	if apiEndpoint.ServerUUID != "" && apiEndpoint.ModelUUID == apiEndpoint.ServerUUID {
-		return errors.Errorf("%q is a controller; use 'juju destroy-controller' to destroy it", c.envName)
+	store := c.ClientStore()
+	controllerName := c.ControllerName()
+	modelName := c.ModelName()
+	if _, err := store.ModelByName(controllerName, modelName); err != nil {
+		return errors.Trace(err)
 	}
 
 	if !c.assumeYes {
-		fmt.Fprintf(ctx.Stdout, destroyEnvMsg, c.envName)
-
+		fmt.Fprintf(ctx.Stdout, destroyModelMsg, modelName)
 		if err := jujucmd.UserConfirmYes(ctx); err != nil {
 			return errors.Annotate(err, "model destruction")
 		}
@@ -123,12 +109,10 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 	defer api.Close()
 
 	// Attempt to destroy the model.
-	err = api.DestroyModel()
-	if err != nil {
+	if err := api.DestroyModel(); err != nil {
 		return c.handleError(errors.Annotate(err, "cannot destroy model"))
 	}
-
-	return environs.DestroyInfo(c.envName, store)
+	return errors.Trace(store.RemoveModel(controllerName, modelName))
 }
 
 func (c *destroyCommand) handleError(err error) error {
@@ -138,6 +122,6 @@ func (c *destroyCommand) handleError(err error) error {
 	if params.IsCodeOperationBlocked(err) {
 		return block.ProcessBlockedError(err, block.BlockDestroy)
 	}
-	logger.Errorf(`failed to destroy model %q`, c.envName)
+	logger.Errorf(`failed to destroy model %q`, c.ModelName())
 	return err
 }

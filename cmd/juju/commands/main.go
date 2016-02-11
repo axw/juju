@@ -251,7 +251,6 @@ func registerCommands(r commandRegistry, ctx *cmd.Context) {
 	r.Register(controller.NewLoginCommand())
 	r.Register(controller.NewRegisterCommand())
 	r.Register(controller.NewRemoveBlocksCommand())
-	r.Register(controller.NewUseModelCommand())
 
 	// Debug Metrics
 	r.Register(metricsdebug.New())

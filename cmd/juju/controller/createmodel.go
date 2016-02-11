@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"os"
 	"strings"
 
 	"github.com/juju/cmd"
@@ -18,6 +19,8 @@ import (
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/configstore"
+	"github.com/juju/juju/juju/osenv"
+	"github.com/juju/juju/jujuclient"
 )
 
 // NewCreateModelCommand returns a command to create an model.
@@ -189,8 +192,29 @@ func (c *createModelCommand) Run(ctx *cmd.Context) (return_err error) {
 		if err := info.Write(); err != nil {
 			return errors.Trace(err)
 		}
+		store := c.ClientStore()
+		if err := store.UpdateModel(c.ControllerName(), c.Name, jujuclient.ModelDetails{
+			env.UUID,
+		}); err != nil {
+			return errors.Trace(err)
+		}
 		ctx.Infof("created model %q", c.Name)
-		return modelcmd.SetCurrentModel(ctx, c.Name)
+
+		// Set the current model for the controller.
+		if os.Getenv(osenv.JujuModelEnvKey) != "" {
+			ctx.Infof(
+				"%s is set, not switching to the new model",
+				osenv.JujuModelEnvKey,
+			)
+		} else {
+			// TODO(axw) log transition. need to be sensitive
+			// to whether the controller in play is the "current"
+			// controller, or whether it's specific to this command
+			// by passing -c.
+			if err := store.SetCurrentModel(c.ControllerName(), c.Name); err != nil {
+				return errors.Trace(err)
+			}
+		}
 	} else {
 		ctx.Infof("created model %q for %q", c.Name, c.Owner)
 	}

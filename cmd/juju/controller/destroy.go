@@ -147,7 +147,7 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 
 		ctx.Infof("All hosted models reclaimed, cleaning up controller machines")
 	}
-	return environs.Destroy(c.ControllerName(), controllerEnviron, store)
+	return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
 }
 
 // destroyControllerViaClient attempts to destroy the controller using the client
@@ -164,7 +164,7 @@ func (c *destroyCommand) destroyControllerViaClient(ctx *cmd.Context, info confi
 		return c.ensureUserFriendlyErrorLog(errors.Annotate(err, "cannot destroy controller"), ctx, nil)
 	}
 
-	return environs.Destroy(c.ControllerName(), controllerEnviron, store)
+	return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
 }
 
 // ensureUserFriendlyErrorLog ensures that error will be logged and displayed

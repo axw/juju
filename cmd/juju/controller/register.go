@@ -33,6 +33,7 @@ import (
 // NewRegisterCommand returns a command to allow the user to register a controller.
 func NewRegisterCommand() cmd.Command {
 	cmd := &registerCommand{}
+	cmd.store = jujuclient.NewFileClientStore()
 	cmd.apiOpen = cmd.APIOpen
 	cmd.newAPIRoot = cmd.NewAPIRoot
 	return modelcmd.WrapBase(cmd)
@@ -42,6 +43,7 @@ func NewRegisterCommand() cmd.Command {
 // information.
 type registerCommand struct {
 	modelcmd.JujuCommandBase
+	store       jujuclient.ClientStore
 	apiOpen     api.OpenFunc
 	newAPIRoot  modelcmd.OpenFunc
 	EncodedData string
@@ -161,7 +163,7 @@ func (c *registerCommand) Run(ctx *cmd.Context) error {
 
 	// Log into the controller to verify the credentials, and
 	// refresh the connection information.
-	apiConn, err := c.newAPIRoot(registrationParams.controllerName)
+	apiConn, err := c.newAPIRoot(c.store, registrationParams.controllerName, "")
 	if err != nil {
 		return errors.Trace(err)
 	}

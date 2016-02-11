@@ -11,7 +11,6 @@ import (
 	"github.com/juju/utils/clock"
 	"launchpad.net/gnuflag"
 
-	"github.com/juju/juju/api"
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/environs"
@@ -43,11 +42,11 @@ func NewKillCommand() cmd.Command {
 
 // wrapKillCommand provides the common wrapping used by tests and
 // the default NewKillCommand above.
-func wrapKillCommand(kill *killCommand, fn func(string) (api.Connection, error), clock clock.Clock) cmd.Command {
-	if fn == nil {
-		fn = kill.JujuCommandBase.NewAPIRoot
+func wrapKillCommand(kill *killCommand, opener modelcmd.APIOpener, clock clock.Clock) cmd.Command {
+	if opener == nil {
+		opener = modelcmd.OpenFunc(kill.JujuCommandBase.NewAPIRoot)
 	}
-	openStrategy := modelcmd.NewTimeoutOpener(fn, clock, 10*time.Second)
+	openStrategy := modelcmd.NewTimeoutOpener(opener, clock, 10*time.Second)
 	return modelcmd.WrapController(
 		kill,
 		modelcmd.ControllerSkipFlags,
@@ -131,14 +130,14 @@ func (c *killCommand) Run(ctx *cmd.Context) error {
 	// the environs interface.
 	if api == nil {
 		ctx.Infof("Unable to connect to the API server. Destroying through provider.")
-		return environs.Destroy(c.ControllerName(), controllerEnviron, store)
+		return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
 	}
 
 	// Attempt to destroy the controller and all environments.
 	err = api.DestroyController(true)
 	if err != nil {
 		ctx.Infof("Unable to destroy controller through the API: %s.  Destroying through provider.", err)
-		return environs.Destroy(c.ControllerName(), controllerEnviron, store)
+		return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
 	}
 
 	ctx.Infof("Destroying controller %q\nWaiting for resources to be reclaimed", c.ControllerName())
@@ -153,7 +152,7 @@ func (c *killCommand) Run(ctx *cmd.Context) error {
 
 	ctx.Infof("All hosted models reclaimed, cleaning up controller machines")
 
-	return environs.Destroy(c.ControllerName(), controllerEnviron, store)
+	return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
 }
 
 // killControllerViaClient attempts to kill the controller using the client
@@ -172,5 +171,5 @@ func (c *killCommand) killControllerViaClient(ctx *cmd.Context, info configstore
 		}
 	}
 
-	return environs.Destroy(c.ControllerName(), controllerEnviron, store)
+	return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
 }

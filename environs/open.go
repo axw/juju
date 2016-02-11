@@ -33,12 +33,12 @@ func New(config *config.Config) (Environ, error) {
 func Prepare(
 	ctx BootstrapContext,
 	store configstore.Storage,
-	controllerStore jujuclient.ControllerStore,
+	clientStore jujuclient.ClientStore,
 	controllerName string,
 	args PrepareForBootstrapParams,
 ) (Environ, error) {
-	info, err := store.ReadInfo(controllerName)
-	if err == nil {
+
+	if _, err := clientStore.ControllerByName(controllerName); err == nil {
 		return nil, errors.AlreadyExistsf("controller %q", controllerName)
 	} else if !errors.IsNotFound(err) {
 		return nil, errors.Annotatef(err, "error reading controller %q info", controllerName)
@@ -48,7 +48,7 @@ func Prepare(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	info = store.CreateInfo(controllerName)
+	info := store.CreateInfo(controllerName)
 	env, err := prepare(ctx, info, p, args)
 	if err != nil {
 		if err := info.Destroy(); err != nil {
@@ -59,7 +59,7 @@ func Prepare(
 		}
 		return nil, errors.Trace(err)
 	}
-	if err := decorateAndWriteInfo(info, controllerStore, env.Config()); err != nil {
+	if err := decorateAndWriteInfo(info, clientStore, controllerName, env.Config()); err != nil {
 		return nil, errors.Annotatef(err, "cannot create controller %q info", controllerName)
 	}
 	return env, nil
@@ -67,7 +67,12 @@ func Prepare(
 
 // decorateAndWriteInfo decorates the info struct with information
 // from the given cfg, and the writes that out to the filesystem.
-func decorateAndWriteInfo(info configstore.EnvironInfo, controllerStore jujuclient.ControllerStore, cfg *config.Config) error {
+func decorateAndWriteInfo(
+	info configstore.EnvironInfo,
+	store jujuclient.ClientStore,
+	controllerName string,
+	cfg *config.Config,
+) error {
 
 	// Sanity check our config.
 	var endpoint configstore.APIEndpoint
@@ -94,14 +99,24 @@ func decorateAndWriteInfo(info configstore.EnvironInfo, controllerStore jujuclie
 	info.SetBootstrapConfig(cfg.AllAttrs())
 
 	connectionDetails := info.APIEndpoint()
-	c := jujuclient.ControllerDetails{
+	controllerDetails := jujuclient.ControllerDetails{
 		connectionDetails.Hostnames,
 		endpoint.ServerUUID,
 		connectionDetails.Addresses,
 		endpoint.CACert,
 	}
-	if err := controllerStore.UpdateController(cfg.Name(), c); err != nil {
-		return errors.Trace(err)
+	if err := store.UpdateController(controllerName, controllerDetails); err != nil {
+		return errors.Annotate(err, "writing controller details")
+	}
+
+	modelDetails := jujuclient.ModelDetails{
+		endpoint.ServerUUID,
+	}
+	if err := store.UpdateModel(controllerName, cfg.Name(), modelDetails); err != nil {
+		return errors.Annotate(err, "writing admin model details")
+	}
+	if err := store.SetCurrentModel(controllerName, cfg.Name()); err != nil {
+		return errors.Annotate(err, "setting current mode")
 	}
 
 	return errors.Trace(info.Write())
@@ -185,16 +200,25 @@ func ensureUUID(cfg *config.Config) (*config.Config, error) {
 
 // Destroy destroys the controller and, if successful,
 // its associated configuration data from the given store.
-func Destroy(controllerName string, env Environ, store configstore.Storage) error {
+func Destroy(
+	controllerName string,
+	env Environ,
+	store configstore.Storage,
+	controllerRemover jujuclient.ControllerRemover,
+) error {
 	if err := env.Destroy(); err != nil {
 		return err
 	}
-	return DestroyInfo(controllerName, store)
+	return DestroyInfo(controllerName, store, controllerRemover)
 }
 
 // DestroyInfo destroys the configuration data for the named
 // controller from the given store.
-func DestroyInfo(controllerName string, store configstore.Storage) error {
+func DestroyInfo(
+	controllerName string,
+	store configstore.Storage,
+	controllerRemover jujuclient.ControllerRemover,
+) error {
 	info, err := store.ReadInfo(controllerName)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -204,6 +228,9 @@ func DestroyInfo(controllerName string, store configstore.Storage) error {
 	}
 	if err := info.Destroy(); err != nil {
 		return errors.Annotate(err, "cannot destroy controller information")
+	}
+	if err := controllerRemover.RemoveController(controllerName); err != nil {
+		return errors.Annotate(err, "cannot remove controller details")
 	}
 	return nil
 }

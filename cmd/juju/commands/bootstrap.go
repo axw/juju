@@ -28,7 +28,6 @@ import (
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/feature"
 	"github.com/juju/juju/instance"
-	"github.com/juju/juju/juju"
 	"github.com/juju/juju/juju/osenv"
 	"github.com/juju/juju/jujuclient"
 	"github.com/juju/juju/version"
@@ -614,8 +613,6 @@ func handleBootstrapError(ctx *cmd.Context, err error, cleanup func() error) {
 var allInstances = func(environ environs.Environ) ([]instance.Instance, error) {
 	return environ.AllInstances()
 }
-
-var prepareEndpointsForCaching = juju.PrepareEndpointsForCaching
 
 // setControllerAddresses writes the API endpoint addresses of the bootstrap
 // server into the client store. This should only be run once directly after

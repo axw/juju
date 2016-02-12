@@ -497,7 +497,7 @@ func (s *MainSuite) TestModelCommands(c *gc.C) {
 	// ModelCommands must be wrapped using modelcmd.Wrap.
 	for _, cmd := range commands {
 		c.Logf("%v", cmd.Info().Name)
-		c.Check(cmd, gc.Not(gc.FitsTypeOf), modelcmd.ModelCommand(&bootstrapCommand{}))
+		c.Check(cmd, gc.Not(gc.FitsTypeOf), modelcmd.ModelCommand(nil))
 	}
 }
 

@@ -243,7 +243,6 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	ctx := testing.Context(c)
 	environ, err := environs.Prepare(
 		modelcmd.BootstrapContext(ctx),
-		s.ConfigStore,
 		s.ClientStore,
 		"dummymodel",
 		environs.PrepareForBootstrapParams{

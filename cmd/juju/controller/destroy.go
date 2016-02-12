@@ -24,7 +24,7 @@ import (
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
+	"github.com/juju/juju/jujuclient"
 )
 
 // NewDestroyCommand returns a command to destroy a controller.
@@ -91,38 +91,30 @@ func (c *destroyCommand) SetFlags(f *gnuflag.FlagSet) {
 
 // Run implements Command.Run
 func (c *destroyCommand) Run(ctx *cmd.Context) error {
-	store, err := configstore.Default()
-	if err != nil {
-		return errors.Annotate(err, "cannot open controller info storage")
-	}
 
-	cfgInfo, err := store.ReadInfo(c.ControllerName())
+	store := c.ClientStore()
+	controllerName := c.ControllerName()
+	controllerDetails, err := store.ControllerByName(controllerName)
 	if err != nil {
-		return errors.Annotate(err, "cannot read controller info")
-	}
-
-	// Verify that we're destroying a controller
-	apiEndpoint := cfgInfo.APIEndpoint()
-	if apiEndpoint.ServerUUID != "" && apiEndpoint.ModelUUID != apiEndpoint.ServerUUID {
-		return errors.Errorf("%q is not a controller; use juju model destroy to destroy it", c.ControllerName())
+		return errors.Trace(err)
 	}
 
 	if !c.assumeYes {
-		if err = confirmDestruction(ctx, c.ControllerName()); err != nil {
+		if err = confirmDestruction(ctx, controllerName); err != nil {
 			return err
 		}
 	}
 
 	// Attempt to connect to the API.  If we can't, fail the destroy.  Users will
-	// need to use the controller kill command if we can't connect.
+	// need to use the kill-controller command if we can't connect.
 	api, err := c.getControllerAPI()
 	if err != nil {
-		return c.ensureUserFriendlyErrorLog(errors.Annotate(err, "cannot connect to API"), ctx, nil)
+		return c.ensureUserFriendlyErrorLog(controllerName, errors.Annotate(err, "cannot connect to API"), ctx, nil)
 	}
 	defer api.Close()
 
 	// Obtain bootstrap / controller environ information
-	controllerEnviron, err := c.getControllerEnviron(cfgInfo, api)
+	controllerEnviron, err := c.getControllerEnviron(store, api)
 	if err != nil {
 		return errors.Annotate(err, "cannot obtain bootstrap information")
 	}
@@ -130,14 +122,14 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 	// Attempt to destroy the controller.
 	err = api.DestroyController(c.destroyEnvs)
 	if err != nil {
-		return c.ensureUserFriendlyErrorLog(errors.Annotate(err, "cannot destroy controller"), ctx, api)
+		return c.ensureUserFriendlyErrorLog(controllerName, errors.Annotate(err, "cannot destroy controller"), ctx, api)
 	}
 
-	ctx.Infof("Destroying controller %q", c.ControllerName())
+	ctx.Infof("Destroying controller %q", controllerName)
 	if c.destroyEnvs {
 		ctx.Infof("Waiting for hosted model resources to be reclaimed.")
 
-		updateStatus := newTimedStatusUpdater(ctx, api, apiEndpoint.ModelUUID)
+		updateStatus := newTimedStatusUpdater(ctx, api, controllerDetails.ControllerUUID)
 		for ctrStatus, envsStatus := updateStatus(0); hasUnDeadEnvirons(envsStatus); ctrStatus, envsStatus = updateStatus(2 * time.Second) {
 			ctx.Infof(fmtCtrStatus(ctrStatus))
 			for _, envStatus := range envsStatus {
@@ -147,29 +139,12 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 
 		ctx.Infof("All hosted models reclaimed, cleaning up controller machines")
 	}
-	return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
-}
-
-// destroyControllerViaClient attempts to destroy the controller using the client
-// endpoint for older juju controllers which do not implement controller.DestroyController
-func (c *destroyCommand) destroyControllerViaClient(ctx *cmd.Context, info configstore.EnvironInfo, controllerEnviron environs.Environ, store configstore.Storage) error {
-	api, err := c.getClientAPI()
-	if err != nil {
-		return c.ensureUserFriendlyErrorLog(errors.Annotate(err, "cannot connect to API"), ctx, nil)
-	}
-	defer api.Close()
-
-	err = api.DestroyModel()
-	if err != nil {
-		return c.ensureUserFriendlyErrorLog(errors.Annotate(err, "cannot destroy controller"), ctx, nil)
-	}
-
-	return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
+	return environs.Destroy(controllerName, controllerEnviron, store)
 }
 
 // ensureUserFriendlyErrorLog ensures that error will be logged and displayed
 // in a user-friendly manner with readable and digestable error message.
-func (c *destroyCommand) ensureUserFriendlyErrorLog(destroyErr error, ctx *cmd.Context, api destroyControllerAPI) error {
+func (c *destroyCommand) ensureUserFriendlyErrorLog(controllerName string, destroyErr error, ctx *cmd.Context, api destroyControllerAPI) error {
 	if destroyErr == nil {
 		return nil
 	}
@@ -195,7 +170,7 @@ To remove all blocks in the controller, please run:
 		}
 		return cmd.ErrSilent
 	}
-	logger.Errorf(stdFailureMsg, c.ControllerName())
+	logger.Errorf(stdFailureMsg, controllerName)
 	return destroyErr
 }
 
@@ -300,20 +275,21 @@ func (c *destroyCommandBase) Init(args []string) error {
 }
 
 // getControllerEnviron gets the bootstrap information required to destroy the
-// environment by first checking the config store, then querying the API if
-// the information is not in the store.
-func (c *destroyCommandBase) getControllerEnviron(info configstore.EnvironInfo, sysAPI destroyControllerAPI) (_ environs.Environ, err error) {
-	bootstrapCfg := info.BootstrapConfig()
-	if bootstrapCfg == nil {
-		if sysAPI == nil {
-			return nil, errors.New("unable to get bootstrap information from API")
-		}
-		bootstrapCfg, err = sysAPI.ModelConfig()
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
+// controller by first checking the store, then querying the API if the information
+// is not in the store.
+func (c *destroyCommandBase) getControllerEnviron(
+	store jujuclient.ClientStore, sysAPI destroyControllerAPI,
+) (_ environs.Environ, err error) {
+	// TODO(axw) we need to store the bootstrap config,
+	// or enough information to derive it, and use that
+	// here as the first preference.
+	if sysAPI == nil {
+		return nil, errors.New("unable to get bootstrap information from API")
 	}
-
+	bootstrapCfg, err := sysAPI.ModelConfig()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	cfg, err := config.New(config.NoDefaults, bootstrapCfg)
 	if err != nil {
 		return nil, errors.Trace(err)

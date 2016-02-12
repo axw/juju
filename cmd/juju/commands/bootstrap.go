@@ -26,13 +26,11 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/feature"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/juju"
 	"github.com/juju/juju/juju/osenv"
 	"github.com/juju/juju/jujuclient"
-	"github.com/juju/juju/network"
 	"github.com/juju/juju/version"
 )
 
@@ -327,14 +325,9 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	if err != nil {
 		return errors.Annotate(err, "creating environment configuration")
 	}
-	store, err := configstore.Default()
-	if err != nil {
-		return errors.Trace(err)
-	}
 	environ, err := environsPrepare(
 		modelcmd.BootstrapContext(ctx),
-		store, c.Store,
-		c.ControllerName,
+		c.Store, c.ControllerName,
 		environs.PrepareForBootstrapParams{
 			Config:               cfg,
 			Credentials:          *credential,
@@ -366,7 +359,7 @@ When you are finished diagnosing the problem, remember to run juju destroy-model
 to clean up the model.`[1:])
 			} else {
 				handleBootstrapError(ctx, resultErr, func() error {
-					return environsDestroy(c.ControllerName, environ, store, c.Store)
+					return environsDestroy(c.ControllerName, environ, c.Store)
 				})
 			}
 		}
@@ -418,13 +411,14 @@ to clean up the model.`[1:])
 		return errors.Annotate(err, "failed to bootstrap model")
 	}
 
-	err = c.SetBootstrapEndpointAddress(environ)
-	if err != nil {
+	// Set the controller addresses. We rely on the
+	// "waitForAgentInitialisation" call below to
+	// connect to the API (using these addresses),
+	// and update the list with the canonical values.
+	if err := c.setControllerAddresses(environ); err != nil {
 		return errors.Annotate(err, "saving bootstrap endpoint address")
 	}
-
-	err = modelcmd.SetCurrentController(ctx, c.ControllerName)
-	if err != nil {
+	if err := modelcmd.SetCurrentController(ctx, c.ControllerName); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -623,62 +617,18 @@ var allInstances = func(environ environs.Environ) ([]instance.Instance, error) {
 
 var prepareEndpointsForCaching = juju.PrepareEndpointsForCaching
 
-// SetBootstrapEndpointAddress writes the API endpoint address of the
-// bootstrap server into the connection information. This should only be run
-// once directly after Bootstrap. It assumes that there is just one instance
-// in the environment - the bootstrap instance.
-func (c *bootstrapCommand) SetBootstrapEndpointAddress(environ environs.Environ) error {
-	instances, err := allInstances(environ)
+// setControllerAddresses writes the API endpoint addresses of the bootstrap
+// server into the client store. This should only be run once directly after
+// Bootstrap.
+func (c *bootstrapCommand) setControllerAddresses(env environs.Environ) error {
+	apiInfo, err := environs.APIInfo(env)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	length := len(instances)
-	if length == 0 {
-		return errors.Errorf("found no instances, expected at least one")
-	}
-	if length > 1 {
-		logger.Warningf("expected one instance, got %d", length)
-	}
-	bootstrapInstance := instances[0]
-	cfg := environ.Config()
-	info, err := modelcmd.ConnectionInfoForName(c.ControllerName)
-	if err != nil {
-		return errors.Annotate(err, "failed to get connection info")
-	}
-
-	// Don't use c.ConnectionEndpoint as it attempts to contact the state
-	// server if no addresses are found in connection info.
-	endpoint := info.APIEndpoint()
-	netAddrs, err := bootstrapInstance.Addresses()
-	if err != nil {
-		return errors.Annotate(err, "failed to get bootstrap instance addresses")
-	}
-	apiPort := cfg.APIPort()
-	apiHostPorts := network.AddressesWithPort(netAddrs, apiPort)
-	addrs, hosts, addrsChanged := prepareEndpointsForCaching(
-		info, [][]network.HostPort{apiHostPorts}, network.HostPort{},
-	)
-	if !addrsChanged {
-		// Something's wrong we already have cached addresses?
-		return errors.Annotate(err, "cached API endpoints unexpectedly exist")
-	}
-	endpoint.Addresses = addrs
-	endpoint.Hostnames = hosts
-	info.SetAPIEndpoint(endpoint)
-	err = info.Write()
-	if err != nil {
-		return errors.Annotate(err, "failed to write API endpoint to connection info")
-	}
-
-	err = c.Store.UpdateController(c.ControllerName, jujuclient.ControllerDetails{
-		hosts,
-		endpoint.ServerUUID,
-		addrs,
-		endpoint.CACert,
-	})
+	controllerDetails, err := c.Store.ControllerByName(c.ControllerName)
 	if err != nil {
 		return errors.Trace(err)
 	}
-
-	return nil
+	controllerDetails.APIEndpoints = apiInfo.Addrs
+	return errors.Trace(c.Store.UpdateController(c.ControllerName, *controllerDetails))
 }

@@ -14,7 +14,6 @@ import (
 
 	"github.com/juju/juju/cert"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/jujuclient"
 )
 
@@ -30,9 +29,11 @@ func New(config *config.Config) (Environ, error) {
 // Prepare prepares a new environment based on the provided configuration.
 // It is an error to prepare a environment if there already exists an
 // entry in the config store with that name.
+//
+// TODO(axw) this should be called PrepareController, or maybe
+// PrepareControllerEnviron.
 func Prepare(
 	ctx BootstrapContext,
-	store configstore.Storage,
 	clientStore jujuclient.ClientStore,
 	controllerName string,
 	args PrepareForBootstrapParams,
@@ -41,69 +42,44 @@ func Prepare(
 	if _, err := clientStore.ControllerByName(controllerName); err == nil {
 		return nil, errors.AlreadyExistsf("controller %q", controllerName)
 	} else if !errors.IsNotFound(err) {
-		return nil, errors.Annotatef(err, "error reading controller %q info", controllerName)
+		return nil, errors.Annotatef(err, "error getting controller %q details", controllerName)
 	}
 
 	p, err := Provider(args.Config.Type())
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	info := store.CreateInfo(controllerName)
-	env, err := prepare(ctx, info, p, args)
+	env, err := prepare(ctx, p, args)
 	if err != nil {
-		if err := info.Destroy(); err != nil {
-			logger.Warningf(
-				"cannot destroy newly created controller %q info: %v",
-				controllerName, err,
-			)
-		}
 		return nil, errors.Trace(err)
 	}
-	if err := decorateAndWriteInfo(info, clientStore, controllerName, env.Config()); err != nil {
-		return nil, errors.Annotatef(err, "cannot create controller %q info", controllerName)
+	if err := decorateAndWriteInfo(clientStore, controllerName, env.Config()); err != nil {
+		return nil, errors.Annotatef(err, "cannot writing controller %q details", controllerName)
 	}
 	return env, nil
 }
 
-// decorateAndWriteInfo decorates the info struct with information
-// from the given cfg, and the writes that out to the filesystem.
+// decorateAndWriteInfo writes the details in the given store for the
+// newly prepared controller, account and admin model.
 func decorateAndWriteInfo(
-	info configstore.EnvironInfo,
 	store jujuclient.ClientStore,
 	controllerName string,
 	cfg *config.Config,
 ) error {
 
-	// Sanity check our config.
-	var endpoint configstore.APIEndpoint
-	if cert, ok := cfg.CACert(); !ok {
-		return errors.Errorf("CACert is not set")
-	} else if uuid, ok := cfg.UUID(); !ok {
-		return errors.Errorf("UUID is not set")
-	} else if adminSecret := cfg.AdminSecret(); adminSecret == "" {
-		return errors.Errorf("admin-secret is not set")
-	} else {
-		endpoint = configstore.APIEndpoint{
-			CACert:    cert,
-			ModelUUID: uuid,
-		}
-	}
+	// TODO(axw) we need to record input to PrepareForBootstrap
+	// in the client, so we can force-destroy a broken controller.
 
-	creds := configstore.APICredentials{
-		User:     configstore.DefaultAdminUsername,
-		Password: cfg.AdminSecret(),
-	}
-	endpoint.ServerUUID = endpoint.ModelUUID
-	info.SetAPICredentials(creds)
-	info.SetAPIEndpoint(endpoint)
-	info.SetBootstrapConfig(cfg.AllAttrs())
+	// These things are validated by the client store, so there's
+	// no need to check here. Also, we just set them in prepare.
+	caCert, _ := cfg.CACert()
+	uuid, _ := cfg.UUID()
 
-	connectionDetails := info.APIEndpoint()
 	controllerDetails := jujuclient.ControllerDetails{
-		connectionDetails.Hostnames,
-		endpoint.ServerUUID,
-		connectionDetails.Addresses,
-		endpoint.CACert,
+		nil, // No servers yet
+		uuid,
+		nil, // No addresses yet
+		caCert,
 	}
 	if err := store.UpdateController(controllerName, controllerDetails); err != nil {
 		return errors.Annotate(err, "writing controller details")
@@ -121,19 +97,17 @@ func decorateAndWriteInfo(
 		return errors.Annotate(err, "setting current account")
 	}
 
-	modelDetails := jujuclient.ModelDetails{
-		endpoint.ServerUUID,
-	}
+	modelDetails := jujuclient.ModelDetails{uuid}
 	if err := store.UpdateModel(controllerName, cfg.Name(), modelDetails); err != nil {
 		return errors.Annotate(err, "writing admin model details")
 	}
 	if err := store.SetCurrentModel(controllerName, cfg.Name()); err != nil {
 		return errors.Annotate(err, "setting current mode")
 	}
-	return errors.Trace(info.Write())
+	return nil
 }
 
-func prepare(ctx BootstrapContext, info configstore.EnvironInfo, p EnvironProvider, args PrepareForBootstrapParams) (Environ, error) {
+func prepare(ctx BootstrapContext, p EnvironProvider, args PrepareForBootstrapParams) (Environ, error) {
 	cfg, err := ensureAdminSecret(args.Config)
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot generate admin-secret")
@@ -210,38 +184,20 @@ func ensureUUID(cfg *config.Config) (*config.Config, error) {
 }
 
 // Destroy destroys the controller and, if successful,
-// its associated configuration data from the given store.
+// removes it from the client.
+//
+// TODO(axw) this should be called DestroyController,
+// or maybe DestroyControllerEnviron.
 func Destroy(
 	controllerName string,
 	env Environ,
-	store configstore.Storage,
 	controllerRemover jujuclient.ControllerRemover,
 ) error {
 	if err := env.Destroy(); err != nil {
-		return err
+		return errors.Trace(err)
 	}
-	return DestroyInfo(controllerName, store, controllerRemover)
-}
-
-// DestroyInfo destroys the configuration data for the named
-// controller from the given store.
-func DestroyInfo(
-	controllerName string,
-	store configstore.Storage,
-	controllerRemover jujuclient.ControllerRemover,
-) error {
-	info, err := store.ReadInfo(controllerName)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-	if err := info.Destroy(); err != nil {
-		return errors.Annotate(err, "cannot destroy controller information")
-	}
-	if err := controllerRemover.RemoveController(controllerName); err != nil {
-		return errors.Annotate(err, "cannot remove controller details")
-	}
-	return nil
+	return errors.Annotate(
+		controllerRemover.RemoveController(controllerName),
+		"cannot remove controller details",
+	)
 }

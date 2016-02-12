@@ -9,18 +9,11 @@ import (
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
-	"github.com/juju/names"
 	"github.com/juju/utils"
-	goyaml "gopkg.in/yaml.v2"
 	"launchpad.net/gnuflag"
 
 	"github.com/juju/juju/api"
-	"github.com/juju/juju/api/usermanager"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/configstore"
-	"github.com/juju/juju/juju"
-	"github.com/juju/juju/jujuclient"
-	"github.com/juju/juju/network"
 )
 
 // NewLoginCommand returns a command to allow the user to login to a controller.
@@ -28,16 +21,11 @@ func NewLoginCommand() cmd.Command {
 	return modelcmd.WrapController(&loginCommand{})
 }
 
-// GetUserManagerFunc defines a function that takes an api connection
-// and returns the (locally defined) UserManager interface.
-type GetUserManagerFunc func(conn api.Connection) (UserManager, error)
-
 // loginCommand logs in to a Juju controller and caches the connection
 // information.
 type loginCommand struct {
 	modelcmd.ControllerCommandBase
-	loginAPIOpen   api.OpenFunc
-	GetUserManager GetUserManagerFunc
+	loginAPIOpen api.OpenFunc
 	// TODO (thumper): when we support local cert definitions
 	// allow the use to specify the user and server address.
 	// user      string
@@ -99,13 +87,9 @@ func (c *loginCommand) SetFlags(f *gnuflag.FlagSet) {
 
 // SetFlags implements Command.Init.
 func (c *loginCommand) Init(args []string) error {
-	if c.GetUserManager == nil {
-		c.GetUserManager = getUserManager
-	}
 	if len(args) == 0 {
 		return errors.New("no name specified")
 	}
-
 	c.Name, args = args[0], args[1:]
 	return cmd.CheckEmpty(args)
 }
@@ -122,175 +106,87 @@ func cookieFile() string {
 
 // Run implements Command.Run
 func (c *loginCommand) Run(ctx *cmd.Context) error {
-	if c.loginAPIOpen == nil {
-		c.loginAPIOpen = c.ControllerCommandBase.APIOpen
-	}
-
-	// TODO(thumper): as we support the user and address
-	// change this check here.
-	if c.Server.Path == "" {
-		return errors.New("no server file specified")
-	}
-
-	serverYAML, err := c.Server.Read(ctx)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	var serverDetails modelcmd.ServerFile
-	if err := goyaml.Unmarshal(serverYAML, &serverDetails); err != nil {
-		return errors.Trace(err)
-	}
-
-	info := api.Info{
-		Addrs:  serverDetails.Addresses,
-		CACert: serverDetails.CACert,
-	}
-	var userTag names.UserTag
-	if serverDetails.Username != "" {
-		// Construct the api.Info struct from the provided values
-		// and attempt to connect to the remote server before we do anything else.
-		if !names.IsValidUser(serverDetails.Username) {
-			return errors.Errorf("%q is not a valid username", serverDetails.Username)
+	/*
+		if c.loginAPIOpen == nil {
+			c.loginAPIOpen = c.ControllerCommandBase.APIOpen
 		}
 
-		userTag = names.NewUserTag(serverDetails.Username)
-		if !userTag.IsLocal() {
-			// Remote users do not have their passwords stored in Juju
-			// so we never attempt to change them.
-			c.KeepPassword = true
+		// TODO(thumper): as we support the user and address
+		// change this check here.
+		if c.Server.Path == "" {
+			return errors.New("no server file specified")
 		}
-		info.Tag = userTag
-	}
 
-	if serverDetails.Password != "" {
-		info.Password = serverDetails.Password
-	}
-
-	if serverDetails.Password == "" || serverDetails.Username == "" {
-		info.UseMacaroons = true
-	}
-	if c == nil {
-		panic("nil c")
-	}
-	if c.loginAPIOpen == nil {
-		panic("no loginAPIOpen")
-	}
-	apiState, err := c.loginAPIOpen(&info, api.DefaultDialOpts())
-	if err != nil {
-		return errors.Trace(err)
-	}
-	defer apiState.Close()
-
-	// If we get to here, the credentials supplied were sufficient to connect
-	// to the Juju Controller and login. Now we cache the details.
-	controllerInfo, err := c.cacheConnectionInfo(serverDetails, apiState)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	ctx.Infof("cached connection details as controller %q", c.Name)
-
-	// If we get to here, we have been able to connect to the API server, and
-	// also have been able to write the cached information. Now we can change
-	// the user's password to a new randomly generated strong password, and
-	// update the cached information knowing that the likelihood of failure is
-	// minimal.
-	if !c.KeepPassword {
-		if err := c.updatePassword(ctx, apiState, userTag, controllerInfo); err != nil {
+		serverYAML, err := c.Server.Read(ctx)
+		if err != nil {
 			return errors.Trace(err)
 		}
-	}
 
-	return errors.Trace(modelcmd.SetCurrentController(ctx, c.Name))
-}
+		var serverDetails modelcmd.ServerFile
+		if err := goyaml.Unmarshal(serverYAML, &serverDetails); err != nil {
+			return errors.Trace(err)
+		}
 
-func (c *loginCommand) cacheConnectionInfo(serverDetails modelcmd.ServerFile, apiState api.Connection) (configstore.EnvironInfo, error) {
-	store, err := configstore.Default()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	controllerInfo := store.CreateInfo(c.Name)
+		info := api.Info{
+			Addrs:  serverDetails.Addresses,
+			CACert: serverDetails.CACert,
+		}
+		var userTag names.UserTag
+		if serverDetails.Username != "" {
+			// Construct the api.Info struct from the provided values
+			// and attempt to connect to the remote server before we do anything else.
+			if !names.IsValidUser(serverDetails.Username) {
+				return errors.Errorf("%q is not a valid username", serverDetails.Username)
+			}
 
-	controllerTag, err := apiState.ControllerTag()
-	if err != nil {
-		return nil, errors.Wrap(err, errors.New("juju controller too old to support login"))
-	}
+			userTag = names.NewUserTag(serverDetails.Username)
+			if !userTag.IsLocal() {
+				// Remote users do not have their passwords stored in Juju
+				// so we never attempt to change them.
+				c.KeepPassword = true
+			}
+			info.Tag = userTag
+		}
 
-	connectedAddresses, err := network.ParseHostPorts(apiState.Addr())
-	if err != nil {
-		// Should never happen, since we've just connected with it.
-		return nil, errors.Annotatef(err, "invalid API address %q", apiState.Addr())
-	}
-	addressConnectedTo := connectedAddresses[0]
+		if serverDetails.Password != "" {
+			info.Password = serverDetails.Password
+		}
 
-	addrs, hosts, changed := juju.PrepareEndpointsForCaching(controllerInfo, apiState.APIHostPorts(), addressConnectedTo)
-	if !changed {
-		logger.Infof("api addresses: %v", apiState.APIHostPorts())
-		logger.Infof("address connected to: %v", addressConnectedTo)
-		return nil, errors.New("no addresses returned from prepare for caching")
-	}
+		if serverDetails.Password == "" || serverDetails.Username == "" {
+			info.UseMacaroons = true
+		}
+		if c == nil {
+			panic("nil c")
+		}
+		if c.loginAPIOpen == nil {
+			panic("no loginAPIOpen")
+		}
+		apiState, err := c.loginAPIOpen(&info, api.DefaultDialOpts())
+		if err != nil {
+			return errors.Trace(err)
+		}
+		defer apiState.Close()
 
-	controllerInfo.SetAPICredentials(
-		configstore.APICredentials{
-			User:     serverDetails.Username,
-			Password: serverDetails.Password,
-		})
+		// If we get to here, the credentials supplied were sufficient to connect
+		// to the Juju Controller and login. Now we cache the details.
+		controllerInfo, err := c.cacheConnectionInfo(serverDetails, apiState)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		ctx.Infof("cached connection details as controller %q", c.Name)
 
-	controllerInfo.SetAPIEndpoint(configstore.APIEndpoint{
-		Addresses:  addrs,
-		Hostnames:  hosts,
-		CACert:     serverDetails.CACert,
-		ServerUUID: controllerTag.Id(),
-	})
+		// If we get to here, we have been able to connect to the API server, and
+		// also have been able to write the cached information. Now we can change
+		// the user's password to a new randomly generated strong password, and
+		// update the cached information knowing that the likelihood of failure is
+		// minimal.
+		if !c.KeepPassword {
+			if err := c.updatePassword(ctx, apiState, userTag, controllerInfo); err != nil {
+				return errors.Trace(err)
+			}
+		}
 
-	if err = controllerInfo.Write(); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	clientStore := c.ClientStore()
-	err = clientStore.UpdateController(c.Name, jujuclient.ControllerDetails{
-		addrs,
-		controllerTag.Id(),
-		addrs,
-		serverDetails.CACert,
-	})
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return controllerInfo, nil
-}
-
-func (c *loginCommand) updatePassword(ctx *cmd.Context, conn api.Connection, userTag names.UserTag, controllerInfo configstore.EnvironInfo) error {
-	password, err := utils.RandomPassword()
-	if err != nil {
-		return errors.Annotate(err, "failed to generate random password")
-	}
-
-	userManager, err := c.GetUserManager(conn)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if err := userManager.SetPassword(userTag.Name(), password); err != nil {
-		errors.Trace(err)
-	}
-	ctx.Infof("password updated\n")
-	creds := controllerInfo.APICredentials()
-	creds.Password = password
-	controllerInfo.SetAPICredentials(creds)
-	if err = controllerInfo.Write(); err != nil {
-		return errors.Trace(err)
-	}
-	return nil
-}
-
-// UserManager defines the calls that the Login command makes to the user
-// manager client. It is returned by a helper function that is overridden in
-// tests.
-type UserManager interface {
-	SetPassword(username, password string) error
-}
-
-func getUserManager(conn api.Connection) (UserManager, error) {
-	return usermanager.NewClient(conn), nil
+		return errors.Trace(modelcmd.SetCurrentController(ctx, c.Name))
+	*/
+	return errors.NotImplementedf("login")
 }

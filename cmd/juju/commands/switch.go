@@ -10,7 +10,6 @@ import (
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
 
-	"github.com/juju/juju/api/modelmanager"
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/juju/osenv"
 	"github.com/juju/juju/jujuclient"
@@ -92,7 +91,7 @@ func (c *switchCommand) Run(ctx *cmd.Context) error {
 	err = c.Store.SetCurrentModel(controllerName, modelName)
 	if errors.IsNotFound(err) {
 		// The model isn't known locally, so we must query the controller.
-		if err := c.refreshModels(ctx, controllerName); err != nil {
+		if err := c.RefreshModels(c.Store, controllerName); err != nil {
 			return errors.Annotate(err, "refreshing models cache")
 		}
 		if err := c.Store.SetCurrentModel(controllerName, modelName); err != nil {
@@ -107,33 +106,5 @@ func (c *switchCommand) Run(ctx *cmd.Context) error {
 		}
 	}
 	// TODO(axw) log transition here, rather than in modelcmd.SetCurrent...
-	return nil
-}
-
-func (c *switchCommand) refreshModels(ctx *cmd.Context, controllerName string) error {
-	// TODO(axw) need to get the user name from accounts.yaml.
-	userName := "admin"
-
-	ctx.Verbosef("listing models for %q on %q", userName, controllerName)
-	conn, err := c.NewAPIRoot(c.Store, controllerName, "")
-	if err != nil {
-		return errors.Trace(err)
-	}
-	defer conn.Close()
-	modelManager := modelmanager.NewClient(conn)
-	models, err := modelManager.ListModels(userName)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	// Cache model information locally.
-	for _, model := range models {
-		err := c.Store.UpdateModel(controllerName, model.Name, jujuclient.ModelDetails{
-			model.UUID,
-		})
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
 	return nil
 }

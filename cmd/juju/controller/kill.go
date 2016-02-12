@@ -154,22 +154,3 @@ func (c *killCommand) Run(ctx *cmd.Context) error {
 
 	return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
 }
-
-// killControllerViaClient attempts to kill the controller using the client
-// endpoint for older juju controllers which do not implement
-// controller.DestroyController
-func (c *killCommand) killControllerViaClient(ctx *cmd.Context, info configstore.EnvironInfo, controllerEnviron environs.Environ, store configstore.Storage) error {
-	api, err := c.getClientAPI()
-	if err != nil {
-		defer api.Close()
-	}
-
-	if api != nil {
-		err = api.DestroyModel()
-		if err != nil {
-			ctx.Infof("Unable to destroy controller through the API: %s.  Destroying through provider.", err)
-		}
-	}
-
-	return environs.Destroy(c.ControllerName(), controllerEnviron, store, c.ClientStore())
-}

@@ -109,6 +109,18 @@ func decorateAndWriteInfo(
 		return errors.Annotate(err, "writing controller details")
 	}
 
+	accountDetails := jujuclient.AccountDetails{
+		// TODO(axw) this should be captured in a constant somewhere.
+		User:     "admin@local",
+		Password: cfg.AdminSecret(),
+	}
+	if err := store.UpdateAccount(controllerName, accountDetails.User, accountDetails); err != nil {
+		return errors.Annotate(err, "writing account details")
+	}
+	if err := store.SetCurrentAccount(controllerName, accountDetails.User); err != nil {
+		return errors.Annotate(err, "setting current account")
+	}
+
 	modelDetails := jujuclient.ModelDetails{
 		endpoint.ServerUUID,
 	}
@@ -118,7 +130,6 @@ func decorateAndWriteInfo(
 	if err := store.SetCurrentModel(controllerName, cfg.Name()); err != nil {
 		return errors.Annotate(err, "setting current mode")
 	}
-
 	return errors.Trace(info.Write())
 }
 

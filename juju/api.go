@@ -396,6 +396,7 @@ func cacheAPIInfo(st api.Connection, info configstore.EnvironInfo, clientStore j
 		User:     tag.Id(),
 		Password: apiInfo.Password,
 	})
+	// TODO(axw) update accounts.yaml
 	return info.Write()
 }
 

@@ -14,6 +14,7 @@ import (
 	"launchpad.net/gnuflag"
 
 	"github.com/juju/juju/api"
+	"github.com/juju/juju/api/modelmanager"
 	"github.com/juju/juju/juju"
 	"github.com/juju/juju/jujuclient"
 )
@@ -77,6 +78,37 @@ func (c *JujuCommandBase) APIOpen(info *api.Info, opts api.DialOpts) (api.Connec
 		return nil, errors.Trace(err)
 	}
 	return c.apiContext.apiOpen(info, opts)
+}
+
+// RefreshModelsCache refreshes the local cache models cache for the current user.
+func (c *JujuCommandBase) RefreshModels(store jujuclient.ClientStore, controllerName string) error {
+	accountName, err := store.CurrentAccount(controllerName)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	accountDetails, err := store.AccountByName(controllerName, accountName)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	conn, err := c.NewAPIRoot(store, controllerName, "")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer conn.Close()
+
+	modelManager := modelmanager.NewClient(conn)
+	models, err := modelManager.ListModels(accountDetails.User)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	for _, model := range models {
+		modelDetails := jujuclient.ModelDetails{model.UUID}
+		err := store.UpdateModel(controllerName, model.Name, modelDetails)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
 
 // initAPIContext lazily initializes c.apiContext. Doing this lazily means that

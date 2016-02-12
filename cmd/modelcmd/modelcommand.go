@@ -118,7 +118,7 @@ func (c *ModelCommandBase) ClientStore() jujuclient.ClientStore {
 // SetModelName implements the ModelCommand interface.
 func (c *ModelCommandBase) SetModelName(modelName string) error {
 	if i := strings.IndexRune(modelName, ':'); i > 0 {
-		c.controllerName, c.modelName = modelName[:i], modelName[i:]
+		c.controllerName, c.modelName = modelName[:i], modelName[i+1:]
 		return nil
 	}
 	currentController, err := ReadCurrentController()
@@ -179,18 +179,20 @@ func (c *ModelCommandBase) NewAPIRoot() (api.Connection, error) {
 	if opener == nil {
 		opener = OpenFunc(c.JujuCommandBase.NewAPIRoot)
 	}
-
-	var controllerName, modelName string
-	if i := strings.IndexRune(c.modelName, ':'); i > 0 {
-		controllerName, modelName = c.modelName[:i], c.modelName[i:]
-	} else {
-		currentController, err := ReadCurrentController()
+	if c.modelName != "" {
+		_, err := c.store.ModelByName(c.controllerName, c.modelName)
 		if err != nil {
-			return nil, errors.Trace(err)
+			if !errors.IsNotFound(err) {
+				return nil, errors.Trace(err)
+			}
+			// The model isn't known locally, so query the models
+			// available in the controller, and cache them locally.
+			if err := c.RefreshModels(c.store, c.controllerName); err != nil {
+				return nil, errors.Annotate(err, "refreshing models")
+			}
 		}
-		controllerName, modelName = currentController, c.modelName
 	}
-	return opener.Open(c.store, controllerName, modelName)
+	return opener.Open(c.store, c.controllerName, c.modelName)
 }
 
 // ConnectionCredentials returns the credentials used to connect to the API for

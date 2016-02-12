@@ -70,7 +70,7 @@ Welcome, bob. You are now logged into "bob-controller".
 
 	// Make sure that the saved server details are sufficient to connect
 	// to the api server.
-	api, err := juju.NewAPIFromName("bob-controller", nil)
+	api, err := juju.NewAPIConnection("bob-controller", "", s.ClientStore, nil)
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(api.Close(), jc.ErrorIsNil)
 }

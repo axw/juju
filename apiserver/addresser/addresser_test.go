@@ -16,7 +16,6 @@ import (
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/feature"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/jujuclient/jujuclienttesting"
@@ -277,8 +276,8 @@ func testingEnvConfig(c *gc.C) *config.Config {
 	cfg, err := config.New(config.NoDefaults, dummy.SampleConfig())
 	c.Assert(err, jc.ErrorIsNil)
 	env, err := environs.Prepare(
-		modelcmd.BootstrapContext(coretesting.Context(c)), configstore.NewMem(),
-		jujuclienttesting.NewMemControllerStore(),
+		modelcmd.BootstrapContext(coretesting.Context(c)),
+		jujuclienttesting.NewMemClientStore(),
 		"dummycontroller", environs.PrepareForBootstrapParams{Config: cfg},
 	)
 	c.Assert(err, jc.ErrorIsNil)
@@ -302,8 +301,8 @@ func mockTestingEnvConfig(c *gc.C) *config.Config {
 	cfg, err := config.New(config.NoDefaults, mockConfig())
 	c.Assert(err, jc.ErrorIsNil)
 	env, err := environs.Prepare(
-		modelcmd.BootstrapContext(coretesting.Context(c)), configstore.NewMem(),
-		jujuclienttesting.NewMemControllerStore(),
+		modelcmd.BootstrapContext(coretesting.Context(c)),
+		jujuclienttesting.NewMemClientStore(),
 		"dummycontroller", environs.PrepareForBootstrapParams{Config: cfg},
 	)
 	c.Assert(err, jc.ErrorIsNil)

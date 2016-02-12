@@ -9,7 +9,6 @@ import (
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
 	envtesting "github.com/juju/juju/environs/testing"
 	"github.com/juju/juju/jujuclient/jujuclienttesting"
 	"github.com/juju/juju/provider/dummy"
@@ -33,8 +32,9 @@ func (*ConfigSuite) TestSecretAttrs(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	ctx := envtesting.BootstrapContext(c)
 	env, err := environs.Prepare(
-		ctx, configstore.NewMem(),
-		jujuclienttesting.NewMemControllerStore(), cfg.Name(),
+		ctx,
+		jujuclienttesting.NewMemClientStore(),
+		cfg.Name(),
 		environs.PrepareForBootstrapParams{Config: cfg},
 	)
 	c.Assert(err, jc.ErrorIsNil)
@@ -90,8 +90,8 @@ func (s *ConfigSuite) TestFirewallMode(c *gc.C) {
 		}
 		ctx := envtesting.BootstrapContext(c)
 		env, err := environs.Prepare(
-			ctx, configstore.NewMem(),
-			jujuclienttesting.NewMemControllerStore(),
+			ctx,
+			jujuclienttesting.NewMemClientStore(),
 			cfg.Name(),
 			environs.PrepareForBootstrapParams{Config: cfg},
 		)

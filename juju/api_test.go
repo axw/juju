@@ -74,8 +74,8 @@ func (cs *NewAPIStateSuite) TestNewAPIState(c *gc.C) {
 	cfg, err := config.New(config.NoDefaults, dummy.SampleConfig())
 	c.Assert(err, jc.ErrorIsNil)
 	ctx := envtesting.BootstrapContext(c)
-	cache := jujuclienttesting.NewMemControllerStore()
-	env, err := environs.Prepare(ctx, configstore.NewMem(), cache, cfg.Name(), environs.PrepareForBootstrapParams{Config: cfg})
+	store := jujuclienttesting.NewMemClientStore()
+	env, err := environs.Prepare(ctx, store, cfg.Name(), environs.PrepareForBootstrapParams{Config: cfg})
 	c.Assert(err, jc.ErrorIsNil)
 
 	storageDir := c.MkDir()
@@ -89,7 +89,7 @@ func (cs *NewAPIStateSuite) TestNewAPIState(c *gc.C) {
 
 	// At this stage, only controller record should exist,
 	// without connection details.
-	foundController, err := cache.ControllerByName(cfg.Name())
+	foundController, err := store.ControllerByName(cfg.Name())
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(foundController.Servers, gc.HasLen, 0)
 	c.Assert(foundController.APIEndpoints, gc.HasLen, 0)
@@ -165,7 +165,7 @@ func (s *NewAPIClientSuite) bootstrapEnv(c *gc.C, store configstore.Storage, con
 		store = configstore.NewMem()
 	}
 	if controllerStore == nil {
-		controllerStore = jujuclienttesting.NewMemControllerStore()
+		controllerStore = jujuclienttesting.NewMemClientStore()
 	}
 
 	ctx := envtesting.BootstrapContext(c)
@@ -259,14 +259,14 @@ func (s *NewAPIClientSuite) TestWithInfoNoAddresses(c *gc.C) {
 			CACert:    "certificated",
 		},
 	})
-	cache := newControllerStore("noconfig", &environInfo{
+	store := newControllerStore("noconfig", &environInfo{
 		endpoint: configstore.APIEndpoint{
 			Addresses:  []string{},
 			ServerUUID: "valid.uuid",
 			CACert:     "certificated",
 		},
 	})
-	st, err := juju.NewAPIFromStore("noconfig", store, cache, panicAPIOpen)
+	st, err := juju.NewAPIFromStore("noconfig", store, store, panicAPIOpen)
 	c.Assert(err, gc.ErrorMatches, `model "noconfig" not found`)
 	c.Assert(st, gc.IsNil)
 }

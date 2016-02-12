@@ -30,7 +30,6 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/environs/imagemetadata"
 	imagetesting "github.com/juju/juju/environs/imagemetadata/testing"
 	"github.com/juju/juju/environs/jujutest"
@@ -1262,8 +1261,8 @@ func (t *localNonUSEastSuite) SetUpTest(c *gc.C) {
 	cfg, err := config.New(config.NoDefaults, localConfigAttrs)
 	c.Assert(err, jc.ErrorIsNil)
 	env, err := environs.Prepare(
-		envtesting.BootstrapContext(c), configstore.NewMem(),
-		jujuclienttesting.NewMemControllerStore(),
+		envtesting.BootstrapContext(c),
+		jujuclienttesting.NewMemClientStore(),
 		cfg.Name(), environs.PrepareForBootstrapParams{
 			Config: cfg,
 			Credentials: cloud.NewCredential(

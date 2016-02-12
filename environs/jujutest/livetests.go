@@ -23,7 +23,6 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/environs/filestorage"
 	"github.com/juju/juju/environs/simplestreams"
 	sstesting "github.com/juju/juju/environs/simplestreams/testing"
@@ -85,16 +84,11 @@ type LiveTests struct {
 	// This is set by PrepareOnce and BootstrapOnce.
 	Env environs.Environ
 
-	// ConfigStore holds the configuration storage
-	// used when preparing the environment.
-	// This is initialized by SetUpSuite.
-	ConfigStore configstore.Storage
-
-	// ControllerStore holds the controller related informtion
+	// ClientStore holds the controller related informtion
 	// such as controllers, accounts, etc
 	// used when preparing the environment.
 	// This is initialized by SetUpSuite.
-	ControllerStore jujuclient.ControllerStore
+	ClientStore jujuclient.ClientStore
 
 	prepared     bool
 	bootstrapped bool
@@ -104,8 +98,7 @@ type LiveTests struct {
 func (t *LiveTests) SetUpSuite(c *gc.C) {
 	t.CleanupSuite.SetUpSuite(c)
 	t.TestDataSuite.SetUpSuite(c)
-	t.ConfigStore = configstore.NewMem()
-	t.ControllerStore = jujuclienttesting.NewMemControllerStore()
+	t.ClientStore = jujuclienttesting.NewMemClientStore()
 	t.PatchValue(&simplestreams.SimplestreamsJujuPublicKey, sstesting.SignedMetadataPublicKey)
 }
 
@@ -153,7 +146,7 @@ func (t *LiveTests) PrepareOnce(c *gc.C) {
 		return
 	}
 	args := t.prepareForBootstrapParams(c)
-	e, err := environs.Prepare(envtesting.BootstrapContext(c), t.ConfigStore, t.ControllerStore, args.Config.Name(), args)
+	e, err := environs.Prepare(envtesting.BootstrapContext(c), t.ClientStore, args.Config.Name(), args)
 	c.Assert(err, gc.IsNil, gc.Commentf("preparing environ %#v", t.TestConfig))
 	c.Assert(e, gc.NotNil)
 	t.Env = e
@@ -199,7 +192,7 @@ func (t *LiveTests) Destroy(c *gc.C) {
 	if t.Env == nil {
 		return
 	}
-	err := environs.Destroy(t.Env.Config().Name(), t.Env, t.ConfigStore)
+	err := environs.Destroy(t.Env.Config().Name(), t.Env, t.ClientStore)
 	c.Assert(err, jc.ErrorIsNil)
 	t.bootstrapped = false
 	t.prepared = false
@@ -821,8 +814,7 @@ func (t *LiveTests) TestBootstrapWithDefaultSeries(c *gc.C) {
 	args := t.prepareForBootstrapParams(c)
 	args.Config = dummyCfg
 	dummyenv, err := environs.Prepare(envtesting.BootstrapContext(c),
-		configstore.NewMem(),
-		jujuclienttesting.NewMemControllerStore(),
+		jujuclienttesting.NewMemClientStore(),
 		dummyCfg.Name(),
 		args)
 	c.Assert(err, jc.ErrorIsNil)
@@ -835,11 +827,10 @@ func (t *LiveTests) TestBootstrapWithDefaultSeries(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	args.Config = cfg
 	env, err := environs.Prepare(envtesting.BootstrapContext(c),
-		t.ConfigStore,
-		t.ControllerStore,
+		t.ClientStore,
 		"livetests", args)
 	c.Assert(err, jc.ErrorIsNil)
-	defer environs.Destroy("livetests", env, t.ConfigStore)
+	defer environs.Destroy("livetests", env, t.ClientStore)
 
 	err = bootstrap.Bootstrap(envtesting.BootstrapContext(c), env, bootstrap.BootstrapParams{})
 	c.Assert(err, jc.ErrorIsNil)

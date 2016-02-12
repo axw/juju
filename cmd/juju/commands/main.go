@@ -137,8 +137,6 @@ func registerCommands(r commandRegistry, ctx *cmd.Context) {
 	// Reporting commands.
 	r.Register(status.NewStatusCommand())
 	r.Register(newSwitchCommand())
-	r.Register(newEndpointCommand())
-	r.Register(newAPIInfoCommand())
 	r.Register(status.NewStatusHistoryCommand())
 
 	// Error resolution and debugging commands.

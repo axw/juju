@@ -29,7 +29,6 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/environs/filestorage"
 	"github.com/juju/juju/environs/simplestreams"
 	sstesting "github.com/juju/juju/environs/simplestreams/testing"
@@ -85,7 +84,6 @@ type JujuConnSuite struct {
 	Environ            environs.Environ
 	APIState           api.Connection
 	apiStates          []api.Connection // additional api.Connections to close on teardown
-	ConfigStore        configstore.Storage
 	ClientStore        jujuclient.ClientStore
 	BackingState       *state.State // The State being used by the API server
 	RootDir            string       // The faked-up root directory.
@@ -112,7 +110,7 @@ func (s *JujuConnSuite) SetUpTest(c *gc.C) {
 	s.MgoSuite.SetUpTest(c)
 	s.FakeJujuXDGDataHomeSuite.SetUpTest(c)
 	s.ToolsFixture.SetUpTest(c)
-	s.PatchValue(&configstore.DefaultAdminUsername, dummy.AdminUserTag().Name())
+	// TODO(axw) patch username of admin user with dummy-admin
 	s.setUpConn(c)
 	s.Factory = factory.NewFactory(s.State)
 }
@@ -234,10 +232,6 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	cfg, err := config.New(config.UseDefaults, (map[string]interface{})(s.sampleConfig()))
 	c.Assert(err, jc.ErrorIsNil)
 
-	store, err := configstore.Default()
-	c.Assert(err, jc.ErrorIsNil)
-	s.ConfigStore = store
-
 	s.ClientStore = jujuclient.NewFileClientStore()
 
 	ctx := testing.Context(c)
@@ -301,19 +295,7 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	controller.APIEndpoints = []string{s.APIState.APIHostPorts()[0][0].String()}
 	err = s.ClientStore.UpdateController("dummymodel", *controller)
 	c.Assert(err, jc.ErrorIsNil)
-
-	// TODO (anastasiamac 2016-02-08) START REMOVE with cache.yaml
-	info, err := s.ConfigStore.ReadInfo("dummymodel")
-	c.Assert(err, jc.ErrorIsNil)
-	endpoint := info.APIEndpoint()
-	endpoint.Addresses = []string{s.APIState.APIHostPorts()[0][0].String()}
-	info.SetAPIEndpoint(endpoint)
-	err = info.Write()
-	c.Assert(err, jc.ErrorIsNil)
-	// END REMOVE with cache.yaml
-
-	// Make sure the jenv file has the local host ports.
-	c.Logf("jenv host ports: %#v", s.APIState.APIHostPorts())
+	c.Logf("host ports: %#v", s.APIState.APIHostPorts())
 
 	s.Environ = environ
 

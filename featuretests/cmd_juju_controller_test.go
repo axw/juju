@@ -22,7 +22,6 @@ import (
 	undertakerapi "github.com/juju/juju/api/undertaker"
 	"github.com/juju/juju/cmd/juju/commands"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/juju"
 	jujutesting "github.com/juju/juju/juju/testing"
 	"github.com/juju/juju/provider/dummy"
@@ -100,7 +99,7 @@ func (s *cmdControllerSuite) TestControllerLoginCommand(c *gc.C) {
 
 	// Make sure that the saved server details are sufficient to connect
 	// to the api server.
-	api, err := juju.NewAPIFromName("just-a-controller", nil)
+	api, err := juju.NewAPIConnection("just-a-controller", "", s.ClientStore, nil)
 	c.Assert(err, jc.ErrorIsNil)
 	api.Close()
 }
@@ -119,7 +118,7 @@ dummymodel (controller) -> new-model
 
 	// Make sure that the saved server details are sufficient to connect
 	// to the api server.
-	api, err := juju.NewAPIFromName("new-model", nil)
+	api, err := juju.NewAPIConnection("dummymodel", "new-model", s.ClientStore, nil)
 	c.Assert(err, jc.ErrorIsNil)
 	api.Close()
 }
@@ -164,8 +163,7 @@ func (s *cmdControllerSuite) TestControllerDestroy(c *gc.C) {
 	close(stop)
 	<-done
 
-	store, err := configstore.Default()
-	_, err = store.ReadInfo("dummymodel")
+	_, err := s.ClientStore.ControllerByName("dummymodel")
 	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }
 
@@ -191,8 +189,7 @@ func (s *cmdControllerSuite) TestControllerKill(c *gc.C) {
 
 	s.run(c, "kill-controller", "dummymodel", "-y")
 
-	store, err := configstore.Default()
-	_, err = store.ReadInfo("dummymodel")
+	_, err := s.ClientStore.ControllerByName("dummymodel")
 	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }
 
@@ -230,8 +227,7 @@ func (s *cmdControllerSuite) TestSystemKillCallsEnvironDestroyOnHostedEnviron(c 
 	mClock := testing.NewClock(startTime)
 	undertaker.NewUndertaker(client, mClock)
 
-	store, err := configstore.Default()
-	_, err = store.ReadInfo("dummymodel")
+	_, err = s.ClientStore.ControllerByName("dummymodel")
 	c.Assert(err, jc.ErrorIsNil)
 
 	s.run(c, "kill-controller", "dummymodel", "-y")
@@ -239,8 +235,8 @@ func (s *cmdControllerSuite) TestSystemKillCallsEnvironDestroyOnHostedEnviron(c 
 	// Ensure that Destroy was called on the hosted model ...
 	opRecvTimeout(c, st, opc, dummy.OpDestroy{})
 
-	// ... and that the configstore was removed.
-	_, err = store.ReadInfo("dummymodel")
+	// ... and that the controller details were removed.
+	_, err = s.ClientStore.ControllerByName("dummymodel")
 	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }
 

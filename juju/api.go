@@ -160,17 +160,19 @@ func newAPIFromStore(
 	} else {
 		logger.Debugf("no cached API connection settings found")
 	}
-	try.Start(func(stop <-chan struct{}) (io.Closer, error) {
-		cfg, err := getConfig(store)
-		if err != nil {
-			return nil, err
-		}
-		_ = cfg
-		_ = delay
-		// TODO(axw) support connecting with bootstrap config
-		//return apiConfigConnect(cfg, apiOpen, stop, delay, environInfoUserTag(info))
-		return nil, errors.NotImplementedf("connecting with bootstrap config")
-	})
+	if false {
+		try.Start(func(stop <-chan struct{}) (io.Closer, error) {
+			cfg, err := getConfig(store)
+			if err != nil {
+				return nil, err
+			}
+			_ = cfg
+			_ = delay
+			// TODO(axw) support connecting with bootstrap config
+			//return apiConfigConnect(cfg, apiOpen, stop, delay, environInfoUserTag(info))
+			return nil, errors.NotImplementedf("connecting with bootstrap config")
+		})
+	}
 
 	try.Close()
 	val0, err := try.Result()

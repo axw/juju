@@ -90,8 +90,16 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 	store := c.ClientStore()
 	controllerName := c.ControllerName()
 	modelName := c.ModelName()
-	if _, err := store.ModelByName(controllerName, modelName); err != nil {
+	controllerDetails, err := store.ControllerByName(controllerName)
+	if err != nil {
 		return errors.Trace(err)
+	}
+	modelDetails, err := store.ModelByName(controllerName, modelName)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if modelDetails.ModelUUID == controllerDetails.ControllerUUID {
+		return errors.Errorf("%q is a controller; use 'juju destroy-controller' to destroy it", modelName)
 	}
 
 	if !c.assumeYes {

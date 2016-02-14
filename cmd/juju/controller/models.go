@@ -16,7 +16,6 @@ import (
 	"github.com/juju/juju/api/base"
 	"github.com/juju/juju/cmd/juju/user"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/configstore"
 )
 
 // NewModelsCommand returns a command to list environments.
@@ -35,7 +34,6 @@ type environmentsCommand struct {
 	exactTime bool
 	modelAPI  ModelManagerAPI
 	sysAPI    ModelsSysAPI
-	userCreds *configstore.APICredentials
 }
 
 var envsDoc = `
@@ -88,13 +86,6 @@ func (c *environmentsCommand) getSysAPI() (ModelsSysAPI, error) {
 	return c.NewControllerAPIClient()
 }
 
-func (c *environmentsCommand) getConnectionCredentials() (configstore.APICredentials, error) {
-	if c.userCreds != nil {
-		return *c.userCreds, nil
-	}
-	return c.ConnectionCredentials()
-}
-
 // SetFlags implements Command.SetFlags.
 func (c *environmentsCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.StringVar(&c.user, "user", "", "the user to list models for (administrative users only)")
@@ -118,12 +109,18 @@ type UserModel struct {
 
 // Run implements Command.Run
 func (c *environmentsCommand) Run(ctx *cmd.Context) error {
-	if c.user == "" {
-		creds, err := c.getConnectionCredentials()
+	if !c.all && c.user == "" {
+		store := c.ClientStore()
+		controllerName := c.ControllerName()
+		accountName, err := store.CurrentAccount(controllerName)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		c.user = creds.User
+		accountDetails, err := store.AccountByName(controllerName, accountName)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		c.user = accountDetails.User
 	}
 
 	var envs []base.UserModel

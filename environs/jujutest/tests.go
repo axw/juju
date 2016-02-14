@@ -80,7 +80,7 @@ func (t *Tests) SetUpTest(c *gc.C) {
 	t.DefaultBaseURL = "file://" + storageDir + "/tools"
 	t.ToolsFixture.SetUpTest(c)
 	t.UploadFakeToolsToDirectory(c, storageDir, "released", "released")
-	t.ClientStore = jujuclienttesting.NewMemClientStore()
+	t.ClientStore = jujuclienttesting.NewMemControllerStore()
 }
 
 func (t *Tests) TearDownTest(c *gc.C) {

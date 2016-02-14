@@ -14,14 +14,15 @@ import (
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/cmd/juju/controller"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/configstore"
+	"github.com/juju/juju/jujuclient"
+	"github.com/juju/juju/jujuclient/jujuclienttesting"
 	"github.com/juju/juju/testing"
 )
 
 type ModelsSuite struct {
 	testing.FakeJujuXDGDataHomeSuite
 	api   *fakeModelMgrAPIClient
-	creds *configstore.APICredentials
+	store jujuclient.ClientStore
 }
 
 var _ = gc.Suite(&ModelsSuite{})
@@ -57,7 +58,15 @@ func (f *fakeModelMgrAPIClient) AllModels() ([]base.UserModel, error) {
 func (s *ModelsSuite) SetUpTest(c *gc.C) {
 	s.FakeJujuXDGDataHomeSuite.SetUpTest(c)
 
-	err := modelcmd.WriteCurrentController("fake")
+	s.store = jujuclienttesting.NewMemControllerStore()
+	err := s.store.UpdateAccount("fake", "admin@local", jujuclient.AccountDetails{
+		User: "admin@local", Password: "hunter2",
+	})
+	c.Assert(err, jc.ErrorIsNil)
+	err = s.store.SetCurrentAccount("fake", "admin@local")
+	c.Assert(err, jc.ErrorIsNil)
+
+	err = modelcmd.WriteCurrentController("fake")
 	c.Assert(err, jc.ErrorIsNil)
 
 	last1 := time.Date(2015, 3, 20, 0, 0, 0, 0, time.UTC)
@@ -81,11 +90,10 @@ func (s *ModelsSuite) SetUpTest(c *gc.C) {
 		},
 	}
 	s.api = &fakeModelMgrAPIClient{models: models}
-	s.creds = &configstore.APICredentials{User: "admin@local", Password: "password"}
 }
 
 func (s *ModelsSuite) newCommand() cmd.Command {
-	return controller.NewModelsCommandForTest(s.api, s.api, s.creds)
+	return controller.NewModelsCommandForTest(s.api, s.api, s.store)
 }
 
 func (s *ModelsSuite) checkSuccess(c *gc.C, user string, args ...string) {

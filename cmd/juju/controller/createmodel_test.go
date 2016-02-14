@@ -16,7 +16,8 @@ import (
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/cmd/juju/controller"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/configstore"
+	"github.com/juju/juju/jujuclient"
+	"github.com/juju/juju/jujuclient/jujuclienttesting"
 	"github.com/juju/juju/testing"
 )
 
@@ -24,46 +25,47 @@ type createSuite struct {
 	testing.FakeJujuXDGDataHomeSuite
 	fake       *fakeCreateClient
 	parser     func(interface{}) (interface{}, error)
-	store      configstore.Storage
+	store      jujuclient.ClientStore
 	serverUUID string
-	server     configstore.EnvironInfo
+	//server     configstore.EnvironInfo
 }
 
 var _ = gc.Suite(&createSuite{})
 
 func (s *createSuite) SetUpTest(c *gc.C) {
 	s.FakeJujuXDGDataHomeSuite.SetUpTest(c)
-	s.fake = &fakeCreateClient{}
-	s.parser = nil
-	store := configstore.Default
-	s.AddCleanup(func(*gc.C) {
-		configstore.Default = store
-	})
-	s.store = configstore.NewMem()
-	configstore.Default = func() (configstore.Storage, error) {
-		return s.store, nil
+	s.fake = &fakeCreateClient{
+		env: params.Model{
+			Name:     "test",
+			UUID:     "fake-model-uuid",
+			OwnerTag: "ignored-for-now",
+		},
 	}
+	s.parser = nil
+	s.store = jujuclienttesting.NewMemControllerStore()
 	// Set up the current environment, and write just enough info
 	// so we don't try to refresh
-	envName := "test-master"
+	controllerName := "test-master"
 	s.serverUUID = "fake-server-uuid"
-	info := s.store.CreateInfo(envName)
-	info.SetAPIEndpoint(configstore.APIEndpoint{
-		Addresses:  []string{"localhost"},
-		CACert:     testing.CACert,
-		ModelUUID:  s.serverUUID,
-		ServerUUID: s.serverUUID,
+
+	err := s.store.UpdateController(controllerName, jujuclient.ControllerDetails{
+		APIEndpoints:   []string{"localhost:12345"},
+		CACert:         testing.CACert,
+		ControllerUUID: s.serverUUID,
 	})
-	info.SetAPICredentials(configstore.APICredentials{User: "bob", Password: "sekrit"})
-	err := info.Write()
 	c.Assert(err, jc.ErrorIsNil)
-	s.server = info
-	err = modelcmd.WriteCurrentModel(envName)
+	err = s.store.UpdateAccount(controllerName, "bob@local", jujuclient.AccountDetails{
+		"bob@local", "sekrit",
+	})
+	c.Assert(err, jc.ErrorIsNil)
+	err = s.store.SetCurrentAccount(controllerName, "bob@local")
+	c.Assert(err, jc.ErrorIsNil)
+	err = modelcmd.WriteCurrentController(controllerName)
 	c.Assert(err, jc.ErrorIsNil)
 }
 
 func (s *createSuite) run(c *gc.C, args ...string) (*cmd.Context, error) {
-	command, _ := controller.NewCreateModelCommandForTest(s.fake, s.parser)
+	command, _ := controller.NewCreateModelCommandForTest(s.fake, s.parser, s.store)
 	return testing.RunCommand(c, command, args...)
 }
 
@@ -106,7 +108,7 @@ func (s *createSuite) TestInit(c *gc.C) {
 		},
 	} {
 		c.Logf("test %d", i)
-		wrappedCommand, command := controller.NewCreateModelCommandForTest(nil, nil)
+		wrappedCommand, command := controller.NewCreateModelCommandForTest(nil, nil, nil)
 		err := testing.InitCommand(wrappedCommand, test.args)
 		if test.err != "" {
 			c.Assert(err, gc.ErrorMatches, test.err)
@@ -128,13 +130,20 @@ func (s *createSuite) TestInit(c *gc.C) {
 }
 
 func (s *createSuite) TestCreateExistingName(c *gc.C) {
-	// Make a configstore entry with the same name.
-	info := s.store.CreateInfo("test")
-	err := info.Write()
+	// If the model exists in the client already, it will be replaced
+	// with the details of the new model. This would only happen if the
+	// user has an out-of-date models.yaml.
+	err := s.store.UpdateModel("test-master", "test", jujuclient.ModelDetails{
+		ModelUUID: "whatever",
+	})
 	c.Assert(err, jc.ErrorIsNil)
 
 	_, err = s.run(c, "test")
-	c.Assert(err, gc.ErrorMatches, `model "test" already exists`)
+	c.Assert(err, jc.ErrorIsNil)
+
+	modelDetails, err := s.store.ModelByName("test-master", "test")
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(modelDetails.ModelUUID, gc.Equals, "fake-model-uuid")
 }
 
 func (s *createSuite) TestComandLineConfigPassedThrough(c *gc.C) {
@@ -257,49 +266,22 @@ func (s *createSuite) TestConfigValuePrecedence(c *gc.C) {
 	c.Assert(s.fake.config["cloud"], gc.Equals, "special")
 }
 
-func (s *createSuite) TestCreateErrorRemoveConfigstoreInfo(c *gc.C) {
+func (s *createSuite) TestCreateErrorNoClientStore(c *gc.C) {
 	s.fake.err = errors.New("bah humbug")
 
 	_, err := s.run(c, "test")
 	c.Assert(err, gc.ErrorMatches, "bah humbug")
 
-	_, err = s.store.ReadInfo("test")
-	c.Assert(err, gc.ErrorMatches, `model "test" not found`)
-}
-
-func (s *createSuite) TestCreateStoresValues(c *gc.C) {
-	s.fake.env = params.Model{
-		Name:     "test",
-		UUID:     "fake-model-uuid",
-		OwnerTag: "ignored-for-now",
-	}
-	_, err := s.run(c, "test")
-	c.Assert(err, jc.ErrorIsNil)
-
-	info, err := s.store.ReadInfo("test")
-	c.Assert(err, jc.ErrorIsNil)
-	// Stores the credentials of the original environment
-	c.Assert(info.APICredentials(), jc.DeepEquals, s.server.APICredentials())
-	endpoint := info.APIEndpoint()
-	expected := s.server.APIEndpoint()
-	c.Assert(endpoint.Addresses, jc.DeepEquals, expected.Addresses)
-	c.Assert(endpoint.Hostnames, jc.DeepEquals, expected.Hostnames)
-	c.Assert(endpoint.ServerUUID, gc.Equals, expected.ServerUUID)
-	c.Assert(endpoint.CACert, gc.Equals, expected.CACert)
-	c.Assert(endpoint.ModelUUID, gc.Equals, "fake-model-uuid")
+	_, err = s.store.ModelByName("test-master", "test")
+	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }
 
 func (s *createSuite) TestNoEnvCacheOtherUser(c *gc.C) {
-	s.fake.env = params.Model{
-		Name:     "test",
-		UUID:     "fake-model-uuid",
-		OwnerTag: "ignored-for-now",
-	}
 	_, err := s.run(c, "test", "--owner", "zeus")
 	c.Assert(err, jc.ErrorIsNil)
 
-	_, err = s.store.ReadInfo("test")
-	c.Assert(err, gc.ErrorMatches, `model "test" not found`)
+	_, err = s.store.ModelByName("test-master", "test")
+	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }
 
 // fakeCreateClient is used to mock out the behavior of the real

@@ -98,7 +98,7 @@ type LiveTests struct {
 func (t *LiveTests) SetUpSuite(c *gc.C) {
 	t.CleanupSuite.SetUpSuite(c)
 	t.TestDataSuite.SetUpSuite(c)
-	t.ClientStore = jujuclienttesting.NewMemClientStore()
+	t.ClientStore = jujuclienttesting.NewMemControllerStore()
 	t.PatchValue(&simplestreams.SimplestreamsJujuPublicKey, sstesting.SignedMetadataPublicKey)
 }
 
@@ -814,7 +814,7 @@ func (t *LiveTests) TestBootstrapWithDefaultSeries(c *gc.C) {
 	args := t.prepareForBootstrapParams(c)
 	args.Config = dummyCfg
 	dummyenv, err := environs.Prepare(envtesting.BootstrapContext(c),
-		jujuclienttesting.NewMemClientStore(),
+		jujuclienttesting.NewMemControllerStore(),
 		dummyCfg.Name(),
 		args)
 	c.Assert(err, jc.ErrorIsNil)

@@ -20,6 +20,7 @@ import (
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/cmd/juju/controller"
 	cmdtesting "github.com/juju/juju/cmd/testing"
+	"github.com/juju/juju/jujuclient"
 	_ "github.com/juju/juju/provider/dummy"
 	"github.com/juju/juju/testing"
 )
@@ -125,7 +126,7 @@ func (s *KillSuite) TestKillCommandConfirmation(c *gc.C) {
 }
 
 func (s *KillSuite) TestKillAPIPermErrFails(c *gc.C) {
-	testDialer := func(sysName string) (api.Connection, error) {
+	testDialer := func(_ jujuclient.ClientStore, controllerName, modelName string) (api.Connection, error) {
 		return nil, common.ErrPerm
 	}
 	cmd := controller.NewKillCommandForTest(nil, nil, nil, clock.WallClock, testDialer)
@@ -139,7 +140,7 @@ func (s *KillSuite) TestKillEarlyAPIConnectionTimeout(c *gc.C) {
 
 	stop := make(chan struct{})
 	defer close(stop)
-	testDialer := func(sysName string) (api.Connection, error) {
+	testDialer := func(_ jujuclient.ClientStore, controllerName, modelName string) (api.Connection, error) {
 		<-stop
 		return nil, errors.New("kill command waited too long")
 	}

@@ -9,7 +9,6 @@ import (
 
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/jujuclient"
 )
 
@@ -27,52 +26,34 @@ type CreateModelCommand struct {
 
 // NewCreateModelCommandForTest returns a CreateModelCommand with
 // the api provided as specified.
-func NewCreateModelCommandForTest(api CreateEnvironmentAPI, parser func(interface{}) (interface{}, error)) (cmd.Command, *CreateModelCommand) {
+func NewCreateModelCommandForTest(
+	api CreateEnvironmentAPI,
+	parser func(interface{}) (interface{}, error),
+	store jujuclient.ClientStore,
+) (cmd.Command, *CreateModelCommand) {
 	c := &createModelCommand{
 		api:          api,
 		configParser: parser,
 	}
+	c.SetClientStore(store)
 	return modelcmd.WrapController(c), &CreateModelCommand{c}
 }
 
 // NewModelsCommandForTest returns a EnvironmentsCommand with the API
 // and userCreds provided as specified.
-func NewModelsCommandForTest(modelAPI ModelManagerAPI, sysAPI ModelsSysAPI, userCreds *configstore.APICredentials) cmd.Command {
-	return modelcmd.WrapController(&environmentsCommand{
-		modelAPI:  modelAPI,
-		sysAPI:    sysAPI,
-		userCreds: userCreds,
-	})
-}
-
-// NewLoginCommandForTest returns a LoginCommand with the function used to open
-// the API connection mocked out.
-func NewLoginCommandForTest(apiOpen api.OpenFunc, getUserManager GetUserManagerFunc) *loginCommand {
-	return &loginCommand{
-		loginAPIOpen:   apiOpen,
-		GetUserManager: getUserManager,
+func NewModelsCommandForTest(modelAPI ModelManagerAPI, sysAPI ModelsSysAPI, store jujuclient.ClientStore) cmd.Command {
+	underlying := &environmentsCommand{
+		modelAPI: modelAPI,
+		sysAPI:   sysAPI,
 	}
+	underlying.SetClientStore(store)
+	return modelcmd.WrapController(underlying)
 }
 
 // NewRegisterCommandForTest returns a RegisterCommand with the function used
 // to open the API connection mocked out.
-func NewRegisterCommandForTest(apiOpen api.OpenFunc, newAPIRoot modelcmd.OpenFunc) *registerCommand {
-	return &registerCommand{apiOpen: apiOpen, newAPIRoot: newAPIRoot}
-}
-
-type UseModelCommand struct {
-	*useModelCommand
-}
-
-// NewUseModelCommandForTest returns a UseModelCommand with the
-// API and userCreds provided as specified.
-func NewUseModelCommandForTest(api UseModelAPI, userCreds *configstore.APICredentials, endpoint *configstore.APIEndpoint) (cmd.Command, *UseModelCommand) {
-	c := &useModelCommand{
-		api:       api,
-		userCreds: userCreds,
-		endpoint:  endpoint,
-	}
-	return modelcmd.WrapController(c), &UseModelCommand{c}
+func NewRegisterCommandForTest(apiOpen api.OpenFunc, newAPIRoot modelcmd.OpenFunc, store jujuclient.ClientStore) *registerCommand {
+	return &registerCommand{apiOpen: apiOpen, newAPIRoot: newAPIRoot, store: store}
 }
 
 // NewRemoveBlocksCommandForTest returns a RemoveBlocksCommand with the
@@ -106,7 +87,7 @@ func NewKillCommandForTest(
 	clientapi destroyClientAPI,
 	apierr error,
 	clock clock.Clock,
-	apiOpenFunc func(string) (api.Connection, error),
+	apiOpenFunc modelcmd.OpenFunc,
 ) cmd.Command {
 	kill := &killCommand{
 		destroyCommandBase: destroyCommandBase{

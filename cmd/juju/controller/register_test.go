@@ -24,19 +24,20 @@ import (
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/cmd/juju/controller"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/jujuclient"
+	"github.com/juju/juju/jujuclient/jujuclienttesting"
 	"github.com/juju/juju/testing"
 )
 
 type RegisterSuite struct {
 	testing.FakeJujuXDGDataHomeSuite
-	apiConnection *mockAPIConnection
-	store         configstore.Storage
-	apiOpenError  error
-	apiOpenName   string
-	server        *httptest.Server
-	httpHandler   http.Handler
+	apiConnection         *mockAPIConnection
+	store                 jujuclient.ClientStore
+	apiOpenError          error
+	apiOpenControllerName string
+	apiOpenModelName      string
+	server                *httptest.Server
+	httpHandler           http.Handler
 }
 
 var _ = gc.Suite(&RegisterSuite{})
@@ -56,12 +57,10 @@ func (s *RegisterSuite) SetUpTest(c *gc.C) {
 		controllerTag: testing.ModelTag,
 		addr:          serverURL.Host,
 	}
-	s.apiOpenName = ""
+	s.apiOpenControllerName = ""
+	s.apiOpenModelName = ""
 
-	s.store = configstore.NewMem()
-	s.PatchValue(&configstore.Default, func() (configstore.Storage, error) {
-		return s.store, nil
-	})
+	s.store = jujuclienttesting.NewMemControllerStore()
 }
 
 func (s *RegisterSuite) TearDownTest(c *gc.C) {
@@ -78,16 +77,17 @@ func (s *RegisterSuite) apiOpen(info *api.Info, opts api.DialOpts) (api.Connecti
 	return s.apiConnection, nil
 }
 
-func (s *RegisterSuite) newAPIRoot(name string) (api.Connection, error) {
+func (s *RegisterSuite) newAPIRoot(store jujuclient.ClientStore, controllerName, modelName string) (api.Connection, error) {
 	if s.apiOpenError != nil {
 		return nil, s.apiOpenError
 	}
-	s.apiOpenName = name
+	s.apiOpenControllerName = controllerName
+	s.apiOpenModelName = modelName
 	return s.apiConnection, nil
 }
 
 func (s *RegisterSuite) run(c *gc.C, stdin io.Reader, args ...string) (*cmd.Context, error) {
-	command := controller.NewRegisterCommandForTest(s.apiOpen, s.newAPIRoot)
+	command := controller.NewRegisterCommandForTest(s.apiOpen, s.newAPIRoot, s.store)
 	err := testing.InitCommand(command, args)
 	c.Assert(err, jc.ErrorIsNil)
 	ctx := testing.Context(c)
@@ -118,7 +118,7 @@ func (s *RegisterSuite) seal(c *gc.C, message, key, nonce []byte) []byte {
 }
 
 func (s *RegisterSuite) TestInit(c *gc.C) {
-	registerCommand := controller.NewRegisterCommandForTest(nil, nil)
+	registerCommand := controller.NewRegisterCommandForTest(nil, nil, nil)
 
 	err := testing.InitCommand(registerCommand, []string{})
 	c.Assert(err, gc.ErrorMatches, "registration data missing")
@@ -139,6 +139,7 @@ func (s *RegisterSuite) TestRegister(c *gc.C) {
 	var requestBodies [][]byte
 	responsePayloadPlaintext, err := json.Marshal(params.SecretKeyLoginResponsePayload{
 		testing.CACert,
+		"controller-uuid",
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	response, err := json.Marshal(params.SecretKeyLoginResponse{
@@ -178,20 +179,24 @@ func (s *RegisterSuite) TestRegister(c *gc.C) {
 
 	// The controller information should be recorded with
 	// the specified controller name ("controller-name").
-	info, err := s.store.ReadInfo("controller-name")
+	controllerDetails, err := s.store.ControllerByName("controller-name")
 	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(info.APICredentials(), jc.DeepEquals, configstore.APICredentials{
-		User:     "bob",
-		Password: "hunter2",
+	c.Assert(controllerDetails, jc.DeepEquals, &jujuclient.ControllerDetails{
+		APIEndpoints:   []string{s.apiConnection.addr},
+		ControllerUUID: "controller-uuid",
+		CACert:         testing.CACert,
 	})
-	c.Assert(info.APIEndpoint(), jc.DeepEquals, configstore.APIEndpoint{
-		Addresses: []string{s.apiConnection.addr},
-		CACert:    testing.CACert,
+	accountDetails, err := s.store.AccountByName("controller-name", "bob@local")
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(accountDetails, jc.DeepEquals, &jujuclient.AccountDetails{
+		User:     "bob@local",
+		Password: "hunter2",
 	})
 
 	// The command should have logged into the controller with the
 	// information we checked above.
-	c.Assert(s.apiOpenName, gc.Equals, "controller-name")
+	c.Assert(s.apiOpenControllerName, gc.Equals, "controller-name")
+	c.Assert(s.apiOpenModelName, gc.Equals, "")
 }
 
 func (s *RegisterSuite) TestRegisterInvalidRegistrationData(c *gc.C) {
@@ -211,7 +216,10 @@ func (s *RegisterSuite) TestRegisterEmptyControllerName(c *gc.C) {
 }
 
 func (s *RegisterSuite) TestRegisterControllerNameExists(c *gc.C) {
-	err := s.store.CreateInfo("controller-name").Write()
+	err := s.store.UpdateController("controller-name", jujuclient.ControllerDetails{
+		ControllerUUID: "uuid",
+		CACert:         "ca-cert",
+	})
 	c.Assert(err, jc.ErrorIsNil)
 
 	secretKey := []byte(strings.Repeat("X", 32))
@@ -263,6 +271,6 @@ func (s *RegisterSuite) TestRegisterServerError(c *gc.C) {
 	_, err = s.run(c, stdin, registrationData)
 	c.Assert(err, gc.ErrorMatches, "xyz")
 
-	_, err = s.store.ReadInfo("controller-name")
+	_, err = s.store.ControllerByName("controller-name")
 	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }

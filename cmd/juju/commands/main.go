@@ -174,7 +174,6 @@ func registerCommands(r commandRegistry, ctx *cmd.Context) {
 	// Manage users and access
 	r.Register(user.NewAddCommand())
 	r.Register(user.NewChangePasswordCommand())
-	r.Register(user.NewCredentialsCommand())
 	r.Register(user.NewShowUserCommand())
 	r.Register(user.NewListCommand())
 	r.Register(user.NewEnableCommand())

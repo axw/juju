@@ -21,7 +21,7 @@ import (
 	"github.com/juju/juju/network"
 )
 
-var logger = loggo.GetLogger("juju.api")
+var logger = loggo.GetLogger("juju.juju")
 
 // The following are variables so that they can be
 // changed by tests.
@@ -246,6 +246,7 @@ func apiInfoConnect(
 		apiInfo.UseMacaroons = true
 	}
 
+	logger.Infof("logging in with %+v", apiInfo)
 	logger.Infof("connecting to API addresses: %v", controllerDetails.APIEndpoints)
 	dialOpts := api.DefaultDialOpts()
 	dialOpts.BakeryClient = bClient

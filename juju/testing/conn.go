@@ -110,7 +110,6 @@ func (s *JujuConnSuite) SetUpTest(c *gc.C) {
 	s.MgoSuite.SetUpTest(c)
 	s.FakeJujuXDGDataHomeSuite.SetUpTest(c)
 	s.ToolsFixture.SetUpTest(c)
-	// TODO(axw) patch username of admin user with dummy-admin
 	s.setUpConn(c)
 	s.Factory = factory.NewFactory(s.State)
 }
@@ -277,6 +276,7 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	s.PatchValue(&simplestreams.SimplestreamsJujuPublicKey, sstesting.SignedMetadataPublicKey)
 	err = bootstrap.Bootstrap(modelcmd.BootstrapContext(ctx), environ, bootstrap.BootstrapParams{})
 	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(modelcmd.WriteCurrentController("dummymodel"), jc.ErrorIsNil)
 
 	s.BackingState = environ.(GetStater).GetStateInAPIServer()
 

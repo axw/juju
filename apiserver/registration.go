@@ -144,7 +144,8 @@ func (h *registerUserHandler) getSecretKeyLoginResponsePayload(
 	st *state.State,
 ) (*params.SecretKeyLoginResponsePayload, error) {
 	payload := params.SecretKeyLoginResponsePayload{
-		CACert: st.CACert(),
+		CACert:         st.CACert(),
+		ControllerUUID: st.ModelUUID(),
 	}
 	return &payload, nil
 }

@@ -102,13 +102,15 @@ func (c *addCommand) Run(ctx *cmd.Context) error {
 	// Generate the base64-encoded string for the user to pass to
 	// "juju register". We marshal the information using ASN.1
 	// to keep the size down, since we need to encode binary data.
-	info, err := c.ConnectionInfo()
+	store := c.ClientStore()
+	controllerName := c.ControllerName()
+	controllerDetails, err := store.ControllerByName(controllerName)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	registrationInfo := jujuclient.RegistrationInfo{
 		User:      c.User,
-		Addrs:     info.APIEndpoint().Addresses,
+		Addrs:     controllerDetails.APIEndpoints,
 		SecretKey: secretKey,
 	}
 	registrationData, err := asn1.Marshal(registrationInfo)

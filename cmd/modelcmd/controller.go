@@ -249,7 +249,11 @@ func (w *sysCommandWrapper) Init(args []string) error {
 			return ErrNoControllerSpecified
 		}
 	}
-	w.SetClientStore(jujuclient.NewFileClientStore())
+	store := w.ClientStore()
+	if store == nil {
+		store = jujuclient.NewFileClientStore()
+		w.SetClientStore(store)
+	}
 	w.SetControllerName(w.controllerName)
 	return w.ControllerCommand.Init(args)
 }

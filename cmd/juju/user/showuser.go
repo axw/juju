@@ -9,6 +9,7 @@ import (
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
+	"github.com/juju/names"
 	"launchpad.net/gnuflag"
 
 	"github.com/juju/juju/api/usermanager"
@@ -117,20 +118,32 @@ func (c *infoCommandBase) getUserInfoAPI() (UserInfoAPI, error) {
 
 // Run implements Command.Run.
 func (c *infoCommand) Run(ctx *cmd.Context) (err error) {
+	userName := c.Username
+	if c.Username != "" {
+		if !names.IsValidUserName(c.Username) {
+			return errors.NotValidf("user name %q", c.Username)
+		}
+	} else {
+		store := c.ClientStore()
+		controllerName := c.ControllerName()
+		accountName, err := store.CurrentAccount(controllerName)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		accountDetails, err := store.AccountByName(controllerName, accountName)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		userName = accountDetails.User
+	}
+
 	client, err := c.getUserInfoAPI()
 	if err != nil {
 		return err
 	}
 	defer client.Close()
-	username := c.Username
-	if username == "" {
-		info, err := c.ConnectionCredentials()
-		if err != nil {
-			return err
-		}
-		username = info.User
-	}
-	result, err := client.UserInfo([]string{username}, false)
+
+	result, err := client.UserInfo([]string{userName}, false)
 	if err != nil {
 		return err
 	}

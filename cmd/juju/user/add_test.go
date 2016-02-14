@@ -14,26 +14,41 @@ import (
 
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/cmd/juju/user"
+	"github.com/juju/juju/cmd/modelcmd"
+	"github.com/juju/juju/jujuclient"
+	"github.com/juju/juju/jujuclient/jujuclienttesting"
 	"github.com/juju/juju/testing"
 )
 
 // All of the functionality of the AddUser api call is contained elsewhere.
 // This suite provides basic tests for the "add-user" command
 type UserAddCommandSuite struct {
-	BaseSuite
+	testing.FakeJujuXDGDataHomeSuite
 	mockAPI *mockAddUserAPI
+	store   jujuclient.ClientStore
 }
 
 var _ = gc.Suite(&UserAddCommandSuite{})
 
 func (s *UserAddCommandSuite) SetUpTest(c *gc.C) {
-	s.BaseSuite.SetUpTest(c)
+	s.FakeJujuXDGDataHomeSuite.SetUpTest(c)
 	s.mockAPI = &mockAddUserAPI{}
 	s.mockAPI.secretKey = []byte(strings.Repeat("X", 32))
+
+	store := jujuclienttesting.NewMemControllerStore()
+	store.UpdateController("testing", jujuclient.ControllerDetails{
+		APIEndpoints:   []string{"127.0.0.1:12345"},
+		CACert:         testing.CACert,
+		ControllerUUID: testing.ModelTag.Id(),
+	})
+	s.store = store
+	err := modelcmd.WriteCurrentController("testing")
+	c.Assert(err, jc.ErrorIsNil)
 }
 
 func (s *UserAddCommandSuite) run(c *gc.C, args ...string) (*cmd.Context, error) {
-	addCommand, _ := user.NewAddCommandForTest(s.mockAPI)
+	addCommand, underlying := user.NewAddCommandForTest(s.mockAPI)
+	underlying.SetClientStore(s.store)
 	return testing.RunCommand(c, addCommand, args...)
 }
 
@@ -59,6 +74,7 @@ func (s *UserAddCommandSuite) TestInit(c *gc.C) {
 	}} {
 		c.Logf("test %d (%q)", i, test.args)
 		wrappedCommand, command := user.NewAddCommandForTest(s.mockAPI)
+		command.SetClientStore(s.store)
 		err := testing.InitCommand(wrappedCommand, test.args)
 		if test.errorString == "" {
 			c.Check(err, jc.ErrorIsNil)

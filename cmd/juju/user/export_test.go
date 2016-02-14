@@ -12,16 +12,10 @@ import (
 var (
 	RandomPasswordNotify = &randomPasswordNotify
 	ReadPassword         = &readPassword
-	ServerFileNotify     = &serverFileNotify
-	WriteServerFile      = writeServerFile
 )
 
 type AddCommand struct {
 	*addCommand
-}
-
-type CredentialsCommand struct {
-	*credentialsCommand
 }
 
 type ChangePasswordCommand struct {
@@ -37,24 +31,20 @@ func NewAddCommandForTest(api AddUserAPI) (cmd.Command, *AddCommand) {
 	return modelcmd.WrapController(c), &AddCommand{c}
 }
 
-func NewShowUserCommandForTest(api UserInfoAPI) cmd.Command {
-	return modelcmd.WrapController(&infoCommand{
+func NewShowUserCommandForTest(api UserInfoAPI) (cmd.Command, modelcmd.ControllerCommand) {
+	underlying := &infoCommand{
 		infoCommandBase: infoCommandBase{
 			api: api,
-		}})
-}
-
-func NewCredentialsCommandForTest() (cmd.Command, *CredentialsCommand) {
-	c := &credentialsCommand{}
-	return modelcmd.WrapController(c), &CredentialsCommand{c}
+		},
+	}
+	return modelcmd.WrapController(underlying), underlying
 }
 
 // NewChangePasswordCommand returns a ChangePasswordCommand with the api
 // and writer provided as specified.
-func NewChangePasswordCommandForTest(api ChangePasswordAPI, writer EnvironInfoCredsWriter) (cmd.Command, *ChangePasswordCommand) {
+func NewChangePasswordCommandForTest(api ChangePasswordAPI) (cmd.Command, *ChangePasswordCommand) {
 	c := &changePasswordCommand{
-		api:    api,
-		writer: writer,
+		api: api,
 	}
 	return modelcmd.WrapController(c), &ChangePasswordCommand{c}
 }

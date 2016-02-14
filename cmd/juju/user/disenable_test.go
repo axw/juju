@@ -9,19 +9,22 @@ import (
 	gc "gopkg.in/check.v1"
 
 	"github.com/juju/juju/cmd/juju/user"
+	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/testing"
 )
 
 type DisableUserSuite struct {
-	BaseSuite
+	testing.FakeJujuXDGDataHomeSuite
 	mock *mockDisenableUserAPI
 }
 
 var _ = gc.Suite(&DisableUserSuite{})
 
 func (s *DisableUserSuite) SetUpTest(c *gc.C) {
-	s.BaseSuite.SetUpTest(c)
+	s.FakeJujuXDGDataHomeSuite.SetUpTest(c)
 	s.mock = &mockDisenableUserAPI{}
+	err := modelcmd.WriteCurrentController("testing")
+	c.Assert(err, jc.ErrorIsNil)
 }
 
 type disenableCommand interface {

@@ -15,7 +15,6 @@ import (
 
 	"github.com/juju/juju/cmd/juju/block"
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/configstore"
 )
 
 // randomPasswordNotify is called when a random password is generated.
@@ -45,7 +44,6 @@ func NewChangePasswordCommand() cmd.Command {
 type changePasswordCommand struct {
 	modelcmd.ControllerCommandBase
 	api      ChangePasswordAPI
-	writer   EnvironInfoCredsWriter
 	Generate bool
 	User     string
 }
@@ -84,14 +82,6 @@ type ChangePasswordAPI interface {
 	Close() error
 }
 
-// EnvironInfoCredsWriter defines methods of the configstore API info that
-// are used to change the password.
-type EnvironInfoCredsWriter interface {
-	Write() error
-	APICredentials() configstore.APICredentials
-	SetAPICredentials(creds configstore.APICredentials)
-}
-
 // Run implements Command.Run.
 func (c *changePasswordCommand) Run(ctx *cmd.Context) error {
 	if c.api == nil {
@@ -112,7 +102,10 @@ func (c *changePasswordCommand) Run(ctx *cmd.Context) error {
 	controllerName := c.ControllerName()
 	store := c.ClientStore()
 	if c.User != "" {
-		accountName = names.NewUserTag(accountName).Canonical()
+		if !names.IsValidUserName(c.User) {
+			return errors.NotValidf("user name %q", c.User)
+		}
+		accountName = names.NewUserTag(c.User).Canonical()
 	} else {
 		accountName, err = store.CurrentAccount(controllerName)
 		if err != nil {

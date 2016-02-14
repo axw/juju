@@ -11,15 +11,15 @@ import (
 
 type inMemory struct {
 	controllers map[string]jujuclient.ControllerDetails
-	models      map[string]jujuclient.ControllerModels
-	accounts    map[string]jujuclient.ControllerAccounts
+	models      map[string]*jujuclient.ControllerModels
+	accounts    map[string]*jujuclient.ControllerAccounts
 }
 
 func NewMemControllerStore() jujuclient.ClientStore {
 	return &inMemory{
 		make(map[string]jujuclient.ControllerDetails),
-		make(map[string]jujuclient.ControllerModels),
-		make(map[string]jujuclient.ControllerAccounts),
+		make(map[string]*jujuclient.ControllerModels),
+		make(map[string]*jujuclient.ControllerAccounts),
 	}
 }
 
@@ -73,7 +73,7 @@ func (c *inMemory) UpdateModel(controller, model string, details jujuclient.Mode
 	}
 	models, ok := c.models[controller]
 	if !ok {
-		models = jujuclient.ControllerModels{
+		models = &jujuclient.ControllerModels{
 			Models: make(map[string]jujuclient.ModelDetails),
 		}
 		c.models[controller] = models
@@ -146,7 +146,7 @@ func (c *inMemory) CurrentModel(controller string) (string, error) {
 		return "", errors.NotFoundf("controller %s", controller)
 	}
 	if models.CurrentModel == "" {
-		return "", errors.NotFoundf("curernt model for controller %s", controller)
+		return "", errors.NotFoundf("current model for controller %s", controller)
 	}
 	return models.CurrentModel, nil
 }
@@ -183,7 +183,7 @@ func (c *inMemory) UpdateAccount(controllerName, accountName string, details juj
 	}
 	accounts, ok := c.accounts[controllerName]
 	if !ok {
-		accounts = jujuclient.ControllerAccounts{
+		accounts = &jujuclient.ControllerAccounts{
 			Accounts: make(map[string]jujuclient.AccountDetails),
 		}
 		c.accounts[controllerName] = accounts
@@ -234,7 +234,7 @@ func (c *inMemory) CurrentAccount(controllerName string) (string, error) {
 		return "", errors.NotFoundf("controller %s", controllerName)
 	}
 	if accounts.CurrentAccount == "" {
-		return "", errors.NotFoundf("curernt account for controller %s", controllerName)
+		return "", errors.NotFoundf("current account for controller %s", controllerName)
 	}
 	return accounts.CurrentAccount, nil
 }

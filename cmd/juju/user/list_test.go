@@ -14,13 +14,14 @@ import (
 	"github.com/juju/juju/api/usermanager"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/cmd/juju/user"
+	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/testing"
 )
 
 // All of the functionality of the UserInfo api call is contained elsewhere.
 // This suite provides basic tests for the "show-user" command
 type UserListCommandSuite struct {
-	BaseSuite
+	testing.FakeJujuXDGDataHomeSuite
 }
 
 var _ = gc.Suite(&UserListCommandSuite{})
@@ -73,6 +74,12 @@ func (f *fakeUserListAPI) UserInfo(usernames []string, all usermanager.IncludeDi
 		})
 	}
 	return result, nil
+}
+
+func (s *UserListCommandSuite) SetUpTest(c *gc.C) {
+	s.FakeJujuXDGDataHomeSuite.SetUpTest(c)
+	err := modelcmd.WriteCurrentController("testing")
+	c.Assert(err, jc.ErrorIsNil)
 }
 
 func (s *UserListCommandSuite) TestUserInfo(c *gc.C) {

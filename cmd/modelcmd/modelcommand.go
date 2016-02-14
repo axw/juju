@@ -339,8 +339,11 @@ func (w *modelCommandWrapper) SetFlags(f *gnuflag.FlagSet) {
 }
 
 func (w *modelCommandWrapper) Init(args []string) error {
-	store := jujuclient.NewFileClientStore()
-	w.SetClientStore(store)
+	store := w.ClientStore()
+	if store == nil {
+		store = jujuclient.NewFileClientStore()
+		w.SetClientStore(store)
+	}
 	if !w.skipFlags {
 		if w.modelName == "" && w.useDefaultModel {
 			// Look for the default.

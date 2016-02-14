@@ -8,6 +8,7 @@ import (
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
+	"github.com/juju/names"
 	"github.com/juju/utils"
 	"github.com/juju/utils/readpass"
 	"launchpad.net/gnuflag"
@@ -46,7 +47,6 @@ type changePasswordCommand struct {
 	api      ChangePasswordAPI
 	writer   EnvironInfoCredsWriter
 	Generate bool
-	OutPath  string
 	User     string
 }
 
@@ -63,22 +63,16 @@ func (c *changePasswordCommand) Info() *cmd.Info {
 // SetFlags implements Command.SetFlags.
 func (c *changePasswordCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.BoolVar(&c.Generate, "generate", false, "generate a new strong password")
-	f.StringVar(&c.OutPath, "o", "", "specifies the path of the generated user model file")
-	f.StringVar(&c.OutPath, "output", "", "")
 }
 
 // Init implements Command.Init.
 func (c *changePasswordCommand) Init(args []string) error {
 	var err error
 	c.User, err = cmd.ZeroOrOneArgs(args)
-	if c.User == "" && c.OutPath != "" {
-		return errors.New("output is only a valid option when changing another user's password")
-	}
 	if c.User != "" {
+		// TODO(axw) too magical. change or error if Generate is not
+		// specified
 		c.Generate = true
-		if c.OutPath == "" {
-			c.OutPath = c.User + ".server"
-		}
 	}
 	return err
 }
@@ -109,52 +103,44 @@ func (c *changePasswordCommand) Run(ctx *cmd.Context) error {
 		defer c.api.Close()
 	}
 
-	password, err := c.generateOrReadPassword(ctx, c.Generate)
+	newPassword, err := c.generateOrReadPassword(ctx, c.Generate)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	var writer EnvironInfoCredsWriter
-
-	var creds configstore.APICredentials
-
-	if c.User == "" {
-		// We get the creds writer before changing the password just to
-		// minimise the things that could go wrong after changing the password
-		// in the server.
-		if c.writer == nil {
-			writer, err = c.ConnectionInfo()
-			if err != nil {
-				return errors.Trace(err)
-			}
-		} else {
-			writer = c.writer
-		}
-
-		creds = writer.APICredentials()
+	var accountName string
+	controllerName := c.ControllerName()
+	store := c.ClientStore()
+	if c.User != "" {
+		accountName = names.NewUserTag(accountName).Canonical()
 	} else {
-		creds.User = c.User
+		accountName, err = store.CurrentAccount(controllerName)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	accountDetails, err := store.AccountByName(controllerName, accountName)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
-	oldPassword := creds.Password
-	creds.Password = password
-	if err = c.api.SetPassword(creds.User, password); err != nil {
+	oldPassword := accountDetails.Password
+	accountDetails.Password = newPassword
+	if err = c.api.SetPassword(accountDetails.User, newPassword); err != nil {
 		return block.ProcessBlockedError(err, block.BlockChange)
 	}
 
-	if c.User != "" {
-		return writeServerFile(c, ctx, c.User, password, c.OutPath)
-	}
-
-	writer.SetAPICredentials(creds)
-	if err := writer.Write(); err != nil {
+	if err := store.UpdateAccount(controllerName, accountName, *accountDetails); err != nil {
 		logger.Errorf("updating the cached credentials failed, reverting to original password")
-		setErr := c.api.SetPassword(creds.User, oldPassword)
-		if setErr != nil {
-			logger.Errorf("failed to set password back, you will need to edit your models file by hand to specify the password: %q", password)
+		if setErr := c.api.SetPassword(accountDetails.User, oldPassword); setErr != nil {
+			logger.Errorf(
+				"failed to set password back, you will need to edit your "+
+					"accounts file by hand to specify the password: %q",
+				newPassword,
+			)
 			return errors.Annotate(setErr, "failed to set password back")
 		}
-		return errors.Annotate(err, "failed to write new password to models file")
+		return errors.Annotate(err, "failed to record password change for client")
 	}
 	ctx.Infof("Your password has been updated.")
 	return nil

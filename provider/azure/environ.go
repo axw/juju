@@ -556,7 +556,7 @@ func createVirtualMachine(
 		return compute.VirtualMachine{}, errors.Annotate(err, "creating network profile")
 	}
 
-	availabilitySetId, err := createAvailabilitySet(
+	availabilitySet, err := createAvailabilitySet(
 		availabilitySetClient,
 		vmName, resourceGroup, location,
 		vmTags, envTags,
@@ -575,12 +575,10 @@ func createVirtualMachine(
 					instanceSpec.InstanceType.Name,
 				),
 			},
-			StorageProfile: storageProfile,
-			OsProfile:      osProfile,
-			NetworkProfile: networkProfile,
-			AvailabilitySet: &compute.SubResource{
-				ID: to.StringPtr(availabilitySetId),
-			},
+			StorageProfile:  storageProfile,
+			OsProfile:       osProfile,
+			NetworkProfile:  networkProfile,
+			AvailabilitySet: availabilitySet,
 		},
 	}
 	vm, err := vmClient.CreateOrUpdate(resourceGroup, vmName, vmArgs)
@@ -622,7 +620,7 @@ func createAvailabilitySet(
 	vmTags, envTags map[string]string,
 	distributionGroupFunc func() ([]instance.Id, error),
 	instancesFunc func([]instance.Id) ([]instance.Instance, error),
-) (string, error) {
+) (*compute.SubResource, error) {
 	logger.Debugf("selecting availability set for %q", vmName)
 
 	// First we check if there's a distribution group, and if so,
@@ -632,7 +630,7 @@ func createAvailabilitySet(
 		var err error
 		instanceIds, err = distributionGroupFunc()
 		if err != nil {
-			return "", errors.Annotate(
+			return nil, errors.Annotate(
 				err, "querying distribution group",
 			)
 		}
@@ -641,7 +639,7 @@ func createAvailabilitySet(
 	switch err {
 	case nil, environs.ErrPartialInstances, environs.ErrNoInstances:
 	default:
-		return "", errors.Annotate(
+		return nil, errors.Annotate(
 			err, "querying distribution group instances",
 		)
 	}
@@ -655,12 +653,12 @@ func createAvailabilitySet(
 			continue
 		}
 		logger.Debugf("- selecting availability set of %q", instance.Name)
-		return to.String(availabilitySetSubResource.ID), nil
+		return &compute.SubResource{availabilitySetSubResource.ID}, nil
 	}
 
 	// We'll have to create an availability set. Use the name of one of the
 	// services assigned to the machine.
-	availabilitySetName := "juju"
+	var availabilitySetName string
 	if unitNames, ok := vmTags[tags.JujuUnitsDeployed]; ok {
 		for _, unitName := range strings.Fields(unitNames) {
 			if !names.IsValidUnit(unitName) {
@@ -668,13 +666,25 @@ func createAvailabilitySet(
 			}
 			serviceName, err := names.UnitService(unitName)
 			if err != nil {
-				return "", errors.Annotate(
+				return nil, errors.Annotate(
 					err, "getting service name",
 				)
 			}
 			availabilitySetName = serviceName
 			break
 		}
+	}
+	if availabilitySetName == "" {
+		if vmTags[tags.JujuController] != "true" {
+			// The machine is not being created for a controller,
+			// and has no units assigned to it. Don't assign it to
+			// an availability set.
+			logger.Debugf("- no availability set for %q", vmName)
+			return nil, nil
+		}
+		// The machine is being created for a controller,
+		// assign the machine to the "juju" availability set.
+		availabilitySetName = "juju"
 	}
 
 	logger.Debugf("- creating availability set %q", availabilitySetName)
@@ -687,11 +697,11 @@ func createAvailabilitySet(
 		},
 	)
 	if err != nil {
-		return "", errors.Annotatef(
+		return nil, errors.Annotatef(
 			err, "creating availability set %q", availabilitySetName,
 		)
 	}
-	return to.String(availabilitySet.ID), nil
+	return &compute.SubResource{availabilitySet.ID}, nil
 }
 
 // newStorageProfile creates the storage profile for a virtual machine,

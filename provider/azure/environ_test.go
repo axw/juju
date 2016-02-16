@@ -35,6 +35,7 @@ import (
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/provider/azure"
 	"github.com/juju/juju/provider/azure/internal/azuretesting"
+	"github.com/juju/juju/state/multiwatcher"
 	"github.com/juju/juju/testing"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/version"
@@ -333,7 +334,7 @@ func (s *environSuite) initResourceGroupSenders() azuretesting.Senders {
 	}
 }
 
-func (s *environSuite) startInstanceSenders(controller bool) azuretesting.Senders {
+func (s *environSuite) startInstanceSenders(controller, availabilitySet bool) azuretesting.Senders {
 	senders := azuretesting.Senders{
 		s.vmSizesSender(),
 		s.makeSender(".*/subnets/juju-testenv-model-deadbeef-0bad-400d-8000-4b1d0d06f00d", s.subnet),
@@ -350,8 +351,10 @@ func (s *environSuite) startInstanceSenders(controller bool) azuretesting.Sender
 			s.makeSender(".*/networkSecurityGroups/juju-internal", &network.SecurityGroup{}),
 		)
 	}
+	if availabilitySet {
+		senders = append(senders, s.makeSender(".*/availabilitySets/.*", s.jujuAvailabilitySet))
+	}
 	senders = append(senders,
-		s.makeSender(".*/availabilitySets/.*", s.jujuAvailabilitySet),
 		s.makeSender(".*/virtualMachines/machine-0", s.virtualMachine),
 	)
 	return senders
@@ -466,11 +469,27 @@ func (s *environSuite) testLocationManagementURI(c *gc.C, location, host string)
 	c.Assert(s.requests[0].URL.Host, gc.Equals, host)
 }
 
-func (s *environSuite) TestStartInstance(c *gc.C) {
+func (s *environSuite) TestStartInstanceController(c *gc.C) {
+	s.testStartInstance(c, true)
+}
+
+func (s *environSuite) TestStartInstanceNonController(c *gc.C) {
+	s.testStartInstance(c, false)
+}
+
+func (s *environSuite) testStartInstance(c *gc.C, controller bool) {
 	env := s.openEnviron(c)
-	s.sender = s.startInstanceSenders(false)
+	s.sender = s.startInstanceSenders(controller, controller)
 	s.requests = nil
-	result, err := env.StartInstance(makeStartInstanceParams(c, "quantal"))
+	startInstanceParams := makeStartInstanceParams(c, "quantal")
+	if controller {
+		startInstanceParams.InstanceConfig.Tags[tags.JujuController] = "true"
+		startInstanceParams.InstanceConfig.Jobs = append(
+			startInstanceParams.InstanceConfig.Jobs,
+			multiwatcher.JobManageModel,
+		)
+	}
+	result, err := env.StartInstance(startInstanceParams)
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(result, gc.NotNil)
 	c.Assert(result.Instance, gc.NotNil)
@@ -488,9 +507,11 @@ func (s *environSuite) TestStartInstance(c *gc.C) {
 		RootDisk: &rootDisk,
 		CpuCores: &cpuCores,
 	})
-	requests := s.assertStartInstanceRequests(c)
-	availabilitySetName := path.Base(requests.availabilitySet.URL.Path)
-	c.Assert(availabilitySetName, gc.Equals, "juju")
+	requests := s.assertStartInstanceRequests(c, controller, controller)
+	if controller {
+		availabilitySetName := path.Base(requests.availabilitySet.URL.Path)
+		c.Assert(availabilitySetName, gc.Equals, "juju")
+	}
 }
 
 func (s *environSuite) TestStartInstanceDistributionGroup(c *gc.C) {
@@ -499,7 +520,7 @@ func (s *environSuite) TestStartInstanceDistributionGroup(c *gc.C) {
 
 func (s *environSuite) TestStartInstanceServiceAvailabilitySet(c *gc.C) {
 	env := s.openEnviron(c)
-	s.sender = s.startInstanceSenders(false)
+	s.sender = s.startInstanceSenders(false, true)
 	s.requests = nil
 	unitsDeployed := "mysql/0 wordpress/0"
 	params := makeStartInstanceParams(c, "quantal")
@@ -507,12 +528,12 @@ func (s *environSuite) TestStartInstanceServiceAvailabilitySet(c *gc.C) {
 	_, err := env.StartInstance(params)
 	c.Assert(err, jc.ErrorIsNil)
 	s.tags[tags.JujuUnitsDeployed] = &unitsDeployed
-	requests := s.assertStartInstanceRequests(c)
+	requests := s.assertStartInstanceRequests(c, false, true)
 	availabilitySetName := path.Base(requests.availabilitySet.URL.Path)
 	c.Assert(availabilitySetName, gc.Equals, "mysql")
 }
 
-func (s *environSuite) assertStartInstanceRequests(c *gc.C) startInstanceRequests {
+func (s *environSuite) assertStartInstanceRequests(c *gc.C, controller, availabilitySet bool) startInstanceRequests {
 	// Clear the fields that don't get sent in the request.
 	s.publicIPAddress.ID = nil
 	s.publicIPAddress.Name = nil
@@ -526,38 +547,73 @@ func (s *environSuite) assertStartInstanceRequests(c *gc.C) startInstanceRequest
 	s.virtualMachine.Name = nil
 	s.virtualMachine.Properties.ProvisioningState = nil
 
+	if controller {
+		trueString := "true"
+		(*s.virtualMachine.Tags)["juju-is-controller"] = &trueString
+	}
+
 	// Validate HTTP request bodies.
-	c.Assert(s.requests, gc.HasLen, 8)
-	c.Assert(s.requests[0].Method, gc.Equals, "GET") // vmSizes
-	c.Assert(s.requests[1].Method, gc.Equals, "GET") // juju-testenv-model-deadbeef-0bad-400d-8000-4b1d0d06f00d
-	c.Assert(s.requests[2].Method, gc.Equals, "GET") // skus
-	c.Assert(s.requests[3].Method, gc.Equals, "PUT")
-	assertRequestBody(c, s.requests[3], s.publicIPAddress)
-	c.Assert(s.requests[4].Method, gc.Equals, "GET") // NICs
-	c.Assert(s.requests[5].Method, gc.Equals, "PUT")
-	assertRequestBody(c, s.requests[5], s.newNetworkInterface)
-	c.Assert(s.requests[6].Method, gc.Equals, "PUT")
-	assertRequestBody(c, s.requests[6], s.jujuAvailabilitySet)
-	c.Assert(s.requests[7].Method, gc.Equals, "PUT")
+	var requests startInstanceRequests
+	expectedLen := 7
+	if controller {
+		expectedLen += 2
+	}
+	if availabilitySet {
+		expectedLen++
+	}
+	c.Assert(s.requests, gc.HasLen, expectedLen)
+
+	i := 0
+	nextRequest := func() *http.Request {
+		req := s.requests[i]
+		i++
+		return req
+	}
+
+	requests.vmSizes = nextRequest()
+	c.Assert(requests.vmSizes.Method, gc.Equals, "GET")
+
+	requests.subnet = nextRequest()
+	c.Assert(requests.subnet.Method, gc.Equals, "GET")
+
+	requests.skus = nextRequest()
+	c.Assert(requests.skus.Method, gc.Equals, "GET")
+
+	requests.publicIPAddress = nextRequest()
+	c.Assert(requests.publicIPAddress.Method, gc.Equals, "PUT")
+	assertRequestBody(c, requests.publicIPAddress, s.publicIPAddress)
+
+	requests.nics = nextRequest()
+	c.Assert(requests.nics.Method, gc.Equals, "GET")
+
+	requests.networkInterface = nextRequest()
+	c.Assert(requests.networkInterface.Method, gc.Equals, "PUT")
+	assertRequestBody(c, requests.networkInterface, s.newNetworkInterface)
+
+	if controller {
+		nextRequest() // query NSGs
+		nextRequest() // create NSG
+	}
+
+	if availabilitySet {
+		requests.availabilitySet = nextRequest()
+		c.Assert(requests.availabilitySet.Method, gc.Equals, "PUT")
+		assertRequestBody(c, requests.availabilitySet, s.jujuAvailabilitySet)
+	}
+	requests.virtualMachine = nextRequest()
+	c.Assert(requests.virtualMachine.Method, gc.Equals, "PUT")
 
 	// CustomData is non-deterministic, so don't compare it.
 	// TODO(axw) shouldn't CustomData be deterministic? Look into this.
 	var virtualMachine compute.VirtualMachine
-	unmarshalRequestBody(c, s.requests[7], &virtualMachine)
+	unmarshalRequestBody(c, requests.virtualMachine, &virtualMachine)
 	c.Assert(to.String(virtualMachine.Properties.OsProfile.CustomData), gc.Not(gc.HasLen), 0)
 	virtualMachine.Properties.OsProfile.CustomData = to.StringPtr("<juju-goes-here>")
-	c.Assert(&virtualMachine, jc.DeepEquals, s.virtualMachine)
-
-	return startInstanceRequests{
-		vmSizes:          s.requests[0],
-		subnet:           s.requests[1],
-		skus:             s.requests[2],
-		publicIPAddress:  s.requests[3],
-		nics:             s.requests[4],
-		networkInterface: s.requests[5],
-		availabilitySet:  s.requests[6],
-		virtualMachine:   s.requests[7],
+	if !availabilitySet {
+		s.virtualMachine.Properties.AvailabilitySet = nil
 	}
+	c.Assert(&virtualMachine, jc.DeepEquals, s.virtualMachine)
+	return requests
 }
 
 type startInstanceRequests struct {
@@ -578,7 +634,7 @@ func (s *environSuite) TestBootstrap(c *gc.C) {
 	env := prepareForBootstrap(c, ctx, s.provider, &s.sender)
 
 	s.sender = s.initResourceGroupSenders()
-	s.sender = append(s.sender, s.startInstanceSenders(true)...)
+	s.sender = append(s.sender, s.startInstanceSenders(true, true)...)
 	s.requests = nil
 	result, err := env.Bootstrap(
 		ctx, environs.BootstrapParams{

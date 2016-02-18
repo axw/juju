@@ -84,9 +84,9 @@ type Region struct {
 	StorageEndpoint string
 }
 
-// clouds contains cloud definitions, used for marshalling and
+// cloudSet contains cloud definitions, used for marshalling and
 // unmarshalling.
-type clouds struct {
+type cloudSet struct {
 	// Clouds is a map of cloud definitions, keyed on cloud name.
 	Clouds map[string]*cloud `yaml:"clouds"`
 }
@@ -100,8 +100,16 @@ type cloud struct {
 	Regions         regions    `yaml:"regions,omitempty"`
 }
 
-// regions is a collection of regions, either as a map and/or as a
-// yaml.MapSlice.
+// regions is a collection of regions, either as a map and/or
+// as a yaml.MapSlice.
+//
+// When marshalling, we populate the Slice field only. This is
+// necessary for us to control the order of map items.
+//
+// When unmarshalling, we populate both Map and Slice. Map is
+// populated to simplify conversion to Region objects. Slice
+// is populated so we can identify the first map item, which
+// becomes the default region for the cloud.
 type regions struct {
 	Map   map[string]*region
 	Slice yaml.MapSlice
@@ -166,7 +174,7 @@ func PublicCloudMetadata(searchPath ...string) (result map[string]Cloud, fallbac
 
 // ParseCloudMetadata parses the given yaml bytes into Clouds metadata.
 func ParseCloudMetadata(data []byte) (map[string]Cloud, error) {
-	var metadata clouds
+	var metadata cloudSet
 	if err := yaml.Unmarshal(data, &metadata); err != nil {
 		return nil, errors.Annotate(err, "cannot unmarshal yaml cloud metadata")
 	}
@@ -200,7 +208,7 @@ func ParseCloudMetadata(data []byte) (map[string]Cloud, error) {
 
 // marshalCloudMetadata marshals the given clouds to YAML.
 func marshalCloudMetadata(cloudsMap map[string]Cloud) ([]byte, error) {
-	clouds := clouds{make(map[string]*cloud)}
+	clouds := cloudSet{make(map[string]*cloud)}
 	for name, metadata := range cloudsMap {
 		// Put the default region first, and the rest of the regions
 		// ordered by name.

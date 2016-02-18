@@ -270,6 +270,8 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 			Type:    c.Cloud,
 			Regions: regions,
 		}
+		if len(regions) == 1 {
+		}
 	} else if err != nil {
 		return errors.Trace(err)
 	}
@@ -508,13 +510,9 @@ func getRegion(cloud *jujucloud.Cloud, cloudName, regionName string) (string, ju
 		return regionName, region, nil
 	}
 	if regionName == "" {
-		if len(cloud.Regions) == 1 {
-			// No region was specified and there is
-			// only one in the cloud; use it.
-			for regionName, region := range cloud.Regions {
-				return regionName, region, nil
-			}
-		} else {
+		// No region was specified, so use the cloud's default region.
+		regionName = cloud.DefaultRegion
+		if regionName != "" {
 			return "", jujucloud.Region{}, errors.Errorf(
 				"no region specified, and no default set (expected one of %q)",
 				cloudRegionNames(cloud),

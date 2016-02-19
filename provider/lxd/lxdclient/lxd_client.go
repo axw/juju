@@ -38,7 +38,6 @@ var allStatuses = map[string]shared.StatusCode{
 	StatusThawed:     shared.Thawed,
 	StatusStopping:   shared.Stopping,
 	StatusStopped:    shared.Stopped,
-	StatusOK:         shared.OK,
 	StatusPending:    shared.Pending,
 	StatusAborting:   shared.Aborting,
 	StatusCancelling: shared.Cancelling,

@@ -84,31 +84,6 @@ func (spec InstanceSpec) config() map[string]string {
 	return resolveMetadata(spec.Metadata)
 }
 
-func (spec InstanceSpec) info(namespace string) *shared.ContainerState {
-	name := spec.Name
-	if namespace != "" {
-		name = namespace + "-" + name
-	}
-
-	return &shared.ContainerState{
-		Architecture:    0,
-		Config:          spec.config(),
-		Devices:         shared.Devices{},
-		Ephemeral:       spec.Ephemeral,
-		ExpandedConfig:  map[string]string{},
-		ExpandedDevices: shared.Devices{},
-		Name:            name,
-		Profiles:        spec.Profiles,
-		Status:          shared.ContainerStatus{},
-	}
-}
-
-// Summary builds an InstanceSummary based on the spec and returns it.
-func (spec InstanceSpec) Summary(namespace string) InstanceSummary {
-	info := spec.info(namespace)
-	return newInstanceSummary(info)
-}
-
 // InstanceHardware describes the hardware characteristics of a LXC container.
 type InstanceHardware struct {
 	// Architecture is the CPU architecture.
@@ -142,7 +117,7 @@ type InstanceSummary struct {
 	Addresses []network.Address
 }
 
-func newInstanceSummary(info *shared.ContainerState) InstanceSummary {
+func newInstanceSummary(info *shared.ContainerInfo, state *shared.ContainerState) InstanceSummary {
 	archStr, _ := shared.ArchitectureName(info.Architecture)
 	archStr = arch.NormaliseArch(archStr)
 
@@ -157,7 +132,7 @@ func newInstanceSummary(info *shared.ContainerState) InstanceSummary {
 	}
 
 	var addrs []network.Address
-	for _, info := range info.Status.Ips {
+	for _, info := range state.Ips {
 		addr := network.NewAddress(info.Address)
 
 		// Ignore loopback devices.
@@ -171,9 +146,9 @@ func newInstanceSummary(info *shared.ContainerState) InstanceSummary {
 	}
 
 	// TODO(ericsnow) Factor this out into a function.
-	statusStr := info.Status.Status
+	statusStr := info.Status
 	for status, code := range allStatuses {
-		if info.Status.StatusCode == code {
+		if info.StatusCode == code {
 			statusStr = status
 			break
 		}
@@ -202,8 +177,8 @@ type Instance struct {
 	spec *InstanceSpec
 }
 
-func newInstance(info *shared.ContainerState, spec *InstanceSpec) *Instance {
-	summary := newInstanceSummary(info)
+func newInstance(info *shared.ContainerInfo, state *shared.ContainerState, spec *InstanceSpec) *Instance {
+	summary := newInstanceSummary(info, state)
 	return NewInstance(summary, spec)
 }
 

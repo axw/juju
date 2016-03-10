@@ -36,6 +36,37 @@ type AccountDetails struct {
 	Password string `yaml:"password,omitempty"`
 }
 
+// BootstrapConfig holds the configuration used to bootstrap a controller.
+//
+// This includes all non-sensitive information required to regenerate the
+// bootstrap configuration. A reference to the credential used will be
+// stored, rather than the credential itself.
+type BootstrapConfig struct {
+	// Config is the base configuration for the provider. This should
+	// be updated with the region, endpoint and credentials.
+	Config map[string]interface{} `yaml:"config"`
+
+	// Credential is the name of the credential used to bootstrap.
+	Credential string `yaml:"credential"`
+
+	// Cloud is the name of the cloud to create the Juju controller in.
+	Cloud string `yaml:"cloud"`
+
+	// CloudRegion is the name of the region of the cloud to create
+	// the Juju controller in. This will be empty for clouds without
+	// regions.
+	CloudRegion string
+
+	// CloudEndpoint is the location of the primary API endpoint to
+	// use when communicating with the cloud.
+	CloudEndpoint string
+
+	// CloudStorageEndpoint is the location of the API endpoint to use
+	// when communicating with the cloud's storage service. This will
+	// be empty for clouds that have no cloud-specific API endpoint.
+	CloudStorageEndpoint string
+}
+
 // ControllerUpdater stores controller details.
 type ControllerUpdater interface {
 	// UpdateController adds the given controller to the controller
@@ -50,6 +81,9 @@ type ControllerUpdater interface {
 type ControllerRemover interface {
 	// RemoveController removes the controller with the given name from the
 	// controllers collection.
+	//
+	// Removing a controller will remove all information related to that
+	// controller (models, accounts, etc.)
 	RemoveController(controllerName string) error
 }
 
@@ -208,4 +242,29 @@ type CredentialUpdater interface {
 type CredentialStore interface {
 	CredentialGetter
 	CredentialUpdater
+}
+
+// BootstrapConfigUpdater stores bootstrap config.
+type BootstrapConfigUpdater interface {
+	// UpdateBootstrapConfig adds the given bootstrap config to the
+	// bootstrap config collection for the controller with the given
+	// name.
+	//
+	// If the bootstrap config does not already exist, it will be added.
+	// Otherwise, it will be overwritten with the new value.
+	UpdateBootstrapConfig(controller string, cfg BootstrapConfig) error
+}
+
+// BootstrapConfigGetter gets bootstrap config.
+type BootstrapConfigGetter interface {
+	// BootstrapConfigForController gets bootstrap config for the named
+	// controller.
+	BootstrapConfigForController(string) (*BootstrapConfig, error)
+}
+
+// BootstrapConfigStore is an amalgamation of BootstrapConfigUpdater and
+// BootstrapConfigGetter.
+type BootstrapConfigStore interface {
+	BootstrapConfigUpdater
+	BootstrapConfigGetter
 }

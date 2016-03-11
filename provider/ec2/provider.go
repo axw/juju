@@ -55,10 +55,7 @@ func (p environProvider) Open(cfg *config.Config) (environs.Environ, error) {
 	return e, nil
 }
 
-func (p environProvider) PrepareForBootstrap(
-	ctx environs.BootstrapContext, args environs.PrepareForBootstrapParams,
-) (environs.Environ, error) {
-
+func (p environProvider) BootstrapConfig(args environs.BootstrapConfigParams) (*config.Config, error) {
 	// Add credentials to the configuration.
 	attrs := map[string]interface{}{
 		"region": args.CloudRegion,
@@ -79,11 +76,13 @@ func (p environProvider) PrepareForBootstrap(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	return p.PrepareForCreateEnvironment(cfg)
+}
 
-	cfg, err = p.PrepareForCreateEnvironment(cfg)
-	if err != nil {
-		return nil, err
-	}
+func (p environProvider) PrepareForBootstrap(
+	ctx environs.BootstrapContext,
+	cfg *config.Config,
+) (environs.Environ, error) {
 	e, err := p.Open(cfg)
 	if err != nil {
 		return nil, err

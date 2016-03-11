@@ -47,7 +47,9 @@ type BootstrapConfig struct {
 	Config map[string]interface{} `yaml:"config"`
 
 	// Credential is the name of the credential used to bootstrap.
-	Credential string `yaml:"credential"`
+	//
+	// This will be empty if an auto-detected credential was used.
+	Credential string `yaml:"credential,omitempty"`
 
 	// Cloud is the name of the cloud to create the Juju controller in.
 	Cloud string `yaml:"cloud"`
@@ -55,16 +57,16 @@ type BootstrapConfig struct {
 	// CloudRegion is the name of the region of the cloud to create
 	// the Juju controller in. This will be empty for clouds without
 	// regions.
-	CloudRegion string
+	CloudRegion string `yaml:"region"`
 
 	// CloudEndpoint is the location of the primary API endpoint to
 	// use when communicating with the cloud.
-	CloudEndpoint string
+	CloudEndpoint string `yaml:"endpoint"`
 
 	// CloudStorageEndpoint is the location of the API endpoint to use
 	// when communicating with the cloud's storage service. This will
 	// be empty for clouds that have no cloud-specific API endpoint.
-	CloudStorageEndpoint string
+	CloudStorageEndpoint string `yaml:"storage-endpoint"`
 }
 
 // ControllerUpdater stores controller details.
@@ -190,6 +192,43 @@ type AccountGetter interface {
 	AccountByName(controllerName, accountName string) (*AccountDetails, error)
 }
 
+// CredentialGetter gets credentials.
+type CredentialGetter interface {
+	// CredentialForCloud gets credentials for the named cloud.
+	CredentialForCloud(string) (*cloud.CloudCredential, error)
+
+	// AllCredentials gets all credentials.
+	AllCredentials() (map[string]cloud.CloudCredential, error)
+}
+
+// CredentialUpdater stores credentials.
+type CredentialUpdater interface {
+	// UpdateCredential adds the given credentials to the credentials
+	// collection.
+	//
+	// If the cloud or credential name does not already exist, it will be added.
+	// Otherwise, it will be overwritten with the new details.
+	UpdateCredential(cloudName string, details cloud.CloudCredential) error
+}
+
+// BootstrapConfigUpdater stores bootstrap config.
+type BootstrapConfigUpdater interface {
+	// UpdateBootstrapConfig adds the given bootstrap config to the
+	// bootstrap config collection for the controller with the given
+	// name.
+	//
+	// If the bootstrap config does not already exist, it will be added.
+	// Otherwise, it will be overwritten with the new value.
+	UpdateBootstrapConfig(controller string, cfg BootstrapConfig) error
+}
+
+// BootstrapConfigGetter gets bootstrap config.
+type BootstrapConfigGetter interface {
+	// BootstrapConfigForController gets bootstrap config for the named
+	// controller.
+	BootstrapConfigForController(string) (*BootstrapConfig, error)
+}
+
 // ControllerStore is an amalgamation of ControllerUpdater, ControllerRemover,
 // and ControllerGetter.
 type ControllerStore interface {
@@ -212,54 +251,10 @@ type AccountStore interface {
 	AccountGetter
 }
 
-// ClientStore is an amalgamation of AccountStore, ControllerStore, and ModelStore.
-type ClientStore interface {
-	AccountStore
-	ControllerStore
-	ModelStore
-}
-
-// CredentialGetter gets credentials.
-type CredentialGetter interface {
-	// CredentialForCloud gets credentials for the named cloud.
-	CredentialForCloud(string) (*cloud.CloudCredential, error)
-
-	// AllCredentials gets all credentials.
-	AllCredentials() (map[string]cloud.CloudCredential, error)
-}
-
-// CredentialUpdater stores credentials.
-type CredentialUpdater interface {
-	// UpdateCredential adds the given credentials to the credentials
-	// collection.
-	//
-	// If the cloud or credential name does not already exist, it will be added.
-	// Otherwise, it will be overwritten with the new details.
-	UpdateCredential(cloudName string, details cloud.CloudCredential) error
-}
-
 // CredentialStore is an amalgamation of CredentialsUpdater, and CredentialsGetter.
 type CredentialStore interface {
 	CredentialGetter
 	CredentialUpdater
-}
-
-// BootstrapConfigUpdater stores bootstrap config.
-type BootstrapConfigUpdater interface {
-	// UpdateBootstrapConfig adds the given bootstrap config to the
-	// bootstrap config collection for the controller with the given
-	// name.
-	//
-	// If the bootstrap config does not already exist, it will be added.
-	// Otherwise, it will be overwritten with the new value.
-	UpdateBootstrapConfig(controller string, cfg BootstrapConfig) error
-}
-
-// BootstrapConfigGetter gets bootstrap config.
-type BootstrapConfigGetter interface {
-	// BootstrapConfigForController gets bootstrap config for the named
-	// controller.
-	BootstrapConfigForController(string) (*BootstrapConfig, error)
 }
 
 // BootstrapConfigStore is an amalgamation of BootstrapConfigUpdater and
@@ -267,4 +262,14 @@ type BootstrapConfigGetter interface {
 type BootstrapConfigStore interface {
 	BootstrapConfigUpdater
 	BootstrapConfigGetter
+}
+
+// ClientStore is an amalgamation of AccountStore, BootstrapConfigStore,
+// ControllerStore, CredentialStore, and ModelStore.
+type ClientStore interface {
+	AccountStore
+	BootstrapConfigStore
+	ControllerStore
+	CredentialStore
+	ModelStore
 }

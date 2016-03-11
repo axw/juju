@@ -559,7 +559,7 @@ func (factory *Factory) MakeModel(c *gc.C, params *ModelParams) *state.State {
 			emptyCredential := cloud.NewEmptyCredential()
 			params.Credential = &emptyCredential
 		}
-		args := environs.PrepareForBootstrapParams{
+		args := environs.BootstrapConfigParams{
 			Config:        cfg,
 			Credentials:   *params.Credential,
 			CloudEndpoint: params.CloudEndpoint,
@@ -568,7 +568,9 @@ func (factory *Factory) MakeModel(c *gc.C, params *ModelParams) *state.State {
 		// Prepare the environment.
 		provider, err := environs.Provider(cfg.Type())
 		c.Assert(err, jc.ErrorIsNil)
-		env, err := provider.PrepareForBootstrap(envtesting.BootstrapContext(c), args)
+		cfg, err := provider.BootstrapConfig(args)
+		c.Assert(err, jc.ErrorIsNil)
+		env, err := provider.PrepareForBootstrap(envtesting.BootstrapContext(c), cfg)
 		c.Assert(err, jc.ErrorIsNil)
 		// Now save the config back.
 		err = st.UpdateModelConfig(env.Config().AllAttrs(), nil, nil)

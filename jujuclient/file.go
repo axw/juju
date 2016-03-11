@@ -193,7 +193,17 @@ func (s *store) RemoveController(name string) error {
 		}
 	}
 
-	// TODO(axw) Remove bootstrap config for the controller.
+	// Remove bootstrap config for the controller.
+	bootstrapConfigurations, err := ReadBootstrapConfigFile(JujuBootstrapConfigPath())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if _, ok := bootstrapConfigurations[name]; ok {
+		delete(bootstrapConfigurations, name)
+		if err := WriteBootstrapConfigFile(bootstrapConfigurations); err != nil {
+			return errors.Trace(err)
+		}
+	}
 
 	// Remove the controller.
 	delete(controllers, name)

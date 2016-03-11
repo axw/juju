@@ -239,10 +239,12 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	ctx := testing.Context(c)
 	environ, err := environs.Prepare(
 		modelcmd.BootstrapContext(ctx),
-		s.ControllerStore, ControllerName, "dummy", "",
-		environs.BootstrapConfigParams{
-			Config:      cfg,
-			Credentials: cloud.NewEmptyCredential(),
+		s.ControllerStore,
+		environs.PrepareParams{
+			BaseConfig:     cfg.AllAttrs(),
+			Credential:     cloud.NewEmptyCredential(),
+			ControllerName: ControllerName,
+			CloudName:      "dummy",
 		},
 	)
 	c.Assert(err, jc.ErrorIsNil)

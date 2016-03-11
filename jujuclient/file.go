@@ -704,6 +704,11 @@ func (s *store) AllCredentials() (map[string]cloud.CloudCredential, error) {
 
 // UpdateBootstrapConfig implements BootstrapConfigUpdater.
 func (s *store) UpdateBootstrapConfig(controllerName string, cfg BootstrapConfig) error {
+	if err := ValidateControllerName(controllerName); err != nil {
+		return errors.Trace(err)
+	}
+	// TODO(axw) validate bootstrap config
+
 	lock, err := s.lock("update-bootstrap-config")
 	if err != nil {
 		return errors.Annotatef(err, "cannot update bootstrap config for controller %s", controllerName)

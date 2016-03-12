@@ -72,6 +72,12 @@ func (p environProvider) BootstrapConfig(args environs.BootstrapConfigParams) (*
 	default:
 		return nil, errors.NotSupportedf("%q auth-type", authType)
 	}
+
+	// Set the default block-storage source.
+	if _, ok := args.Config.StorageDefaultBlockSource(); !ok {
+		attrs[config.StorageDefaultBlockSourceKey] = EBS_ProviderType
+	}
+
 	cfg, err := args.Config.Apply(attrs)
 	if err != nil {
 		return nil, errors.Trace(err)

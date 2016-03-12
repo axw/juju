@@ -177,8 +177,12 @@ func prepare(
 
 	// We store the base configuration only; we don't want the
 	// default attributes, generated secrets/certificates, or
-	// UUIDs stored in the bootstrap config.
-	details.Config = args.BaseConfig
+	// UUIDs stored in the bootstrap config. Make a copy, so
+	// we don't disturb the caller's config map.
+	details.Config = make(map[string]interface{})
+	for k, v := range args.BaseConfig {
+		details.Config[k] = v
+	}
 	delete(details.Config, config.ControllerUUIDKey)
 	delete(details.Config, config.UUIDKey)
 

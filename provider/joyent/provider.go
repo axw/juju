@@ -40,9 +40,8 @@ func (joyentProvider) RestrictedConfigAttributes() []string {
 func (joyentProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.Config, error) {
 	// Turn an incomplete config into a valid one, if possible.
 	attrs := cfg.UnknownAttrs()
-
 	if _, ok := attrs["control-dir"]; !ok {
-		uuid, err := utils.NewUUID()
+		uuid, err := utils.UUIDFromString(cfg.UUID())
 		if err != nil {
 			return nil, errors.Trace(err)
 		}

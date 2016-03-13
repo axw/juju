@@ -121,7 +121,6 @@ func testConfig(c *gc.C) *config.Config {
 	attrs := coretesting.FakeConfig().Merge(coretesting.Attrs{
 		"type":       "mock",
 		"controller": true,
-		"state-id":   "1",
 	})
 	env, err := environs.Prepare(
 		envtesting.BootstrapContext(c),

@@ -139,16 +139,23 @@ func newAPIFromStore(
 	} else {
 		logger.Debugf("no cached API connection settings found")
 	}
-	try.Start(func(stop <-chan struct{}) (io.Closer, error) {
-		cfg, err := getBootstrapConfig(controllerName)
-		if err != nil {
-			return nil, err
-		}
-		return apiConfigConnect(
-			cfg, accountDetails, modelDetails,
-			apiOpen, stop, delay, bClient,
-		)
-	})
+
+	// If the client has bootstrap config for the controller, we'll also
+	// attempt to connect by fetching new addresses from the cloud
+	// directly. This is only attempted after a delay, to give the
+	// faster cached-addresses method a chance to complete.
+	cfg, err := getBootstrapConfig(controllerName)
+	if err == nil {
+		try.Start(func(stop <-chan struct{}) (io.Closer, error) {
+			return apiConfigConnect(
+				cfg, accountDetails, modelDetails,
+				apiOpen, stop, delay, bClient,
+			)
+		})
+	} else if !errors.IsNotFound(err) || len(controllerDetails.APIEndpoints) == 0 {
+		return nil, err
+	}
+
 	try.Close()
 	val0, err := try.Result()
 	if err != nil {

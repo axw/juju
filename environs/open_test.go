@@ -179,22 +179,25 @@ func (*OpenSuite) TestPrepareGeneratesDifferentAdminSecrets(c *gc.C) {
 	}).Delete(
 		"admin-secret",
 	)
-	cfg, err := config.New(config.NoDefaults, baselineAttrs)
-	c.Assert(err, jc.ErrorIsNil)
 
 	ctx := envtesting.BootstrapContext(c)
 	env0, err := environs.Prepare(ctx, jujuclienttesting.NewMemStore(), environs.PrepareParams{
-		ControllerName: cfg.Name(),
-		BaseConfig:     cfg.AllAttrs(),
+		ControllerName: "erewhemos",
+		BaseConfig:     baselineAttrs,
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	adminSecret0 := env0.Config().AdminSecret()
 	c.Assert(adminSecret0, gc.HasLen, 32)
 	c.Assert(adminSecret0, gc.Matches, "^[0-9a-f]*$")
 
+	// Allocate a new UUID, or we'll end up with the same config.
+	newUUID := utils.MustNewUUID()
+	baselineAttrs[config.UUIDKey] = newUUID.String()
+	baselineAttrs[config.ControllerUUIDKey] = newUUID.String()
+
 	env1, err := environs.Prepare(ctx, jujuclienttesting.NewMemStore(), environs.PrepareParams{
-		ControllerName: cfg.Name(),
-		BaseConfig:     cfg.AllAttrs(),
+		ControllerName: "erewhemos",
+		BaseConfig:     baselineAttrs,
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	adminSecret1 := env1.Config().AdminSecret()
@@ -273,7 +276,7 @@ func (*OpenSuite) TestDestroy(c *gc.C) {
 	// Check that the environment has actually been destroyed
 	// and that the controller details been removed too.
 	_, err = e.ControllerInstances()
-	c.Assert(err, gc.ErrorMatches, "model has been destroyed")
+	c.Assert(err, gc.ErrorMatches, "model is not prepared")
 	_, err = store.ControllerByName("controller-name")
 	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }

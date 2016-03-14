@@ -532,7 +532,7 @@ func (p *environProvider) Open(cfg *config.Config) (environs.Environ, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := p.state[ecfg.ControllerUUID()]; !ok {
+	if _, ok := p.state[cfg.ControllerUUID()]; !ok {
 		return nil, ErrNotPrepared
 	}
 	env := &environ{
@@ -585,19 +585,22 @@ func (p *environProvider) BootstrapConfig(args environs.BootstrapConfigParams) (
 	}
 
 	// The environment has not been prepared, so create it and record it.
-	state := newState(name, p.ops, p.statePolicy)
-	attrs := map[string]interface{}{}
+	// We don't start listening for State or API connections until
+	// PrepareForBootstrapConfig has been called.
+	envState = newState(name, p.ops, p.statePolicy)
+	cfg := args.Config
 	if ecfg.controller() {
-		attrs["api-port"] = state.listenAPI()
+		apiPort := envState.listenAPI()
+		cfg, err = cfg.Apply(map[string]interface{}{
+			"api-port": apiPort,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
-	bootstrapConfig, err := args.Config.Apply(attrs)
-	if err != nil {
-		state.destroy()
-		return nil, err
-	}
-	state.bootstrapConfig = bootstrapConfig
-	p.state[args.Config.ControllerUUID()] = state
-	return bootstrapConfig, nil
+	envState.bootstrapConfig = cfg
+	p.state[cfg.ControllerUUID()] = envState
+	return cfg, nil
 }
 
 func (*environProvider) SecretAttrs(cfg *config.Config) (map[string]string, error) {

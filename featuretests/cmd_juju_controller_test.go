@@ -216,7 +216,8 @@ func (s *cmdControllerSuite) TestSystemKillCallsEnvironDestroyOnHostedEnviron(c 
 	// Ensure that Destroy was called on the hosted model ...
 	opRecvTimeout(c, st, opc, dummy.OpDestroy{})
 
-	// ... and that the configstore was removed.
+	// ... and that the details were removed removed from
+	// the client store.
 	_, err = store.ControllerByName("kontroll")
 	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }

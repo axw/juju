@@ -35,7 +35,7 @@ func (p environProvider) RestrictedConfigAttributes() []string {
 func (p environProvider) PrepareForCreateEnvironment(cfg *config.Config) (*config.Config, error) {
 	attrs := cfg.UnknownAttrs()
 	if _, ok := attrs["control-bucket"]; !ok {
-		uuid, err := utils.NewUUID()
+		uuid, err := utils.UUIDFromString(cfg.UUID())
 		if err != nil {
 			return nil, errors.Trace(err)
 		}

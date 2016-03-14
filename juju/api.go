@@ -147,10 +147,16 @@ func newAPIFromStore(
 	cfg, err := getBootstrapConfig(controllerName)
 	if err == nil {
 		try.Start(func(stop <-chan struct{}) (io.Closer, error) {
-			return apiConfigConnect(
+			cfg, err := apiConfigConnect(
 				cfg, accountDetails, modelDetails,
 				apiOpen, stop, delay, bClient,
 			)
+			if err != nil {
+				// Errors are swallowed by parallel.Try, so we
+				// log the failure here to aid in debugging.
+				logger.Debugf("failed to connect via bootstrap config: %v", err)
+			}
+			return cfg, err
 		})
 	} else if !errors.IsNotFound(err) || len(controllerDetails.APIEndpoints) == 0 {
 		return nil, err

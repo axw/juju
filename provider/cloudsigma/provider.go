@@ -58,11 +58,6 @@ func init() {
 func (environProvider) Open(cfg *config.Config) (environs.Environ, error) {
 	logger.Infof("opening model %q", cfg.Name())
 
-	cfg, err := prepareConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-
 	env := &environ{name: cfg.Name()}
 	if err := env.SetConfig(cfg); err != nil {
 		return nil, err

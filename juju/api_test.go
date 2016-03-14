@@ -21,7 +21,6 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
-	"github.com/juju/juju/environs/configstore"
 	"github.com/juju/juju/environs/filestorage"
 	"github.com/juju/juju/environs/simplestreams"
 	sstesting "github.com/juju/juju/environs/simplestreams/testing"
@@ -390,28 +389,6 @@ func (s *NewAPIClientSuite) TestBothError(c *gc.C) {
 	st, err := juju.NewAPIFromStore("local.my-controller", "admin@local", "only", store, apiOpen, getBootstrapConfig)
 	c.Check(err, gc.ErrorMatches, "config connect failed")
 	c.Check(st, gc.IsNil)
-}
-
-// newConfigStoreWithError that will return the given
-// error from ReadInfo.
-func newConfigStoreWithError(err error) configstore.Storage {
-	return &errorConfigStorage{
-		Storage: configstore.NewMem(),
-		err:     err,
-	}
-}
-
-type errorConfigStorage struct {
-	configstore.Storage
-	err error
-}
-
-func (store *errorConfigStorage) ReadInfo(envName string) (configstore.EnvironInfo, error) {
-	return nil, store.err
-}
-
-type environInfo struct {
-	bootstrapConfig map[string]interface{}
 }
 
 // newClientStore returns a client store that contains information

@@ -45,19 +45,12 @@ func GetCurrentModel(store jujuclient.ClientStore) (string, error) {
 		return model, nil
 	}
 
-	currentController, err := ReadCurrentController()
+	currentController, currentAccount, err := currentControllerAndAccount(store)
 	if err != nil {
 		return "", errors.Trace(err)
 	}
-	if currentController == "" {
+	if currentAccount == "" {
 		return "", nil
-	}
-
-	currentAccount, err := store.CurrentAccount(currentController)
-	if errors.IsNotFound(err) {
-		return "", nil
-	} else if err != nil {
-		return "", errors.Trace(err)
 	}
 
 	currentModel, err := store.CurrentModel(currentController, currentAccount)
@@ -67,6 +60,26 @@ func GetCurrentModel(store jujuclient.ClientStore) (string, error) {
 		return "", errors.Trace(err)
 	}
 	return currentModel, nil
+}
+
+// currentControllerAndAccount returns the names of the current controller,
+// and the current account for that controller. If either of those values
+// are unavailable, empty strings are returned without error.
+func currentControllerAndAccount(store jujuclient.ClientStore) (string, string, error) {
+	currentController, err := ReadCurrentController()
+	if err != nil {
+		return "", "", errors.Trace(err)
+	}
+	if currentController == "" {
+		return "", "", nil
+	}
+	currentAccount, err := store.CurrentAccount(currentController)
+	if errors.IsNotFound(err) {
+		return "", "", nil
+	} else if err != nil {
+		return "", "", errors.Trace(err)
+	}
+	return currentController, currentAccount, nil
 }
 
 // ModelCommand extends cmd.Command with a SetModelName method.
@@ -295,6 +308,22 @@ func (w *modelCommandWrapper) Init(args []string) error {
 				return err
 			}
 			w.modelName = defaultModel
+
+			// If we don't have a current model, at
+			// least set the current controller. This
+			// will allow us to complain usefully to
+			// the user that they don't have a current
+			// model, rather than suggesting they don't
+			// have a current controller.
+			if defaultModel == "" {
+				currentController, _, err := currentControllerAndAccount(store)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if currentController != "" {
+					w.modelName = currentController + ":"
+				}
+			}
 		}
 		if w.modelName == "" && !w.useDefaultModel {
 			if w.allowEmptyEnv {

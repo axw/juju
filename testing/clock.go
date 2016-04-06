@@ -19,22 +19,31 @@ type timerClock interface {
 
 // Timer implements a mock clock.Timer for testing purposes.
 type Timer struct {
-	ID    int
+	alarm *alarm
 	clock timerClock
+	ch    <-chan time.Time
+}
+
+func (t *Timer) C() <-chan time.Time {
+	return t.ch
 }
 
 // Reset is part of the clock.Timer interface.
 func (t *Timer) Reset(d time.Duration) bool {
-	return t.clock.reset(t.ID, d)
+	return t.clock.reset(&t.alarm, d)
 }
 
 // Stop is part of the clock.Timer interface.
 func (t *Timer) Stop() bool {
-	return t.clock.stop(t.ID)
+	return t.clock.stop(t.alarm.ID)
 }
 
 // stoppedTimer is a no-op implementation of clock.Timer.
 type stoppedTimer struct{}
+
+func (stoppedTimer) C() <-chan time.Time {
+	return nil // TODO(axw)
+}
 
 // Reset is part of the clock.Timer interface.
 func (stoppedTimer) Reset(time.Duration) bool { return false }
@@ -90,10 +99,24 @@ func (clock *Clock) AfterFunc(d time.Duration, f func()) clock.Timer {
 	defer clock.mu.Unlock()
 	if d <= 0 {
 		f()
-		return &stoppedTimer{}
+		return stoppedTimer{}
 	}
-	id := clock.setAlarm(clock.now.Add(d), f)
-	return &Timer{id, clock}
+	alarm := clock.setAlarm(clock.now.Add(d), f)
+	return &Timer{alarm, clock, nil}
+}
+
+func (clock *Clock) NewTimer(d time.Duration) clock.Timer {
+	defer clock.notifyAlarm()
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	if d <= 0 {
+		return stoppedTimer{}
+	}
+	ch := make(chan time.Time, 1)
+	id := clock.setAlarm(clock.now.Add(d), func() {
+		ch <- clock.now
+	})
+	return &Timer{id, clock, ch}
 }
 
 // Advance advances the result of Now by the supplied duration, and sends
@@ -155,7 +178,7 @@ func (clock *Clock) stop(id int) bool {
 
 // setAlarm adds an alarm at time t.
 // It also sorts the alarms and increments the current ID by 1.
-func (clock *Clock) setAlarm(t time.Time, trigger func()) int {
+func (clock *Clock) setAlarm(t time.Time, trigger func()) alarm {
 	alarm := alarm{
 		time:    t,
 		trigger: trigger,
@@ -164,7 +187,7 @@ func (clock *Clock) setAlarm(t time.Time, trigger func()) int {
 	clock.alarms = append(clock.alarms, alarm)
 	sort.Sort(byTime(clock.alarms))
 	clock.currentAlarmID = clock.currentAlarmID + 1
-	return alarm.ID
+	return alarm
 }
 
 // notifyAlarm sends a value on the channel exposed by Alarms().

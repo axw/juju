@@ -26,6 +26,9 @@ type lxdInstances interface {
 	AddInstance(lxdclient.InstanceSpec) (*lxdclient.Instance, error)
 	RemoveInstances(string, ...string) error
 	Addresses(string) ([]network.Address, error)
+	AddHostMount(instanceName, name, source, path string) error
+	RemoveHostMount(instanceName, name string) error
+	ListHostMounts(instanceName string) ([]string, error)
 }
 
 type lxdProfiles interface {

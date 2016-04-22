@@ -16,6 +16,10 @@ import (
 	"github.com/juju/juju/network"
 )
 
+const (
+	jujuHostMountPrefix = "juju-hostfs:"
+)
+
 // TODO(ericsnow) We probably need to address some of the things that
 // get handled in container/lxc/clonetemplate.go.
 
@@ -28,6 +32,9 @@ type rawInstanceClient interface {
 
 	WaitForSuccess(waitURL string) error
 	ContainerState(name string) (*shared.ContainerState, error)
+	ContainerDeviceAdd(container, devname, devtype string, props []string) (*lxd.Response, error)
+	ContainerDeviceDelete(container, devname string) (*lxd.Response, error)
+	ContainerListDevices(container string) ([]string, error)
 }
 
 type instanceClient struct {
@@ -281,4 +288,43 @@ func (client *instanceClient) Addresses(name string) ([]network.Address, error) 
 		}
 	}
 	return addrs, nil
+}
+
+func (client *instanceClient) AddHostMount(instanceName, name, source, path string) error {
+	const devtype = "disk"
+	props := []string{"source=" + source, "path=" + path}
+	resp, err := client.raw.ContainerDeviceAdd(instanceName, jujuHostMountPrefix+name, devtype, props)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if err := client.raw.WaitForSuccess(resp.Operation); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+func (client *instanceClient) RemoveHostMount(instanceName, name string) error {
+	resp, err := client.raw.ContainerDeviceDelete(instanceName, jujuHostMountPrefix+name)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if err := client.raw.WaitForSuccess(resp.Operation); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+func (client *instanceClient) ListHostMounts(instanceName string) ([]string, error) {
+	devices, err := client.raw.ContainerListDevices(instanceName)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	names := make([]string, 0, len(devices))
+	for _, device := range devices {
+		if !strings.HasPrefix(device, jujuHostMountPrefix) {
+			continue
+		}
+		names = append(names, device[len(jujuHostMountPrefix):])
+	}
+	return names, nil
 }

@@ -17,5 +17,6 @@ const (
 func init() {
 	environs.RegisterProvider(providerType, providerInstance)
 
-	registry.RegisterEnvironStorageProviders(providerType)
+	registry.RegisterProvider(hostfsProviderType, &hostfsProvider{})
+	registry.RegisterEnvironStorageProviders(providerType, hostfsProviderType)
 }

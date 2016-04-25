@@ -209,6 +209,25 @@ func (st *State) AllStorageInstances() (storageInstances []StorageInstance, err 
 	return
 }
 
+// OwnedStorageInstances lists all storage instances currently in state
+// for this Juju model, owned by the specified entity.
+func (st *State) OwnedStorageInstances(owner names.Tag) (storageInstances []StorageInstance, err error) {
+	storageCollection, closer := st.getCollection(storageInstancesC)
+	defer closer()
+
+	sdocs := []storageInstanceDoc{}
+	err = storageCollection.Find(bson.D{{"owner", owner.String()}}).All(&sdocs)
+	if err != nil {
+		return nil, errors.Annotatef(
+			err, "cannot get storage instances for %s", names.ReadableString(owner),
+		)
+	}
+	for _, doc := range sdocs {
+		storageInstances = append(storageInstances, &storageInstance{st, doc})
+	}
+	return
+}
+
 // DestroyStorageInstance ensures that the storage instance and all its
 // attachments will be removed at some point; if the storage instance has
 // no attachments, it will be removed immediately.
@@ -433,9 +452,23 @@ func createStorageOps(
 		}
 	}
 
-	// TODO(axw) create storage attachments for each shared storage
-	// instance owned by the service.
-	//
+	// Create storage attachments for each shared storage instance owned by
+	// the service.
+	if unit, ok := entity.(names.UnitTag); ok {
+		serviceName, err := names.UnitService(unit.Id())
+		if err != nil {
+			return nil, -1, errors.Trace(err)
+		}
+		serviceTag := names.NewServiceTag(serviceName)
+		serviceStorageInstances, err := st.OwnedStorageInstances(serviceTag)
+		if err != nil {
+			return nil, -1, errors.Trace(err)
+		}
+
+		ops = append(ops, createStorageAttachmentOp(storage, unit))
+		numStorageAttachments++
+	}
+
 	// TODO(axw) prevent creation of shared storage after service
 	// creation, because the only sane time to add storage attachments
 	// is when units are added to said service.

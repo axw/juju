@@ -6,24 +6,24 @@ package service
 import (
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
+	gitjujutesting "github.com/juju/testing"
 	jc "github.com/juju/testing/checkers"
 	gc "gopkg.in/check.v1"
 	"gopkg.in/macaroon-bakery.v1/httpbakery"
 
-	"github.com/juju/juju/cmd/juju/common"
 	"github.com/juju/juju/cmd/modelcmd"
+	cmdtesting "github.com/juju/juju/cmd/testing"
 	jujutesting "github.com/juju/juju/juju/testing"
 	"github.com/juju/juju/rpc"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/testcharms"
 	"github.com/juju/juju/testing"
-	jutesting "github.com/juju/testing"
 )
 
 type RemoveServiceSuite struct {
 	jujutesting.RepoSuite
-	common.CmdBlockHelper
-	stub            *jutesting.Stub
+	cmdtesting.CmdBlockHelper
+	stub            *gitjujutesting.Stub
 	budgetAPIClient budgetAPIClient
 }
 
@@ -31,10 +31,10 @@ var _ = gc.Suite(&RemoveServiceSuite{})
 
 func (s *RemoveServiceSuite) SetUpTest(c *gc.C) {
 	s.RepoSuite.SetUpTest(c)
-	s.CmdBlockHelper = common.NewCmdBlockHelper(s.APIState)
+	s.CmdBlockHelper = cmdtesting.NewCmdBlockHelper(s.APIState)
 	c.Assert(s.CmdBlockHelper, gc.NotNil)
 	s.AddCleanup(func(*gc.C) { s.CmdBlockHelper.Close() })
-	s.stub = &jutesting.Stub{}
+	s.stub = &gitjujutesting.Stub{}
 	s.budgetAPIClient = &mockBudgetAPIClient{Stub: s.stub}
 	s.PatchValue(&getBudgetAPIClient, func(*httpbakery.Client) budgetAPIClient { return s.budgetAPIClient })
 }
@@ -109,7 +109,7 @@ func (s *RemoveServiceSuite) TestInvalidArgs(c *gc.C) {
 
 type RemoveCharmStoreCharmsSuite struct {
 	charmStoreSuite
-	stub            *jutesting.Stub
+	stub            *gitjujutesting.Stub
 	ctx             *cmd.Context
 	budgetAPIClient budgetAPIClient
 }
@@ -120,7 +120,7 @@ func (s *RemoveCharmStoreCharmsSuite) SetUpTest(c *gc.C) {
 	s.charmStoreSuite.SetUpTest(c)
 
 	s.ctx = testing.Context(c)
-	s.stub = &jutesting.Stub{}
+	s.stub = &gitjujutesting.Stub{}
 	s.budgetAPIClient = &mockBudgetAPIClient{Stub: s.stub}
 	s.PatchValue(&getBudgetAPIClient, func(*httpbakery.Client) budgetAPIClient { return s.budgetAPIClient })
 
@@ -134,12 +134,12 @@ func (s *RemoveCharmStoreCharmsSuite) SetUpTest(c *gc.C) {
 func (s *RemoveCharmStoreCharmsSuite) TestRemoveAllocation(c *gc.C) {
 	err := runRemoveService(c, "metered")
 	c.Assert(err, jc.ErrorIsNil)
-	s.stub.CheckCalls(c, []jutesting.StubCall{{
+	s.stub.CheckCalls(c, []gitjujutesting.StubCall{{
 		"DeleteAllocation", []interface{}{testing.ModelTag.Id(), "metered"}}})
 }
 
 type mockBudgetAPIClient struct {
-	*jutesting.Stub
+	*gitjujutesting.Stub
 }
 
 // CreateAllocation implements apiClient.

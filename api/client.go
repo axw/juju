@@ -300,7 +300,6 @@ func (c *Client) AddLocalCharm(curl *charm.URL, ch charm.Charm) (*charm.URL, err
 			return nil, errors.Annotate(err, "cannot create temp file")
 		}
 		defer os.Remove(archive.Name())
-		defer archive.Close()
 		if err := ch.ArchiveTo(archive); err != nil {
 			return nil, errors.Annotate(err, "cannot repackage charm")
 		}
@@ -312,7 +311,6 @@ func (c *Client) AddLocalCharm(curl *charm.URL, ch charm.Charm) (*charm.URL, err
 		if archive, err = os.Open(ch.Path); err != nil {
 			return nil, errors.Annotate(err, "cannot read charm archive")
 		}
-		defer archive.Close()
 	default:
 		return nil, errors.Errorf("unknown charm type %T", ch)
 	}

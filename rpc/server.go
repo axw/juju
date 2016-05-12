@@ -4,6 +4,7 @@
 package rpc
 
 import (
+	"fmt"
 	"io"
 	"reflect"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
+	"github.com/opentracing/opentracing-go"
 
 	"github.com/juju/juju/rpc/rpcreflect"
 )
@@ -413,6 +415,9 @@ func (conn *Conn) input() {
 
 // loop implements the looping part of Conn.input.
 func (conn *Conn) loop() error {
+	sp := opentracing.StartSpan("rpc")
+	defer sp.Finish()
+
 	for {
 		var hdr Header
 		err := conn.codec.ReadHeader(&hdr)
@@ -423,7 +428,7 @@ func (conn *Conn) loop() error {
 		case err != nil:
 			return errors.Annotate(err, "codec.ReadHeader error")
 		case hdr.IsRequest():
-			if err := conn.handleRequest(&hdr); err != nil {
+			if err := conn.handleRequest(sp, &hdr); err != nil {
 				return errors.Annotatef(err, "codec.handleRequest %#v error", hdr)
 			}
 		default:
@@ -441,7 +446,19 @@ func (conn *Conn) readBody(resp interface{}, isRequest bool) error {
 	return conn.codec.ReadBody(resp, isRequest)
 }
 
-func (conn *Conn) handleRequest(hdr *Header) error {
+func (conn *Conn) handleRequest(sp opentracing.Span, hdr *Header) (resultErr error) {
+	sp = opentracing.StartChildSpan(sp, fmt.Sprintf("%s.%d.%s", hdr.Request.Type, hdr.Request.Version, hdr.Request.Action))
+	sp.SetTag("RequestID", hdr.Request.Id)
+	sp.SetTag("RequestType", hdr.Request.Type)
+	sp.SetTag("RequestVersion", hdr.Request.Version)
+	sp.SetTag("RequestAction", hdr.Request.Action)
+	defer func() {
+		if resultErr != nil {
+			sp.Log(opentracing.LogData{Payload: resultErr})
+			sp.Finish()
+		}
+	}()
+
 	startTime := time.Now()
 	req, err := conn.bindRequest(hdr)
 	if err != nil {
@@ -486,7 +503,7 @@ func (conn *Conn) handleRequest(hdr *Header) error {
 	closing := conn.closing
 	if !closing {
 		conn.srvPending.Add(1)
-		go conn.runRequest(req, arg, startTime)
+		go conn.runRequest(req, arg, startTime, sp)
 	}
 	conn.mutex.Unlock()
 	if closing {
@@ -552,10 +569,17 @@ func (conn *Conn) bindRequest(hdr *Header) (boundRequest, error) {
 }
 
 // runRequest runs the given request and sends the reply.
-func (conn *Conn) runRequest(req boundRequest, arg reflect.Value, startTime time.Time) {
+func (conn *Conn) runRequest(req boundRequest, arg reflect.Value, startTime time.Time, sp opentracing.Span) {
 	defer conn.srvPending.Done()
+	defer sp.Finish()
+	var argi interface{}
+	if arg.IsValid() {
+		argi = arg.Interface()
+	}
+	sp.LogEventWithPayload("executing", argi)
 	rv, err := req.Call(req.hdr.Request.Id, arg)
 	if err != nil {
+		sp.LogEventWithPayload("finished", err)
 		err = conn.writeErrorResponse(&req.hdr, req.transformErrors(err), startTime)
 	} else {
 		hdr := &Header{
@@ -567,6 +591,7 @@ func (conn *Conn) runRequest(req boundRequest, arg reflect.Value, startTime time
 		} else {
 			rvi = struct{}{}
 		}
+		sp.LogEventWithPayload("finished", rvi)
 		conn.notifier.ServerReply(req.hdr.Request, hdr, rvi, time.Since(startTime))
 		conn.sending.Lock()
 		err = conn.codec.WriteMessage(hdr, rvi)

@@ -17,11 +17,13 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/utils/exec"
+	"github.com/opentracing/opentracing-go"
+	"sourcegraph.com/sourcegraph/appdash"
+	appdashtracer "sourcegraph.com/sourcegraph/appdash/opentracing"
 
 	jujucmd "github.com/juju/juju/cmd"
 	agentcmd "github.com/juju/juju/cmd/jujud/agent"
 	"github.com/juju/juju/cmd/jujud/dumplogs"
-	"github.com/juju/juju/cmd/pprof"
 	components "github.com/juju/juju/component/all"
 	"github.com/juju/juju/juju/names"
 	"github.com/juju/juju/juju/sockets"
@@ -181,6 +183,11 @@ func Main(args []string) int {
 		}
 	}()
 
+	// Initialization OpenTracing/Ap with a remote collector:
+	collector := appdash.NewRemoteCollector("localhost:8700")
+	tracer := appdashtracer.NewTracer(collector)
+	opentracing.InitGlobalTracer(tracer)
+
 	ctx, err := cmd.DefaultContext()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -192,8 +199,8 @@ func Main(args []string) int {
 	switch commandName {
 	case names.Jujud:
 		// start pprof server and defer cleanup
-		stop := pprof.Start()
-		defer stop()
+		//stop := pprof.Start()
+		//defer stop()
 
 		code, err = jujuDMain(args, ctx)
 	case names.Jujuc:

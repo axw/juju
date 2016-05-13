@@ -49,6 +49,14 @@ type Provider interface {
 	// volume from the provider and then manage the filesystem itself.
 	Supports(kind StorageKind) bool
 
+	// SupportsContainerType reports whether or not the storage provider
+	// supports the specified container type.
+	//
+	// A provider that does not directly support a given container type
+	// can still be used with that container; Juju will attach the storage
+	// to the container's host first, and then expose it to the container.
+	SupportsContainerType(instance.ContainerType) bool
+
 	// Scope returns the scope of storage managed by this provider.
 	Scope() Scope
 

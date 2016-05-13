@@ -14,6 +14,7 @@ import (
 	"github.com/juju/names"
 
 	"github.com/juju/juju/environs/config"
+	"github.com/juju/juju/instance"
 	"github.com/juju/juju/storage"
 )
 
@@ -79,6 +80,18 @@ func (lp *loopProvider) FilesystemSource(
 // Supports is defined on the Provider interface.
 func (*loopProvider) Supports(k storage.StorageKind) bool {
 	return k == storage.StorageKindBlock
+}
+
+// SupportsContainerType is defined on the Provider interface.
+func (*loopProvider) SupportsContainerType(t instance.ContainerType) bool {
+	if t == instance.LXC || t == instance.LXD {
+		// LXC/LXD cannot create loop devices directly without
+		// access to loop devices being granted. We assume that
+		// is not the case, and just allocate them on the host
+		// and expose to the container.
+		return false
+	}
+	return true
 }
 
 // Scope is defined on the Provider interface.

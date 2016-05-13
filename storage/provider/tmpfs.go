@@ -13,6 +13,7 @@ import (
 	"github.com/juju/utils"
 
 	"github.com/juju/juju/environs/config"
+	"github.com/juju/juju/instance"
 	"github.com/juju/juju/storage"
 )
 
@@ -72,6 +73,11 @@ func (p *tmpfsProvider) FilesystemSource(environConfig *config.Config, sourceCon
 // Supports is defined on the Provider interface.
 func (*tmpfsProvider) Supports(k storage.StorageKind) bool {
 	return k == storage.StorageKindFilesystem
+}
+
+// SupportsContainerType is defined on the Provider interface.
+func (*tmpfsProvider) SupportsContainerType(t instance.ContainerType) bool {
+	return true
 }
 
 // Scope is defined on the Provider interface.

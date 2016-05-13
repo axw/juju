@@ -47,6 +47,10 @@ type Filesystem interface {
 	// a storage instance can have at most one associated filesystem.
 	Storage() (names.StorageTag, error)
 
+	// Parent returns the tag of the filesystem containing this filesystem,
+	// or ErrNoParentFilesystem if the filesystem has no parent filesystem.
+	Parent() (names.FilesystemTag, error)
+
 	// Volume returns the tag of the volume backing this filesystem,
 	// or ErrNoBackingVolume if the filesystem is not backed by a volume
 	// managed by Juju.
@@ -98,15 +102,12 @@ type filesystemAttachment struct {
 
 // filesystemDoc records information about a filesystem in the model.
 type filesystemDoc struct {
-	DocID        string `bson:"_id"`
-	FilesystemId string `bson:"filesystemid"`
-	ModelUUID    string `bson:"model-uuid"`
-	Life         Life   `bson:"life"`
-	StorageId    string `bson:"storageid,omitempty"`
-	VolumeId     string `bson:"volumeid,omitempty"`
-	// TODO(axw) 2015-06-22 #1467379
-	// upgrade step to set "attachmentcount" and "binding"
-	// for 1.24 models.
+	DocID           string            `bson:"_id"`
+	FilesystemId    string            `bson:"filesystemid"`
+	ModelUUID       string            `bson:"model-uuid"`
+	Life            Life              `bson:"life"`
+	StorageId       string            `bson:"storageid,omitempty"`
+	VolumeId        string            `bson:"volumeid,omitempty"`
 	AttachmentCount int               `bson:"attachmentcount"`
 	Binding         string            `bson:"binding,omitempty"`
 	Info            *FilesystemInfo   `bson:"info,omitempty"`

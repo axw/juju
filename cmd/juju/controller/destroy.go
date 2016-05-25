@@ -366,17 +366,23 @@ func (c *destroyCommandBase) getControllerEnviron(
 func confirmDestruction(ctx *cmd.Context, controllerName string) error {
 	// Get confirmation from the user that they want to continue
 	fmt.Fprintf(ctx.Stdout, destroySysMsg, controllerName)
+	confirmed, err := promptConfirmation(ctx)
+	if err != nil {
+		return errors.Annotate(err, "controller destruction aborted")
+	}
+	if !confirmed {
+		return errors.New("controller destruction aborted")
+	}
+	return nil
+}
 
+func promptConfirmation(ctx *cmd.Context) (bool, error) {
 	scanner := bufio.NewScanner(ctx.Stdin)
 	scanner.Scan()
 	err := scanner.Err()
 	if err != nil && err != io.EOF {
-		return errors.Annotate(err, "controller destruction aborted")
+		return false, errors.Trace(err)
 	}
 	answer := strings.ToLower(scanner.Text())
-	if answer != "y" && answer != "yes" {
-		return errors.New("controller destruction aborted")
-	}
-
-	return nil
+	return answer == "y" || answer == "yes", nil
 }

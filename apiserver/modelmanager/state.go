@@ -7,6 +7,7 @@ import (
 	"github.com/juju/names"
 
 	"github.com/juju/juju/apiserver/common"
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/status"
@@ -24,6 +25,9 @@ type Backend interface {
 	ControllerModel() (*state.Model, error)
 	ForModel(tag names.ModelTag) (Backend, error)
 	Model() (Model, error)
+	PublicClouds() (map[string]cloud.Cloud, error)
+	PersonalClouds(names.UserTag) (map[string]cloud.Cloud, error)
+	CloudCredentials(names.UserTag) (map[string]cloud.CloudCredential, error)
 	AddModelUser(state.ModelUserSpec) (*state.ModelUser, error)
 	RemoveModelUser(names.UserTag) error
 	ModelUser(names.UserTag) (*state.ModelUser, error)

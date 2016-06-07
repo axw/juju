@@ -12,7 +12,6 @@ import (
 	"launchpad.net/gnuflag"
 
 	"github.com/juju/juju/apiserver/params"
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/cmd/juju/common"
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/jujuclient"
@@ -33,9 +32,8 @@ type addModelCommand struct {
 
 	Name           string
 	Owner          string
-	CredentialSpec string
-	CloudName      string
-	CloudType      string
+	Cloud          string
+	Region         string
 	CredentialName string
 	Config         common.ConfigFlag
 }
@@ -61,6 +59,7 @@ the former take priority.
 Examples:
 
     juju add-model mymodel
+    juju add-model mymodel aws/us-east-1
     juju add-model mymodel --config aws-creds.yaml --config image-stream=daily
     juju add-model mymodel --credential aws:credential_name --config authorized-keys="ssh-rsa ..."
 `
@@ -68,7 +67,7 @@ Examples:
 func (c *addModelCommand) Info() *cmd.Info {
 	return &cmd.Info{
 		Name:    "add-model",
-		Args:    "<model name>",
+		Args:    "<model name> [<cloud name>[/<region>]]",
 		Purpose: "Adds a hosted model.",
 		Doc:     strings.TrimSpace(addModelHelpDoc),
 	}
@@ -76,7 +75,7 @@ func (c *addModelCommand) Info() *cmd.Info {
 
 func (c *addModelCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.StringVar(&c.Owner, "owner", "", "The owner of the new model if not the current user")
-	f.StringVar(&c.CredentialSpec, "credential", "", "Credential used to add the model: <cloud>:<credential name>")
+	f.StringVar(&c.CredentialName, "credential", "", "Cloud credential to use for the model")
 	f.Var(&c.Config, "config", "Path to YAML model configuration file or individual options (--config config.yaml [--config key=value ...])")
 }
 
@@ -94,26 +93,20 @@ func (c *addModelCommand) Init(args []string) error {
 		return errors.Errorf("%q is not a valid user", c.Owner)
 	}
 
-	if c.CredentialSpec != "" {
-		parts := strings.Split(c.CredentialSpec, ":")
-		if len(parts) < 2 {
-			return errors.Errorf("invalid cloud credential %s, expected <cloud>:<credential-name>", c.CredentialSpec)
+	if len(args) == 1 {
+		c.Cloud, args = args[0], args[1:]
+		if i := strings.IndexRune(c.Cloud, '/'); i > 0 {
+			c.Cloud, c.Region = c.Cloud[:i], c.Cloud[i+1:]
 		}
-		c.CloudName = parts[0]
-		if cloud, err := common.CloudOrProvider(c.CloudName, cloud.CloudByName); err != nil {
-			return errors.Trace(err)
-		} else {
-			c.CloudType = cloud.Type
-		}
-		c.CredentialName = parts[1]
 	}
-	return nil
+
+	return cmd.CheckEmpty(args)
 }
 
 type AddModelAPI interface {
 	Close() error
-	ConfigSkeleton(provider, region string) (params.ModelConfig, error)
-	CreateModel(owner string, account, config map[string]interface{}) (params.Model, error)
+	//ConfigSkeleton(provider, region string) (params.ModelConfig, error)
+	CreateModel(name, owner, cloud, region, credential string, config map[string]interface{}) (params.Model, error)
 }
 
 func (c *addModelCommand) getAPI() (AddModelAPI, error) {
@@ -149,29 +142,33 @@ func (c *addModelCommand) Run(ctx *cmd.Context) error {
 		modelOwner = names.NewUserTag(c.Owner).Canonical()
 	}
 
-	serverSkeleton, err := client.ConfigSkeleton(c.CloudType, "")
+	configAttrs, err := c.getConfigValues(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	attrs, err := c.getConfigValues(ctx, serverSkeleton)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	accountDetails := map[string]interface{}{}
-	if c.CredentialName != "" {
-		cred, _, _, err := modelcmd.GetCredentials(
-			c.credentialStore, "", c.CredentialName, c.CloudName, c.CloudType,
-		)
+	/*
+		serverSkeleton, err := client.ConfigSkeleton(c.CloudType, "")
 		if err != nil {
 			return errors.Trace(err)
 		}
-		for k, v := range cred.Attributes() {
-			accountDetails[k] = v
+
+
+		accountDetails := map[string]interface{}{}
+		if c.CredentialName != "" {
+			cred, _, _, err := modelcmd.GetCredentials(
+				c.credentialStore, "", c.CredentialName, c.CloudName, c.CloudType,
+			)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			for k, v := range cred.Attributes() {
+				accountDetails[k] = v
+			}
 		}
-	}
-	model, err := client.CreateModel(modelOwner, accountDetails, attrs)
+	*/
+
+	model, err := client.CreateModel(c.Name, modelOwner, c.Cloud, c.Region, c.CredentialName, configAttrs)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -194,19 +191,11 @@ func (c *addModelCommand) Run(ctx *cmd.Context) error {
 	return nil
 }
 
-func (c *addModelCommand) getConfigValues(ctx *cmd.Context, serverSkeleton params.ModelConfig) (map[string]interface{}, error) {
-	configValues := make(map[string]interface{})
-	for key, value := range serverSkeleton {
-		configValues[key] = value
-	}
-	configAttr, err := c.Config.ReadAttrs(ctx)
+func (c *addModelCommand) getConfigValues(ctx *cmd.Context) (map[string]interface{}, error) {
+	configValues, err := c.Config.ReadAttrs(ctx)
 	if err != nil {
 		return nil, errors.Annotate(err, "unable to parse config")
 	}
-	for key, value := range configAttr {
-		configValues[key] = value
-	}
-	configValues["name"] = c.Name
 	coercedValues, err := common.ConformYAML(configValues)
 	if err != nil {
 		return nil, errors.Annotatef(err, "unable to parse config")
@@ -215,6 +204,5 @@ func (c *addModelCommand) getConfigValues(ctx *cmd.Context, serverSkeleton param
 	if !ok {
 		return nil, errors.New("params must contain a YAML map with string keys")
 	}
-
 	return stringParams, nil
 }

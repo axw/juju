@@ -93,19 +93,20 @@ type ModelSkeletonConfigArgs struct {
 // ModelCreateArgs holds the arguments that are necessary to create
 // a model.
 type ModelCreateArgs struct {
+	Name string `json:"name"`
+
 	// OwnerTag represents the user that will own the new model.
 	// The OwnerTag must be a valid user tag.  If the user tag represents
 	// a local user, that user must exist.
-	OwnerTag string
+	OwnerTag string `json:"owner"`
 
-	// Account holds the provider specific account details necessary to
-	// interact with the provider to create, list and destroy machines.
-	Account map[string]interface{}
+	Cloud           string `json:"cloud"`
+	CloudRegion     string `json:"cloud-region,omitempty"`
+	CloudCredential string `json:"cloud-credential,omitempty"`
 
-	// Config defines the model config, which includes the name of the
-	// model.  An model UUID is allocated by the API server during
-	// the creation of the model.
-	Config map[string]interface{}
+	// Config defines the model config. A model UUID is allocated
+	// by the API server during the creation of the model.
+	Config map[string]interface{} `json:"config"`
 }
 
 // Model holds the result of an API call returning a name and UUID

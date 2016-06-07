@@ -53,15 +53,18 @@ func (c *Client) ConfigSkeleton(provider, region string) (params.ModelConfig, er
 
 // CreateModel creates a new model using the account and
 // model config specified in the args.
-func (c *Client) CreateModel(owner string, account, config map[string]interface{}) (params.Model, error) {
+func (c *Client) CreateModel(name, owner, cloud, region, credential string, config map[string]interface{}) (params.Model, error) {
 	var result params.Model
 	if !names.IsValidUser(owner) {
 		return result, errors.Errorf("invalid owner name %q", owner)
 	}
 	createArgs := params.ModelCreateArgs{
-		OwnerTag: names.NewUserTag(owner).String(),
-		Account:  account,
-		Config:   config,
+		OwnerTag:        names.NewUserTag(owner).String(),
+		Config:          config,
+		Name:            name,
+		Cloud:           cloud,
+		CloudRegion:     region,
+		CloudCredential: credential,
 	}
 	err := c.facade.FacadeCall("CreateModel", createArgs, &result)
 	if err != nil {

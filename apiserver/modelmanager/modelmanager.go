@@ -18,6 +18,7 @@ import (
 
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/controller/modelmanager"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/juju/permission"
@@ -151,21 +152,21 @@ func (mm *ModelManagerAPI) configSkeleton(source ConfigSource, requestedProvider
 	return result, nil
 }
 
-func (mm *ModelManagerAPI) newModelConfig(args params.ModelCreateArgs, source ConfigSource) (*config.Config, error) {
-	// For now, we just smash to the two maps together as we store
-	// the account values and the model config together in the
-	// *config.Config instance.
-	joint := make(map[string]interface{})
-	for key, value := range args.Config {
-		joint[key] = value
-	}
-	// Account info overrides any config values.
-	for key, value := range args.Account {
-		joint[key] = value
-	}
-	if _, ok := joint["uuid"]; ok {
+func (mm *ModelManagerAPI) newModelConfig(
+	args params.ModelCreateArgs,
+	source ConfigSource,
+	credential cloud.Credential,
+) (*config.Config, error) {
+
+	if _, ok := args.Config["uuid"]; ok {
 		return nil, errors.New("uuid is generated, you cannot specify one")
 	}
+	attrs := args.Config
+	for k, v := range credential.Attributes() {
+		attrs[k] = v
+	}
+	attrs[config.NameKey] = args.Name
+
 	baseConfig, err := source.Config()
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -181,7 +182,7 @@ func (mm *ModelManagerAPI) newModelConfig(args params.ModelCreateArgs, source Co
 			return result.List, nil
 		},
 	}
-	return creator.NewModelConfig(mm.isAdmin, baseConfig, joint)
+	return creator.NewModelConfig(mm.isAdmin, baseConfig, attrs)
 }
 
 // CreateModel creates a new model using the account and
@@ -208,19 +209,37 @@ func (mm *ModelManagerAPI) CreateModel(args params.ModelCreateArgs) (params.Mode
 		return result, errors.Trace(err)
 	}
 
-	// TODO(axw) the user should specify a cloud, region and
-	// credential when creating the model. For now we just
-	// assume they're the same as in the controller model.
-	// This is a terribly invalid assumption, and needs to
-	// be fixed ASAP.
-	cloud := controllerModel.Cloud()
-	cloudRegion := controllerModel.CloudRegion()
-	cloudCredential := controllerModel.CloudCredential()
+	cloud := args.Cloud
+	cloudRegion := args.CloudRegion
+	cloudCredentialName := controllerModel.CloudCredential()
+	cloudCredentials, err := mm.state.CloudCredentials(ownerTag)
+	if err != nil {
+		return result, errors.Trace(err)
+	}
 
-	newConfig, err := mm.newModelConfig(args, controllerModel)
+	if cloud == "" {
+		cloud = controllerModel.Cloud()
+	}
+	cloudCredential, ok := cloudCredentials[cloud]
+	if !ok {
+		return result, errors.NotFoundf("credentials for cloud %q", cloud)
+	}
+	if cloudRegion == "" {
+		cloudRegion = cloudCredential.DefaultRegion
+	}
+	if cloudCredentialName == "" {
+		cloudCredentialName = cloudCredential.DefaultCredential
+	}
+	credential, ok := cloudCredential.AuthCredentials[cloudCredentialName]
+	if !ok {
+		return result, errors.NotFoundf("credential %q for cloud %q", cloudCredentialName, cloud)
+	}
+
+	newConfig, err := mm.newModelConfig(args, controllerModel, credential)
 	if err != nil {
 		return result, errors.Annotate(err, "failed to create config")
 	}
+
 	// NOTE: check the agent-version of the config, and if it is > the current
 	// version, it is not supported, also check existing tools, and if we don't
 	// have tools for that version, also die.
@@ -229,7 +248,7 @@ func (mm *ModelManagerAPI) CreateModel(args params.ModelCreateArgs) (params.Mode
 		Owner:           ownerTag,
 		Cloud:           cloud,
 		CloudRegion:     cloudRegion,
-		CloudCredential: cloudCredential,
+		CloudCredential: cloudCredentialName,
 	})
 	if err != nil {
 		return result, errors.Annotate(err, "failed to create new model")

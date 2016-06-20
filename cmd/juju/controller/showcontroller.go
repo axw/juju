@@ -4,14 +4,11 @@
 package controller
 
 import (
-	"fmt"
-
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
 	"launchpad.net/gnuflag"
 
 	"github.com/juju/juju/cmd/modelcmd"
-	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/jujuclient"
 )
 
@@ -226,18 +223,21 @@ func (c *showControllerCommand) convertBootstrapConfigForShow(controllerName str
 	}
 	cfg := make(map[string]interface{})
 	var cloudType string
-	for k, v := range bootstrapConfig.Config {
-		switch k {
-		case config.NameKey:
-			// Name is always "admin" for the admin model,
-			// which is not interesting to us here.
-		case config.TypeKey:
-			// Pull Type up to the top level.
-			cloudType = fmt.Sprint(v)
-		default:
-			cfg[k] = v
+	// TODO(axw) store cloud type in controllers.yaml
+	/*
+		for k, v := range bootstrapConfig.Config {
+			switch k {
+			case config.NameKey:
+				// Name is always "admin" for the admin model,
+				// which is not interesting to us here.
+			case config.TypeKey:
+				// Pull Type up to the top level.
+				cloudType = fmt.Sprint(v)
+			default:
+				cfg[k] = v
+			}
 		}
-	}
+	*/
 	controller.BootstrapConfig = &BootstrapConfig{
 		Config:               cfg,
 		Cloud:                bootstrapConfig.Cloud,

@@ -912,11 +912,11 @@ func validateStoragePool(
 	}
 
 	// Ensure the pool type is supported by the model.
-	conf, err := st.ModelConfig()
+	cloud, err := st.Cloud()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	envType := conf.Type()
+	envType := cloud.Type
 	if !registry.IsProviderSupported(envType, providerType) {
 		return errors.Errorf(
 			"pool %q uses storage provider %q which is not supported for models of type %q",

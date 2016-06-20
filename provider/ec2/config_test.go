@@ -65,6 +65,10 @@ func (t configTest) check(c *gc.C) {
 	attrs := testing.FakeConfig().Merge(testing.Attrs{
 		"type":   "ec2",
 		"region": "us-east-1",
+		"cloud": config.CloudConfig{
+			Type:   "ec2",
+			Region: "test",
+		}.Attributes(),
 	}).Merge(t.config)
 	cfg, err := config.New(config.NoDefaults, attrs)
 	c.Assert(err, jc.ErrorIsNil)
@@ -427,6 +431,10 @@ func (s *ConfigSuite) TestBootstrapConfigSetsDefaultBlockSource(c *gc.C) {
 	s.PatchValue(&verifyCredentials, func(*environ) error { return nil })
 	attrs := testing.FakeConfig().Merge(testing.Attrs{
 		"type": "ec2",
+		"cloud": config.CloudConfig{
+			Type:   "ec2",
+			Region: "test",
+		}.Attributes(),
 	})
 	cfg, err := config.New(config.NoDefaults, attrs)
 	c.Assert(err, jc.ErrorIsNil)
@@ -440,7 +448,6 @@ func (s *ConfigSuite) TestBootstrapConfigSetsDefaultBlockSource(c *gc.C) {
 				"secret-key": "y",
 			},
 		),
-		CloudRegion: "test",
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	source, ok := cfg.StorageDefaultBlockSource()
@@ -452,13 +459,16 @@ func (s *ConfigSuite) TestPrepareSetsDefaultBlockSource(c *gc.C) {
 	s.PatchValue(&verifyCredentials, func(*environ) error { return nil })
 	attrs := testing.FakeConfig().Merge(testing.Attrs{
 		"type": "ec2",
+		"cloud": config.CloudConfig{
+			Type:   "ec2",
+			Region: "test",
+		}.Attributes(),
 	})
 	config, err := config.New(config.NoDefaults, attrs)
 	c.Assert(err, jc.ErrorIsNil)
 
 	cfg, err := providerInstance.BootstrapConfig(environs.BootstrapConfigParams{
-		Config:      config,
-		CloudRegion: "test",
+		Config: config,
 		Credentials: cloud.NewCredential(
 			cloud.AccessKeyAuthType,
 			map[string]string{

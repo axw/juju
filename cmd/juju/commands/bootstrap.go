@@ -396,18 +396,9 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	controllerUUID, err := utils.NewUUID()
-	if err != nil {
-		return errors.Trace(err)
-	}
 
 	// Create an environment config from the cloud and credentials.
-	configAttrs := map[string]interface{}{
-		"type":                       cloud.Type,
-		"name":                       environs.ControllerModelName,
-		config.UUIDKey:               controllerUUID.String(),
-		controller.ControllerUUIDKey: controllerUUID.String(),
-	}
+	configAttrs := make(map[string]interface{})
 	for k, v := range cloud.Config {
 		configAttrs[k] = v
 	}
@@ -452,14 +443,17 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 	environ, err := environsPrepare(
 		modelcmd.BootstrapContext(ctx), store,
 		environs.PrepareParams{
-			BaseConfig:           configAttrs,
-			ControllerName:       c.controllerName,
-			CloudName:            c.Cloud,
-			CloudRegion:          region.Name,
-			CloudEndpoint:        region.Endpoint,
-			CloudStorageEndpoint: region.StorageEndpoint,
-			Credential:           *credential,
-			CredentialName:       credentialName,
+			BaseConfig:     configAttrs,
+			ControllerName: c.controllerName,
+			CloudName:      c.Cloud,
+			CloudConfig: config.CloudConfig{
+				Type:            cloud.Type,
+				Region:          region.Name,
+				Endpoint:        region.Endpoint,
+				StorageEndpoint: region.StorageEndpoint,
+			},
+			Credential:     *credential,
+			CredentialName: credentialName,
 		},
 	)
 	if err != nil {
@@ -582,8 +576,13 @@ to clean up the model.`[1:])
 		guiDataSourceBaseURL = common.GUIDataSourceBaseURL()
 	}
 
+	controllerDetails, err := store.ControllerByName(c.controllerName)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	err = bootstrapFuncs.Bootstrap(modelcmd.BootstrapContext(ctx), environ, bootstrap.BootstrapParams{
-		ControllerUUID:       controllerUUID.String(),
+		ControllerUUID:       controllerDetails.ControllerUUID,
 		ModelConstraints:     c.Constraints,
 		BootstrapConstraints: bootstrapConstraints,
 		BootstrapSeries:      c.BootstrapSeries,

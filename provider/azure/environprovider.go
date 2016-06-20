@@ -9,7 +9,6 @@ import (
 	"github.com/juju/loggo"
 	"github.com/juju/utils/clock"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/controller"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
@@ -85,12 +84,7 @@ func (prov *azureEnvironProvider) Open(cfg *config.Config) (environs.Environ, er
 // The result of RestrictedConfigAttributes is the names of attributes that
 // will be copied across to a hosted environment's initial configuration.
 func (prov *azureEnvironProvider) RestrictedConfigAttributes() []string {
-	// TODO(axw) there should be no restricted attributes.
-	return []string{
-		configAttrLocation,
-		configAttrEndpoint,
-		configAttrStorageEndpoint,
-	}
+	return []string{}
 }
 
 // PrepareForCreateEnvironment is specified in the EnvironProvider interface.
@@ -117,25 +111,7 @@ func (prov *azureEnvironProvider) BootstrapConfig(args environs.BootstrapConfigP
 			return nil, errors.Errorf(`internal config %q must not be specified`, key)
 		}
 	}
-
-	attrs := map[string]interface{}{
-		configAttrLocation:        args.CloudRegion,
-		configAttrEndpoint:        args.CloudEndpoint,
-		configAttrStorageEndpoint: args.CloudStorageEndpoint,
-	}
-	switch authType := args.Credentials.AuthType(); authType {
-	case cloud.UserPassAuthType:
-		for k, v := range args.Credentials.Attributes() {
-			attrs[k] = v
-		}
-	default:
-		return nil, errors.NotSupportedf("%q auth-type", authType)
-	}
-	cfg, err := args.Config.Apply(attrs)
-	if err != nil {
-		return nil, errors.Annotate(err, "updating config")
-	}
-	return cfg, nil
+	return args.Config, nil
 }
 
 // PrepareForBootstrap is specified in the EnvironProvider interface.

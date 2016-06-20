@@ -34,8 +34,7 @@ import (
 type Tests struct {
 	TestConfig     coretesting.Attrs
 	Credential     cloud.Credential
-	CloudEndpoint  string
-	CloudRegion    string
+	CloudConfig    config.CloudConfig
 	ControllerUUID string
 	envtesting.ToolsFixture
 	sstesting.TestDataSuite
@@ -68,9 +67,8 @@ func (t *Tests) PrepareParams(c *gc.C) environs.PrepareParams {
 		BaseConfig:     testConfigCopy,
 		Credential:     credential,
 		ControllerName: t.TestConfig["name"].(string),
-		CloudName:      t.TestConfig["type"].(string),
-		CloudEndpoint:  t.CloudEndpoint,
-		CloudRegion:    t.CloudRegion,
+		CloudName:      t.CloudConfig.Type,
+		CloudConfig:    t.CloudConfig,
 	}
 }
 
@@ -171,23 +169,25 @@ func (t *Tests) TestBootstrap(c *gc.C) {
 	}
 
 	var regions []cloud.Region
-	if t.CloudRegion != "" {
+	if t.CloudConfig.Region != "" {
 		regions = []cloud.Region{{
-			Name:     t.CloudRegion,
-			Endpoint: t.CloudEndpoint,
+			Name:            t.CloudConfig.Region,
+			Endpoint:        t.CloudConfig.Endpoint,
+			StorageEndpoint: t.CloudConfig.StorageEndpoint,
 		}}
 	}
 
 	args := bootstrap.BootstrapParams{
 		ControllerUUID: t.ControllerUUID,
-		CloudName:      t.TestConfig["type"].(string),
+		CloudName:      t.CloudConfig.Type,
 		Cloud: cloud.Cloud{
-			Type:      t.TestConfig["type"].(string),
-			AuthTypes: []cloud.AuthType{credential.AuthType()},
-			Regions:   regions,
-			Endpoint:  t.CloudEndpoint,
+			Type:            t.CloudConfig.Type,
+			AuthTypes:       []cloud.AuthType{credential.AuthType()},
+			Regions:         regions,
+			Endpoint:        t.CloudConfig.Endpoint,
+			StorageEndpoint: t.CloudConfig.StorageEndpoint,
 		},
-		CloudRegion:         t.CloudRegion,
+		CloudRegion:         t.CloudConfig.Region,
 		CloudCredential:     &credential,
 		CloudCredentialName: "credential",
 	}

@@ -215,12 +215,12 @@ func (s *MachineSuite) TestMachineIsManager(c *gc.C) {
 func (s *MachineSuite) TestMachineIsManualBootstrap(c *gc.C) {
 	cfg, err := s.State.ModelConfig()
 	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(cfg.Type(), gc.Not(gc.Equals), "null")
+	c.Assert(cfg.Type(), gc.Not(gc.Equals), "manual")
 	c.Assert(s.machine.Id(), gc.Equals, "1")
 	manual, err := s.machine0.IsManual()
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(manual, jc.IsFalse)
-	attrs := map[string]interface{}{"type": "null"}
+	attrs := map[string]interface{}{"type": "manual"}
 	err = s.State.UpdateModelConfig(attrs, nil, nil)
 	c.Assert(err, jc.ErrorIsNil)
 	manual, err = s.machine0.IsManual()

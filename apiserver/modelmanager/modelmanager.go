@@ -104,7 +104,8 @@ type ConfigSource interface {
 }
 
 func (mm *ModelManagerAPI) newModelConfig(
-	args params.ModelCreateArgs, controllerUUID string, source ConfigSource, credential *cloud.Credential,
+	args params.ModelCreateArgs, controllerUUID string, source ConfigSource,
+	modelCloud cloud.Cloud, cloudRegionName string, credential *cloud.Credential,
 ) (*config.Config, error) {
 	// For now, we just smash to the two maps together as we store
 	// the account values and the model config together in the
@@ -124,12 +125,32 @@ func (mm *ModelManagerAPI) newModelConfig(
 	}
 	joint[config.NameKey] = args.Name
 
+	// Add cloud config.
+	cloudConfig := config.CloudConfig{
+		Type:            modelCloud.Type,
+		Endpoint:        modelCloud.Endpoint,
+		StorageEndpoint: modelCloud.StorageEndpoint,
+	}
+	if cloudRegionName != "" {
+		cloudRegion, err := cloud.RegionByName(modelCloud.Regions, cloudRegionName)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		cloudConfig.Endpoint = cloudRegion.Endpoint
+		cloudConfig.StorageEndpoint = cloudRegion.StorageEndpoint
+		cloudConfig.Region = cloudRegionName
+	}
+	joint[config.CloudKey] = cloudConfig.Attributes()
+
 	// Copy credential attributes across to model config.
 	// TODO(axw) credentials should not be going into model config.
 	if credential != nil {
-		for key, value := range credential.Attributes() {
+		credentialAttrs := credential.Attributes()
+		for key, value := range credentialAttrs {
 			joint[key] = value
 		}
+		credentialAttrs["auth-type"] = string(credential.AuthType())
+		joint[config.CredentialsKey] = credentialAttrs
 	}
 
 	baseConfig, err := source.Config()
@@ -174,6 +195,11 @@ func (mm *ModelManagerAPI) CreateModel(args params.ModelCreateArgs) (params.Mode
 		return result, errors.Trace(err)
 	}
 
+	controllerCloud, err := mm.state.Cloud()
+	if err != nil {
+		return result, errors.Trace(err)
+	}
+
 	cloudCredentialName := args.CloudCredential
 	if cloudCredentialName == "" {
 		if ownerTag == controllerModel.Owner() {
@@ -183,10 +209,6 @@ func (mm *ModelManagerAPI) CreateModel(args params.ModelCreateArgs) (params.Mode
 			// cloud credential, and if so, use it? For now, we
 			// require the user to specify a credential unless
 			// the cloud does not require one.
-			controllerCloud, err := mm.state.Cloud()
-			if err != nil {
-				return result, errors.Trace(err)
-			}
 			var hasEmpty bool
 			for _, authType := range controllerCloud.AuthTypes {
 				if authType != cloud.EmptyAuthType {
@@ -226,7 +248,10 @@ func (mm *ModelManagerAPI) CreateModel(args params.ModelCreateArgs) (params.Mode
 		return result, errors.Trace(err)
 	}
 
-	newConfig, err := mm.newModelConfig(args, controllerCfg.ControllerUUID(), controllerModel, credential)
+	newConfig, err := mm.newModelConfig(
+		args, controllerCfg.ControllerUUID(), controllerModel,
+		controllerCloud, cloudRegion, credential,
+	)
 	if err != nil {
 		return result, errors.Annotate(err, "failed to create config")
 	}

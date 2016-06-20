@@ -79,20 +79,6 @@ type BootstrapConfigParams struct {
 	//
 	// TODO(axw) rename field to Credential.
 	Credentials cloud.Credential
-
-	// CloudRegion is the name of the region of the cloud to create
-	// the Juju controller in. This will be empty for clouds without
-	// regions.
-	CloudRegion string
-
-	// CloudEndpoint is the location of the primary API endpoint to
-	// use when communicating with the cloud.
-	CloudEndpoint string
-
-	// CloudStorageEndpoint is the location of the API endpoint to use
-	// when communicating with the cloud's storage service. This will
-	// be empty for clouds that have no cloud-specific API endpoint.
-	CloudStorageEndpoint string
 }
 
 // ProviderCredentials is an interface that an EnvironProvider implements

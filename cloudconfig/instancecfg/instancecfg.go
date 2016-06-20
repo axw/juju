@@ -740,7 +740,7 @@ func FinishInstanceConfig(icfg *InstanceConfig, cfg *config.Config) (err error) 
 
 	if err := PopulateInstanceConfig(
 		icfg,
-		cfg.Type(),
+		cfg.Cloud().Type,
 		cfg.AuthorizedKeys(),
 		cfg.SSLHostnameVerification(),
 		cfg.ProxySettings(),

@@ -387,10 +387,5 @@ func (g bootstrapConfigGetter) getBootstrapConfigParams(controllerName string) (
 			CloudEndpoint:        bootstrapConfig.CloudEndpoint,
 			CloudStorageEndpoint: bootstrapConfig.CloudStorageEndpoint,
 		},
-		&environs.BootstrapConfigParams{
-			cfg, *credential,
-			bootstrapConfig.CloudRegion,
-			bootstrapConfig.CloudEndpoint,
-			bootstrapConfig.CloudStorageEndpoint,
-		}, nil
+		&environs.BootstrapConfigParams{cfg, *credential}, nil
 }

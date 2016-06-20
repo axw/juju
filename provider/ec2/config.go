@@ -6,33 +6,16 @@ package ec2
 import (
 	"fmt"
 
+	"github.com/juju/errors"
 	"github.com/juju/schema"
 	"gopkg.in/amz.v3/aws"
 	"gopkg.in/juju/environschema.v1"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs/config"
 )
 
 var configSchema = environschema.Fields{
-	"access-key": {
-		Description: "The EC2 access key",
-		EnvVar:      "AWS_ACCESS_KEY_ID",
-		Type:        environschema.Tstring,
-		Mandatory:   true,
-		Group:       environschema.AccountGroup,
-	},
-	"secret-key": {
-		Description: "The EC2 secret key",
-		EnvVar:      "AWS_SECRET_ACCESS_KEY",
-		Type:        environschema.Tstring,
-		Mandatory:   true,
-		Secret:      true,
-		Group:       environschema.AccountGroup,
-	},
-	"region": {
-		Description: "The EC2 region to use",
-		Type:        environschema.Tstring,
-	},
 	"vpc-id": {
 		Description: "Use a specific AWS VPC ID (optional). When not specified, Juju requires a default VPC or EC2-Classic features to be available for the account/region.",
 		Example:     "vpc-a1b2c3d4",
@@ -57,27 +40,27 @@ var configFields = func() schema.Fields {
 }()
 
 var configDefaults = schema.Defaults{
-	"access-key":   "",
-	"secret-key":   "",
 	"vpc-id":       "",
 	"vpc-id-force": false,
 }
 
 type environConfig struct {
 	*config.Config
+	cloud config.CloudConfig
+	cred  cloud.Credential
 	attrs map[string]interface{}
 }
 
 func (c *environConfig) region() string {
-	return c.attrs["region"].(string)
+	return c.cloud.Region
 }
 
 func (c *environConfig) accessKey() string {
-	return c.attrs["access-key"].(string)
+	return c.cred.Attributes()["access-key"]
 }
 
 func (c *environConfig) secretKey() string {
-	return c.attrs["secret-key"].(string)
+	return c.cred.Attributes()["secret-key"]
 }
 
 func (c *environConfig) vpcID() string {
@@ -93,7 +76,13 @@ func (p environProvider) newConfig(cfg *config.Config) (*environConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &environConfig{valid, valid.UnknownAttrs()}, nil
+	credentials, _ := valid.Credentials()
+	return &environConfig{
+		valid,
+		valid.Cloud(),
+		credentials,
+		valid.UnknownAttrs(),
+	}, nil
 }
 
 // Schema returns the configuration schema for an environment.
@@ -114,15 +103,20 @@ func validateConfig(cfg, old *config.Config) (*environConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	ecfg := &environConfig{cfg, validated}
 
-	if ecfg.accessKey() == "" || ecfg.secretKey() == "" {
-		auth, err := aws.EnvAuth()
-		if err != nil || ecfg.accessKey() != "" || ecfg.secretKey() != "" {
-			return nil, fmt.Errorf("model has no access-key or secret-key")
-		}
-		ecfg.attrs["access-key"] = auth.AccessKey
-		ecfg.attrs["secret-key"] = auth.SecretKey
+	credentials, ok := cfg.Credentials()
+	if !ok {
+		return nil, errors.NewNotValid(nil, "missing cloud credentials")
+	}
+	if authType := credentials.AuthType(); authType != cloud.AccessKeyAuthType {
+		return nil, errors.NotValidf("%q auth-type", authType)
+	}
+
+	ecfg := &environConfig{
+		cfg,
+		cfg.Cloud(),
+		credentials,
+		validated,
 	}
 
 	if _, ok := aws.Regions[ecfg.region()]; !ok {
@@ -137,9 +131,6 @@ func validateConfig(cfg, old *config.Config) (*environConfig, error) {
 
 	if old != nil {
 		attrs := old.UnknownAttrs()
-		if region, _ := attrs["region"].(string); ecfg.region() != region {
-			return nil, fmt.Errorf("cannot change region from %q to %q", region, ecfg.region())
-		}
 
 		if vpcID, _ := attrs["vpc-id"].(string); vpcID != ecfg.vpcID() {
 			return nil, fmt.Errorf("cannot change vpc-id from %q to %q", vpcID, ecfg.vpcID())

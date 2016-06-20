@@ -208,6 +208,8 @@ func (c *addCommand) Run(ctx *cmd.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	// TODO(axw) just use core/model.Config here. no need to
+	// obtain a full environ config.
 	config, err := config.New(config.NoDefaults, configAttrs)
 	if err != nil {
 		return errors.Trace(err)

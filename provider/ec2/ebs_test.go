@@ -79,7 +79,7 @@ func (s *ebsVolumeSuite) SetUpSuite(c *gc.C) {
 			"secret-key": "x",
 		},
 	)
-	s.CloudRegion = "test"
+	s.CloudConfig.Region = "test"
 
 	// Upload arches that ec2 supports; add to this
 	// as ec2 coverage expands.

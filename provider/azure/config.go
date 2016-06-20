@@ -21,9 +21,6 @@ const (
 	configAttrSubscriptionId     = "subscription-id"
 	configAttrTenantId           = "tenant-id"
 	configAttrAppPassword        = "application-password"
-	configAttrLocation           = "location"
-	configAttrEndpoint           = "endpoint"
-	configAttrStorageEndpoint    = "storage-endpoint"
 	configAttrStorageAccountType = "storage-account-type"
 
 	// The below bits are internal book-keeping things, rather than
@@ -45,13 +42,6 @@ const (
 )
 
 var configFields = schema.Fields{
-	configAttrLocation:           schema.String(),
-	configAttrEndpoint:           schema.String(),
-	configAttrStorageEndpoint:    schema.String(),
-	configAttrAppId:              schema.String(),
-	configAttrSubscriptionId:     schema.String(),
-	configAttrTenantId:           schema.String(),
-	configAttrAppPassword:        schema.String(),
 	configAttrStorageAccount:     schema.String(),
 	configAttrStorageAccountKey:  schema.String(),
 	configAttrStorageAccountType: schema.String(),
@@ -63,19 +53,14 @@ var configDefaults = schema.Defaults{
 	configAttrStorageAccountType: string(storage.StandardLRS),
 }
 
-var requiredConfigAttributes = []string{
-	configAttrAppId,
-	configAttrAppPassword,
-	configAttrSubscriptionId,
-	configAttrTenantId,
-	configAttrLocation,
-	configAttrEndpoint,
-	configAttrStorageEndpoint,
-}
+var requiredConfigAttributes = []string{}
 
 var immutableConfigAttributes = []string{
-	configAttrSubscriptionId,
-	configAttrTenantId,
+	/*
+		TODO(axw) need to check these in credentials
+		configAttrSubscriptionId,
+		configAttrTenantId,
+	*/
 	configAttrStorageAccount,
 	configAttrStorageAccountType,
 }
@@ -169,16 +154,16 @@ Please choose a model name of no more than %d characters.`,
 		)
 	}
 
-	location := canonicalLocation(validated[configAttrLocation].(string))
-	endpoint := validated[configAttrEndpoint].(string)
-	storageEndpoint := validated[configAttrStorageEndpoint].(string)
-	appId := validated[configAttrAppId].(string)
-	subscriptionId := validated[configAttrSubscriptionId].(string)
-	tenantId := validated[configAttrTenantId].(string)
-	appPassword := validated[configAttrAppPassword].(string)
 	storageAccount, _ := validated[configAttrStorageAccount].(string)
 	storageAccountKey, _ := validated[configAttrStorageAccountKey].(string)
 	storageAccountType := validated[configAttrStorageAccountType].(string)
+
+	cloud := newCfg.Cloud()
+	credentialAttrs := newCfg.Credentials().Attributes()
+	appId := credentialAttrs[configAttrAppId]
+	subscriptionId := credentialAttrs[configAttrSubscriptionId]
+	tenantId := credentialAttrs[configAttrTenantId]
+	appPassword := credentialAttrs[configAttrAppPassword]
 
 	if newCfg.FirewallMode() == config.FwGlobal {
 		// We do not currently support the "global" firewall mode.
@@ -193,7 +178,7 @@ Please choose a model name of no more than %d characters.`,
 	}
 
 	// The Azure storage code wants the endpoint host only, not the URL.
-	storageEndpointURL, err := url.Parse(storageEndpoint)
+	storageEndpointURL, err := url.Parse(cloud.StorageEndpoint)
 	if err != nil {
 		return nil, errors.Annotate(err, "parsing storage endpoint URL")
 	}
@@ -210,8 +195,8 @@ Please choose a model name of no more than %d characters.`,
 		newCfg,
 		token,
 		subscriptionId,
-		location,
-		endpoint,
+		cloud.Region,
+		cloud.Endpoint,
 		storageEndpointURL.Host,
 		storageAccount,
 		storageAccountKey,

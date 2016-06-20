@@ -31,6 +31,7 @@ import (
 	"github.com/juju/juju/controller"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
+	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/imagemetadata"
 	imagetesting "github.com/juju/juju/environs/imagemetadata/testing"
 	"github.com/juju/juju/environs/jujutest"
@@ -61,6 +62,10 @@ var localConfigAttrs = coretesting.FakeConfig().Merge(coretesting.Attrs{
 	"name":          "sample",
 	"type":          "ec2",
 	"agent-version": coretesting.FakeVersionNumber.String(),
+	"cloud": config.CloudConfig{
+		Type:   "ec2",
+		Region: "test",
+	}.Attributes(),
 })
 
 func registerLocalTests() {
@@ -92,7 +97,10 @@ func (t *localLiveSuite) SetUpSuite(c *gc.C) {
 			"secret-key": "x",
 		},
 	)
-	t.CloudRegion = "test"
+	t.CloudConfig = config.CloudConfig{
+		Type:   "ec2",
+		Region: "test",
+	}
 
 	// Upload arches that ec2 supports; add to this
 	// as ec2 coverage expands.
@@ -217,7 +225,7 @@ func (t *localServerSuite) SetUpSuite(c *gc.C) {
 			"secret-key": "x",
 		},
 	)
-	t.CloudRegion = "test"
+	t.CloudConfig.Region = "test"
 
 	// Upload arches that ec2 supports; add to this
 	// as ec2 coverage expands.
@@ -1483,7 +1491,10 @@ func (t *localNonUSEastSuite) SetUpTest(c *gc.C) {
 			),
 			ControllerName: localConfigAttrs["name"].(string),
 			CloudName:      "ec2",
-			CloudRegion:    "test",
+			CloudConfig: config.CloudConfig{
+				Type:   "ec2",
+				Region: "test",
+			},
 		},
 	)
 	c.Assert(err, jc.ErrorIsNil)

@@ -124,5 +124,23 @@ func (environProviderCredentials) detectEnvCredentials() (*cloud.CloudCredential
 	return &cloud.CloudCredential{
 		AuthCredentials: map[string]cloud.Credential{
 			user: accessKeyCredential,
-		}}, nil
+		},
+	}, nil
+}
+
+func validateCredentials(credential cloud.Credential) (aws.Auth, error) {
+	if authType := credential.AuthType(); authType != cloud.AccessKeyAuthType {
+		return aws.Auth{}, errors.NotValidf("%q auth-type", authType)
+	}
+	attrs := credential.Attributes()
+	auth := aws.Auth{
+		AccessKey: attrs["access-key"],
+		SecretKey: attrs["secret-key"],
+	}
+	if auth.AccessKey == "" || auth.SecretKey == "" {
+		if auth.AccessKey != "" || auth.SecretKey != "" {
+			return auth, fmt.Errorf("model has no access-key or secret-key")
+		}
+	}
+	return auth, nil
 }

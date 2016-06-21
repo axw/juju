@@ -157,7 +157,7 @@ func (st *State) validate(cfg, old *config.Config) (valid *config.Config, err er
 	if st.policy == nil {
 		return cfg, nil
 	}
-	configValidator, err := st.policy.ConfigValidator(cfg.Type())
+	configValidator, err := st.policy.ConfigValidator(cfg.Cloud().Type)
 	if errors.IsNotImplemented(err) {
 		return cfg, nil
 	} else if err != nil {

@@ -15,7 +15,6 @@ import (
 	gc "gopkg.in/check.v1"
 
 	"github.com/juju/juju/constraints"
-	"github.com/juju/juju/controller"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/jujutest"
@@ -48,13 +47,15 @@ func registerAmazonTests() {
 	// environment variables to make the Amazon testing work:
 	//  access-key: $AWS_ACCESS_KEY_ID
 	//  secret-key: $AWS_SECRET_ACCESS_KEY
-	attrs := coretesting.FakeConfig().Merge(map[string]interface{}{
-		"name":          "sample-" + uniqueName,
-		"type":          "ec2",
-		"admin-secret":  "for real",
-		"firewall-mode": config.FwInstance,
-		"agent-version": coretesting.FakeVersionNumber.String(),
-	})
+	attrs := coretesting.Attrs{
+		"admin-secret":    "for real",
+		"firewall-mode":   config.FwInstance,
+		"agent-version":   coretesting.FakeVersionNumber.String(),
+		"authorized-keys": coretesting.FakeAuthKeys,
+		"ca-cert":         coretesting.CACert,
+		"ca-private-key":  coretesting.CAKey,
+		"defualt-series":  series.LatestLts(),
+	}
 	gc.Suite(&LiveTests{
 		LiveTests: jujutest.LiveTests{
 			TestConfig:     attrs,
@@ -151,8 +152,7 @@ func (t *LiveTests) TestControllerInstances(c *gc.C) {
 	inst1, _ := testing.AssertStartInstance(c, t.Env, t.ControllerUUID, "99")
 	defer t.Env.StopInstances(inst1.Id())
 
-	controllerUUID := controller.Config(t.TestConfig).ControllerUUID()
-	insts, err := t.Env.ControllerInstances(controllerUUID)
+	insts, err := t.Env.ControllerInstances(t.ControllerUUID)
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(insts, gc.DeepEquals, []instance.Id{bootstrapInstId})
 }

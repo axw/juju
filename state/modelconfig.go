@@ -6,6 +6,7 @@ package state
 import (
 	"github.com/juju/errors"
 
+	jujucloud "github.com/juju/juju/cloud"
 	"github.com/juju/juju/controller"
 	"github.com/juju/juju/environs/config"
 )
@@ -26,6 +27,49 @@ func (st *State) ModelConfig() (*config.Config, error) {
 	// Merge in model specific settings.
 	for k, v := range modelSettings.Map() {
 		attrs[k] = v
+	}
+
+	cloud, err := st.Cloud()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	model, err := st.Model()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	endpoint := cloud.Endpoint
+	storageEndpoint := cloud.StorageEndpoint
+	regionName := model.CloudRegion()
+	if regionName != "" {
+		region, err := jujucloud.RegionByName(cloud.Regions, regionName)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		endpoint = region.Endpoint
+		storageEndpoint = region.StorageEndpoint
+	}
+
+	// Add the cloud config.
+	attrs[config.CloudKey] = map[string]interface{}{
+		"type":             cloud.Type,
+		"region":           regionName,
+		"endpoint":         endpoint,
+		"storage-endpoint": storageEndpoint,
+	}
+
+	// Add the cloud credentials.
+	credentialName := model.CloudCredential()
+	if credentialName != "" {
+		// TODO(axw) add helper function for getting a named credential.
+		cloudCredentials, err := st.CloudCredentials(model.Owner())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		credential, ok := cloudCredentials[credentialName]
+		if !ok {
+			return nil, errors.NotFoundf("credential %q", credentialName)
+		}
+		attrs[config.CredentialsKey] = config.CredentialAttributes(credential)
 	}
 
 	return config.New(config.NoDefaults, attrs)

@@ -28,9 +28,9 @@ import (
 
 	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/constraints"
-	"github.com/juju/juju/controller"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
+	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/imagemetadata"
 	imagetesting "github.com/juju/juju/environs/imagemetadata/testing"
 	"github.com/juju/juju/environs/jujutest"
@@ -57,11 +57,13 @@ type ProviderSuite struct {
 
 var _ = gc.Suite(&ProviderSuite{})
 
-var localConfigAttrs = coretesting.FakeConfig().Merge(coretesting.Attrs{
-	"name":          "sample",
-	"type":          "ec2",
-	"agent-version": coretesting.FakeVersionNumber.String(),
-})
+var localConfigAttrs = coretesting.Attrs{
+	"agent-version":   coretesting.FakeVersionNumber.String(),
+	"authorized-keys": coretesting.FakeAuthKeys,
+	"ca-cert":         coretesting.CACert,
+	"ca-private-key":  coretesting.CAKey,
+	"default-series":  series.LatestLts(),
+}
 
 func registerLocalTests() {
 	// N.B. Make sure the region we use here
@@ -92,7 +94,10 @@ func (t *localLiveSuite) SetUpSuite(c *gc.C) {
 			"secret-key": "x",
 		},
 	)
-	t.CloudRegion = "test"
+	t.CloudConfig = config.CloudConfig{
+		Type:   "ec2",
+		Region: "test",
+	}
 
 	// Upload arches that ec2 supports; add to this
 	// as ec2 coverage expands.
@@ -217,7 +222,10 @@ func (t *localServerSuite) SetUpSuite(c *gc.C) {
 			"secret-key": "x",
 		},
 	)
-	t.CloudRegion = "test"
+	t.CloudConfig = config.CloudConfig{
+		Type:   "ec2",
+		Region: "test",
+	}
 
 	// Upload arches that ec2 supports; add to this
 	// as ec2 coverage expands.
@@ -1254,8 +1262,7 @@ func (t *localServerSuite) setUpInstanceWithDefaultVpc(c *gc.C) (environs.Networ
 	})
 	c.Assert(err, jc.ErrorIsNil)
 
-	controllerUUID := controller.Config(t.TestConfig).ControllerUUID()
-	instanceIds, err := env.ControllerInstances(controllerUUID)
+	instanceIds, err := env.ControllerInstances(t.ControllerUUID)
 	c.Assert(err, jc.ErrorIsNil)
 	return env, instanceIds[0]
 }
@@ -1400,8 +1407,8 @@ func (t *localServerSuite) TestInstanceTags(c *gc.C) {
 
 	ec2Inst := ec2.InstanceEC2(instances[0])
 	c.Assert(ec2Inst.Tags, jc.SameContents, []amzec2.Tag{
-		{"Name", "juju-sample-machine-0"},
-		{"juju-model-uuid", coretesting.ModelTag.Id()},
+		{"Name", "juju-controller-machine-0"},
+		{"juju-model-uuid", t.ControllerUUID},
 		{"juju-controller-uuid", t.ControllerUUID},
 		{"juju-is-controller", "true"},
 	})
@@ -1428,8 +1435,8 @@ func (t *localServerSuite) TestRootDiskTags(c *gc.C) {
 	}
 	c.Assert(found, gc.NotNil)
 	c.Assert(found.Tags, jc.SameContents, []amzec2.Tag{
-		{"Name", "juju-sample-machine-0-root"},
-		{"juju-model-uuid", coretesting.ModelTag.Id()},
+		{"Name", "juju-controller-machine-0-root"},
+		{"juju-model-uuid", t.ControllerUUID},
 		{"juju-controller-uuid", t.ControllerUUID},
 	})
 }
@@ -1483,7 +1490,10 @@ func (t *localNonUSEastSuite) SetUpTest(c *gc.C) {
 			),
 			ControllerName: localConfigAttrs["name"].(string),
 			CloudName:      "ec2",
-			CloudRegion:    "test",
+			CloudConfig: config.CloudConfig{
+				Type:   "ec2",
+				Region: "test",
+			},
 		},
 	)
 	c.Assert(err, jc.ErrorIsNil)

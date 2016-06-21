@@ -11,7 +11,6 @@ import (
 	"github.com/juju/utils/arch"
 	"gopkg.in/amz.v3/ec2"
 
-	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/simplestreams"
@@ -27,9 +26,9 @@ var providerInstance environProvider
 
 // RestrictedConfigAttributes is specified in the EnvironProvider interface.
 func (p environProvider) RestrictedConfigAttributes() []string {
-	// TODO(dimitern): Both of these shouldn't be restricted for hosted models.
+	// TODO(dimitern): this shouldn't be restricted for hosted models.
 	// See bug http://pad.lv/1580417 for more information.
-	return []string{"region", "vpc-id-force"}
+	return []string{"vpc-id-force"}
 }
 
 // PrepareForCreateEnvironment is specified in the EnvironProvider interface.
@@ -62,33 +61,15 @@ func (p environProvider) Open(cfg *config.Config) (environs.Environ, error) {
 
 // BootstrapConfig is specified in the EnvironProvider interface.
 func (p environProvider) BootstrapConfig(args environs.BootstrapConfigParams) (*config.Config, error) {
-	// Add credentials to the configuration.
-	attrs := map[string]interface{}{
-		"region": args.CloudRegion,
-		// TODO(axw) stop relying on hard-coded
-		//           region endpoint information
-		//           in the provider, and use
-		//           args.CloudEndpoint here.
-	}
-	switch authType := args.Credentials.AuthType(); authType {
-	case cloud.AccessKeyAuthType:
-		credentialAttrs := args.Credentials.Attributes()
-		attrs["access-key"] = credentialAttrs["access-key"]
-		attrs["secret-key"] = credentialAttrs["secret-key"]
-	default:
-		return nil, errors.NotSupportedf("%q auth-type", authType)
-	}
-
 	// Set the default block-storage source.
+	attrs := make(map[string]interface{})
 	if _, ok := args.Config.StorageDefaultBlockSource(); !ok {
 		attrs[config.StorageDefaultBlockSourceKey] = EBS_ProviderType
 	}
-
 	cfg, err := args.Config.Apply(attrs)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-
 	return cfg, nil
 }
 
@@ -146,14 +127,7 @@ func (p environProvider) MetadataLookupParams(region string) (*simplestreams.Met
 
 // SecretAttrs is specified in the EnvironProvider interface.
 func (environProvider) SecretAttrs(cfg *config.Config) (map[string]string, error) {
-	m := make(map[string]string)
-	ecfg, err := providerInstance.newConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-	m["access-key"] = ecfg.accessKey()
-	m["secret-key"] = ecfg.secretKey()
-	return m, nil
+	return nil, nil
 }
 
 const badAccessKey = `

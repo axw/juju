@@ -70,6 +70,10 @@ type ProviderSchema interface {
 }
 
 // BootstrapConfigParams contains the parameters for EnvironProvider.BootstrapConfig.
+//
+// TODO(axw) BootstrapConfigParams, along with the BootstrapConfig method,
+// should be removed. We'll have to update all providers to use the
+// cloud-config and credentials embedded in environs/config first.
 type BootstrapConfigParams struct {
 	// Config is the base configuration for the provider. This should
 	// be updated with the region, endpoint and credentials.

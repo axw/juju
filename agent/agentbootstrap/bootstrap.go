@@ -16,6 +16,7 @@ import (
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/controller"
 	"github.com/juju/juju/controller/modelmanager"
+	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/network"
@@ -137,13 +138,17 @@ func InitializeState(
 	for k, v := range args.HostedModelConfig {
 		attrs[k] = v
 	}
-	// TODO(axw) we shouldn't be adding credentials to model config.
 	if args.ControllerCloudCredential != nil {
 		for k, v := range args.ControllerCloudCredential.Attributes() {
+			// TODO(axw) we shouldn't be adding
+			// credential attributes to model config.
 			attrs[k] = v
 		}
+		attrs[config.CredentialsKey] = config.CredentialAttributes(*args.ControllerCloudCredential)
 	}
+	attrs[config.CloudKey] = args.ControllerModelConfig.AllAttrs()[config.CloudKey]
 	controllerUUID := controller.Config(args.ControllerModelConfig.AllAttrs()).ControllerUUID()
+
 	hostedModelConfig, err := modelmanager.ModelConfigCreator{}.NewModelConfig(
 		modelmanager.IsAdmin, controllerUUID, args.ControllerModelConfig, attrs,
 	)

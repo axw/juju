@@ -10,6 +10,7 @@ import (
 	gc "gopkg.in/check.v1"
 
 	"github.com/juju/juju/environs"
+	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/imagemetadata"
 	"github.com/juju/juju/environs/simplestreams"
 	sstesting "github.com/juju/juju/environs/simplestreams/testing"
@@ -32,7 +33,7 @@ func (s *ImageMetadataSuite) TearDownTest(c *gc.C) {
 }
 
 func (s *ImageMetadataSuite) env(c *gc.C, imageMetadataURL, stream string) environs.Environ {
-	attrs := dummy.SampleConfig()
+	attrs := testing.Attrs{}
 	if stream != "" {
 		attrs = attrs.Merge(testing.Attrs{
 			"image-stream": stream,
@@ -47,9 +48,12 @@ func (s *ImageMetadataSuite) env(c *gc.C, imageMetadataURL, stream string) envir
 		envtesting.BootstrapContext(c),
 		jujuclienttesting.NewMemStore(),
 		environs.PrepareParams{
-			ControllerName: attrs["name"].(string),
+			ControllerName: "image-metadata",
 			BaseConfig:     attrs,
 			CloudName:      "dummy",
+			CloudConfig: config.CloudConfig{
+				Type: "dummy",
+			},
 		},
 	)
 	c.Assert(err, jc.ErrorIsNil)

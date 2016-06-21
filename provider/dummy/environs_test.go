@@ -16,6 +16,7 @@ import (
 	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
+	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/jujutest"
 	sstesting "github.com/juju/juju/environs/simplestreams/testing"
 	envtesting "github.com/juju/juju/environs/testing"
@@ -35,14 +36,20 @@ func TestPackage(t *stdtesting.T) {
 func init() {
 	gc.Suite(&liveSuite{
 		LiveTests: jujutest.LiveTests{
-			TestConfig:     dummy.SampleConfig(),
+			TestConfig: dummy.BaseConfig(),
+			CloudConfig: config.CloudConfig{
+				Type: "dummy",
+			},
 			CanOpenState:   true,
 			HasProvisioner: false,
 		},
 	})
 	gc.Suite(&suite{
 		Tests: jujutest.Tests{
-			TestConfig: dummy.SampleConfig(),
+			TestConfig: dummy.BaseConfig(),
+			CloudConfig: config.CloudConfig{
+				Type: "dummy",
+			},
 		},
 	})
 }
@@ -89,6 +96,7 @@ type suite struct {
 func (s *suite) SetUpSuite(c *gc.C) {
 	s.BaseSuite.SetUpSuite(c)
 	s.MgoSuite.SetUpSuite(c)
+	s.BaseSuite.PatchValue(&juju.JujuPublicKey, sstesting.SignedMetadataPublicKey)
 }
 
 func (s *suite) TearDownSuite(c *gc.C) {
@@ -112,21 +120,11 @@ func (s *suite) TearDownTest(c *gc.C) {
 }
 
 func (s *suite) bootstrapTestEnviron(c *gc.C) environs.NetworkingEnviron {
-	env, err := environs.Prepare(
-		envtesting.BootstrapContext(c),
-		s.ControllerStore,
-		environs.PrepareParams{
-			BaseConfig:     s.TestConfig,
-			ControllerName: s.TestConfig["name"].(string),
-			CloudName:      "dummy",
-		},
-	)
-	c.Assert(err, gc.IsNil, gc.Commentf("preparing environ %#v", s.TestConfig))
-	c.Assert(env, gc.NotNil)
+	env := s.Prepare(c)
 	netenv, supported := environs.SupportsNetworking(env)
 	c.Assert(supported, jc.IsTrue)
 
-	err = bootstrap.Bootstrap(envtesting.BootstrapContext(c), netenv, bootstrap.BootstrapParams{
+	err := bootstrap.Bootstrap(envtesting.BootstrapContext(c), netenv, bootstrap.BootstrapParams{
 		ControllerUUID: s.ControllerUUID,
 		CloudName:      "dummy",
 		Cloud: cloud.Cloud{

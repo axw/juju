@@ -67,25 +67,6 @@ func fakeUserPassCredential() cloud.Credential {
 	)
 }
 
-func (s *environProviderSuite) TestBootstrapConfig(c *gc.C) {
-	cfg := makeTestModelConfig(c)
-	s.sender = azuretesting.Senders{tokenRefreshSender()}
-	cfg, err := s.provider.BootstrapConfig(environs.BootstrapConfigParams{
-		Config:               cfg,
-		CloudRegion:          "westus",
-		CloudEndpoint:        "https://api.azurestack.local",
-		CloudStorageEndpoint: "https://storage.azurestack.local",
-		Credentials:          fakeUserPassCredential(),
-	})
-	c.Check(err, jc.ErrorIsNil)
-	c.Check(cfg, gc.NotNil)
-
-	attrs := cfg.UnknownAttrs()
-	c.Assert(attrs["location"], gc.Equals, "westus")
-	c.Assert(attrs["endpoint"], gc.Equals, "https://api.azurestack.local")
-	c.Assert(attrs["storage-endpoint"], gc.Equals, "https://storage.azurestack.local")
-}
-
 func newProviders(c *gc.C, config azure.ProviderConfig) (environs.EnvironProvider, storage.Provider) {
 	if config.NewStorageClient == nil {
 		var storage azuretesting.MockStorageClient

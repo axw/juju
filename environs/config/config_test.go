@@ -64,6 +64,7 @@ var sampleConfig = testing.Attrs{
 	"state-port":                1234,
 	"api-port":                  4321,
 	"default-series":            series.LatestLts(),
+	"cloud":                     config.CloudConfig{Type: "my-type"}.Attributes(),
 }
 
 type configTest struct {
@@ -86,6 +87,7 @@ var minimalConfigAttrs = testing.Attrs{
 	"name":            "my-name",
 	"uuid":            testing.ModelTag.Id(),
 	"controller-uuid": testing.ModelTag.Id(),
+	"cloud":           config.CloudConfig{Type: "my-type"}.Attributes(),
 }
 
 var modelNameErr = "%q is not a valid name: model names may only contain lowercase letters, digits and hyphens"
@@ -574,6 +576,7 @@ var configTests = []configTest{
 			"ca-cert":                   caCert,
 			"firewall-mode":             "instance",
 			"type":                      "ec2",
+			"cloud":                     config.CloudConfig{Type: "ec2"}.Attributes(),
 			"uuid":                      testing.ModelTag.Id(),
 			"controller-uuid":           testing.ModelTag.Id(),
 		},
@@ -730,6 +733,7 @@ var noCertFilesTests = []configTest{
 			"uuid":            testing.ModelTag.Id(),
 			"controller-uuid": testing.ModelTag.Id(),
 			"authorized-keys": testing.FakeAuthKeys,
+			"cloud":           config.CloudConfig{Type: "my-type"}.Attributes(),
 		},
 	}, {
 		about:       "Unspecified certificate, specified key",
@@ -741,6 +745,7 @@ var noCertFilesTests = []configTest{
 			"controller-uuid": testing.ModelTag.Id(),
 			"authorized-keys": testing.FakeAuthKeys,
 			"ca-private-key":  caKey,
+			"cloud":           config.CloudConfig{Type: "my-type"}.Attributes(),
 		},
 		err: "bad CA certificate/key in configuration: .*tls:.*",
 	},
@@ -764,6 +769,7 @@ var emptyCertFilesTests = []configTest{
 			"controller-uuid": testing.ModelTag.Id(),
 			"authorized-keys": testing.FakeAuthKeys,
 			"ca-private-key":  caKey,
+			"cloud":           config.CloudConfig{Type: "my-type"}.Attributes(),
 		},
 		err: fmt.Sprintf(`file ".*%smy-name-cert.pem" is empty`, regexp.QuoteMeta(string(os.PathSeparator))),
 	}, {
@@ -775,6 +781,7 @@ var emptyCertFilesTests = []configTest{
 			"uuid":            testing.ModelTag.Id(),
 			"controller-uuid": testing.ModelTag.Id(),
 			"authorized-keys": testing.FakeAuthKeys,
+			"cloud":           config.CloudConfig{Type: "my-type"}.Attributes(),
 		},
 		err: fmt.Sprintf(`file ".*%smy-name-cert.pem" is empty`, regexp.QuoteMeta(string(os.PathSeparator))),
 	}, {
@@ -787,6 +794,7 @@ var emptyCertFilesTests = []configTest{
 			"controller-uuid": testing.ModelTag.Id(),
 			"authorized-keys": testing.FakeAuthKeys,
 			"ca-cert":         caCert,
+			"cloud":           config.CloudConfig{Type: "my-type"}.Attributes(),
 		},
 		err: fmt.Sprintf(`file ".*%smy-name-private-key.pem" is empty`, regexp.QuoteMeta(string(os.PathSeparator))),
 	}, /* {
@@ -836,6 +844,7 @@ func (s *ConfigSuite) TestNoDefinedPrivateCert(c *gc.C) {
 		"authorized-keys": testing.FakeAuthKeys,
 		"ca-cert":         testing.CACert,
 		"ca-private-key":  "",
+		"cloud":           config.CloudConfig{Type: "my-type"}.Attributes(),
 	}
 
 	_, err := config.New(config.UseDefaults, attrs)
@@ -852,11 +861,6 @@ func (test configTest) check(c *gc.C, home *gitjujutesting.FakeHome) {
 	c.Assert(err, jc.ErrorIsNil)
 
 	typ, _ := test.attrs["type"].(string)
-	// "null" has been deprecated in favour of "manual",
-	// and is automatically switched.
-	if typ == "null" {
-		typ = "manual"
-	}
 	name, _ := test.attrs["name"].(string)
 	c.Assert(cfg.Type(), gc.Equals, typ)
 	c.Assert(cfg.Name(), gc.Equals, name)
@@ -1068,6 +1072,7 @@ func (s *ConfigSuite) TestConfigAttrs(c *gc.C) {
 		"bootstrap-addresses-delay": 10,
 		"default-series":            series.LatestLts(),
 		"test-mode":                 false,
+		"cloud":                     config.CloudConfig{Type: "my-type"}.Attributes(),
 	}
 	cfg, err := config.New(config.NoDefaults, attrs)
 	c.Assert(err, jc.ErrorIsNil)
@@ -1217,6 +1222,7 @@ func (s *ConfigSuite) TestValidateUnknownAttrs(c *gc.C) {
 		"controller-uuid": testing.ModelTag.Id(),
 		"known":           "this",
 		"unknown":         "that",
+		"cloud":           config.CloudConfig{Type: "other"}.Attributes(),
 	})
 	c.Assert(err, jc.ErrorIsNil)
 
@@ -1282,6 +1288,7 @@ func (s *ConfigSuite) TestValidateUnknownEmptyAttr(c *gc.C) {
 		"type":            "other",
 		"uuid":            testing.ModelTag.Id(),
 		"controller-uuid": testing.ModelTag.Id(),
+		"cloud":           config.CloudConfig{Type: "other"}.Attributes(),
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	warningTxt := `.* unknown config field %q.*`
@@ -1306,6 +1313,7 @@ func newTestConfig(c *gc.C, explicit testing.Attrs) *config.Config {
 		"type": "my-type", "name": "my-name",
 		"uuid":            testing.ModelTag.Id(),
 		"controller-uuid": testing.ModelTag.Id(),
+		"cloud":           config.CloudConfig{Type: "my-type"}.Attributes(),
 	}
 	for key, value := range explicit {
 		final[key] = value

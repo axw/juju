@@ -310,14 +310,6 @@ func (env *azureEnviron) SetConfig(cfg *config.Config) error {
 		}
 	}
 
-	// Invalidate instance types when the location changes.
-	if old != nil {
-		oldLocation := old.UnknownAttrs()["location"].(string)
-		if env.config.location != oldLocation {
-			env.instanceTypes = nil
-		}
-	}
-
 	return nil
 }
 

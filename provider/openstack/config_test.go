@@ -85,6 +85,9 @@ func restoreEnvVars(envVars map[string]string) {
 func (t configTest) check(c *gc.C) {
 	attrs := testing.FakeConfig().Merge(testing.Attrs{
 		"type": "openstack",
+		"cloud": config.CloudConfig{
+			Type: "openstack",
+		}.Attributes(),
 	}).Merge(t.config)
 
 	cfg, err := config.New(config.NoDefaults, attrs)

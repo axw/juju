@@ -263,6 +263,7 @@ type ModelConfigGetter interface {
 	ModelGet() (map[string]interface{}, error)
 }
 
+// TODO(axw) this should use core/model.Config.
 var getClientConfig = func(client ModelConfigGetter) (*config.Config, error) {
 	// Separated into a variable for easy overrides
 	attrs, err := client.ModelGet()

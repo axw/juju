@@ -148,7 +148,7 @@ func (s *JujuConnSuite) MongoInfo(c *gc.C) *mongo.MongoInfo {
 
 func (s *JujuConnSuite) APIInfo(c *gc.C) *api.Info {
 	controllerCfg := controller.ControllerConfig(s.Environ.Config().AllAttrs())
-	apiInfo, err := environs.APIInfo(s.ControllerUUID, testing.ModelTag.Id(), testing.CACert, controllerCfg.APIPort(), s.Environ)
+	apiInfo, err := environs.APIInfo(s.ControllerUUID, s.ControllerUUID, testing.CACert, controllerCfg.APIPort(), s.Environ)
 	c.Assert(err, jc.ErrorIsNil)
 	apiInfo.Tag = s.AdminUserTag(c)
 	apiInfo.Password = "dummy-secret"
@@ -258,9 +258,6 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	s.PatchEnvironment(osenv.JujuModelEnvKey, "controller")
 
-	cfg, err := config.New(config.UseDefaults, (map[string]interface{})(s.sampleConfig()))
-	c.Assert(err, jc.ErrorIsNil)
-
 	s.ControllerStore = jujuclient.NewFileClientStore()
 
 	ctx := testing.Context(c)
@@ -268,10 +265,13 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 		modelcmd.BootstrapContext(ctx),
 		s.ControllerStore,
 		environs.PrepareParams{
-			BaseConfig:     cfg.AllAttrs(),
+			BaseConfig:     s.sampleConfig().Delete("cloud"),
 			Credential:     cloud.NewEmptyCredential(),
 			ControllerName: ControllerName,
 			CloudName:      "dummy",
+			CloudConfig: config.CloudConfig{
+				Type: "dummy",
+			},
 		},
 	)
 	c.Assert(err, jc.ErrorIsNil)
@@ -294,8 +294,11 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	envtesting.AssertUploadFakeToolsVersions(c, stor, "devel", "devel", versions...)
 	s.DefaultToolsStorage = stor
 
+	controllerDetails, err := s.ControllerStore.ControllerByName(ControllerName)
+	c.Assert(err, jc.ErrorIsNil)
+	s.ControllerUUID = controllerDetails.ControllerUUID
+
 	s.PatchValue(&juju.JujuPublicKey, sstesting.SignedMetadataPublicKey)
-	s.ControllerUUID = testing.ModelTag.Id()
 	err = bootstrap.Bootstrap(modelcmd.BootstrapContext(ctx), environ, bootstrap.BootstrapParams{
 		ControllerUUID: s.ControllerUUID,
 		CloudName:      "dummy",
@@ -314,7 +317,7 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 
 	controllerCfg := controller.ControllerConfig(environ.Config().AllAttrs())
-	apiInfo, err := environs.APIInfo(s.ControllerUUID, testing.ModelTag.Id(), testing.CACert, controllerCfg.APIPort(), environ)
+	apiInfo, err := environs.APIInfo(s.ControllerUUID, s.ControllerUUID, testing.CACert, controllerCfg.APIPort(), environ)
 	c.Assert(err, jc.ErrorIsNil)
 	apiInfo.Tag = s.AdminUserTag(c)
 	apiInfo.Password = environ.Config().AdminSecret()
@@ -526,12 +529,11 @@ func (s *JujuConnSuite) sampleConfig() testing.Attrs {
 		s.DummyConfig = dummy.SampleConfig()
 	}
 	attrs := s.DummyConfig.Merge(testing.Attrs{
-		"name":           "controller",
 		"admin-secret":   AdminSecret,
 		"agent-version":  jujuversion.Current.String(),
 		"ca-cert":        testing.CACert,
 		"ca-private-key": testing.CAKey,
-	})
+	}).Delete("name", "type", "uuid", "controller-uuid")
 	// Add any custom attributes required.
 	for attr, val := range s.ConfigAttrs {
 		attrs[attr] = val

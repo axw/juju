@@ -14,9 +14,9 @@ import (
 
 	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/constraints"
-	"github.com/juju/juju/controller"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
+	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/imagemetadata"
 	imagetesting "github.com/juju/juju/environs/imagemetadata/testing"
 	"github.com/juju/juju/environs/jujutest"
@@ -69,7 +69,9 @@ func (s *localLiveSuite) SetUpSuite(c *gc.C) {
 	s.cSrv.setupServer(c)
 	s.AddCleanup(s.cSrv.destroyServer)
 
-	s.TestConfig = GetFakeConfig(s.cSrv.Server.URL)
+	s.TestConfig = GetFakeConfig(s.cSrv.Server.URL).Delete(
+		"name", "type", "uuid", "controller-uuid",
+	)
 	s.TestConfig = s.TestConfig.Merge(coretesting.Attrs{
 		"image-metadata-url": "test://host",
 	})
@@ -91,6 +93,10 @@ func (s *localLiveSuite) SetUpTest(c *gc.C) {
 		cloud.UserPassAuthType,
 		credentialsAttrs,
 	)
+	s.CloudConfig = config.CloudConfig{
+		Type:     "joyent",
+		Endpoint: s.cSrv.Server.URL,
+	}
 	creds := joyent.MakeCredentials(c, s.TestConfig)
 	joyent.UseExternalTestImageMetadata(c, creds)
 	imagetesting.PatchOfficialDataSources(&s.CleanupSuite, "test://host")
@@ -132,12 +138,18 @@ func (s *localServerSuite) SetUpTest(c *gc.C) {
 
 	s.Tests.ToolsFixture.UploadArches = []string{arch.AMD64}
 	s.Tests.SetUpTest(c)
-	s.TestConfig = GetFakeConfig(s.cSrv.Server.URL)
+	s.TestConfig = GetFakeConfig(s.cSrv.Server.URL).Delete(
+		"name", "type", "uuid", "controller-uuid",
+	)
 	credentialsAttrs := joyent.CredentialsAttributes(s.TestConfig)
 	s.Credential = cloud.NewCredential(
 		cloud.UserPassAuthType,
 		credentialsAttrs,
 	)
+	s.CloudConfig = config.CloudConfig{
+		Type:     "joyent",
+		Endpoint: s.cSrv.Server.URL,
+	}
 	// Put some fake image metadata in place.
 	creds := joyent.MakeCredentials(c, s.TestConfig)
 	joyent.UseExternalTestImageMetadata(c, creds)
@@ -298,8 +310,7 @@ func (s *localServerSuite) TestBootstrapInstanceUserDataAndState(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 
 	// check that ControllerInstances returns the id of the bootstrap machine.
-	controllerUUID := controller.Config(s.TestConfig).ControllerUUID()
-	instanceIds, err := env.ControllerInstances(controllerUUID)
+	instanceIds, err := env.ControllerInstances(s.ControllerUUID)
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(instanceIds, gc.HasLen, 1)
 

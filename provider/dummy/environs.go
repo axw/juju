@@ -72,14 +72,8 @@ const BootstrapInstanceId = "localhost"
 
 var errNotPrepared = errors.New("model is not prepared")
 
-// SampleConfig() returns an environment configuration with all required
-// attributes set.
-func SampleConfig() testing.Attrs {
+func BaseConfig() testing.Attrs {
 	return testing.Attrs{
-		"type":                      "dummy",
-		"name":                      "only",
-		"uuid":                      testing.ModelTag.Id(),
-		"controller-uuid":           testing.ModelTag.Id(),
 		"authorized-keys":           testing.FakeAuthKeys,
 		"firewall-mode":             config.FwInstance,
 		"admin-secret":              testing.DefaultMongoPassword,
@@ -94,6 +88,20 @@ func SampleConfig() testing.Attrs {
 		"secret":     "pork",
 		"controller": true,
 	}
+}
+
+// SampleConfig() returns an environment configuration with all required
+// attributes set.
+func SampleConfig() testing.Attrs {
+	return BaseConfig().Merge(testing.Attrs{
+		"cloud": config.CloudConfig{
+			Type: "dummy",
+		}.Attributes(),
+		"type":            "dummy",
+		"name":            "only",
+		"uuid":            testing.ModelTag.Id(),
+		"controller-uuid": testing.ModelTag.Id(),
+	})
 }
 
 // PatchTransientErrorInjectionChannel sets the transientInjectionError

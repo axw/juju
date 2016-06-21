@@ -68,9 +68,6 @@ func ReadAuthorizedKeys(path string) (string, error) {
 		keyData = append(keyData, '\n')
 	}
 	if len(keyData) == 0 {
-		if firstError == nil {
-			firstError = ErrNoAuthorizedKeys
-		}
 		return "", firstError
 	}
 	return string(keyData), nil

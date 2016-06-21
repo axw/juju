@@ -15,9 +15,6 @@ import (
 	"gopkg.in/goose.v1/identity"
 	"gopkg.in/goose.v1/nova"
 
-	"github.com/juju/juju/environs"
-	"github.com/juju/juju/environs/bootstrap"
-	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/environs/jujutest"
 	"github.com/juju/juju/environs/storage"
 	envtesting "github.com/juju/juju/environs/testing"
@@ -37,7 +34,7 @@ func randomName() string {
 	return fmt.Sprintf("%x", buf)
 }
 
-func makeTestConfig(cred *identity.Credentials) map[string]interface{} {
+func makeTestConfig() map[string]interface{} {
 	// The following attributes hold the environment configuration
 	// for running the OpenStack integration tests.
 	//
@@ -46,22 +43,14 @@ func makeTestConfig(cred *identity.Credentials) map[string]interface{} {
 	//  access-key: $OS_USERNAME
 	//  secret-key: $OS_PASSWORD
 	//
-	attrs := coretesting.FakeConfig().Merge(coretesting.Attrs{
-		"name":        "sample-" + randomName(),
-		"type":        "openstack",
-		"auth-mode":   "userpass",
-		"username":    cred.User,
-		"password":    cred.Secrets,
-		"region":      cred.Region,
-		"auth-url":    cred.URL,
-		"tenant-name": cred.TenantName,
-	})
-	return attrs
+	return coretesting.FakeConfig().Delete(
+		"name", "type", "uuid", "controller-uuid",
+	)
 }
 
 // Register tests to run against a real Openstack instance.
 func registerLiveTests(cred *identity.Credentials) {
-	config := makeTestConfig(cred)
+	config := makeTestConfig()
 	gc.Suite(&LiveTests{
 		cred: cred,
 		LiveTests: jujutest.LiveTests{
@@ -211,25 +200,16 @@ func (t *LiveTests) TestSetupGlobalGroupExposesCorrectPorts(c *gc.C) {
 }
 
 func (s *LiveTests) assertStartInstanceDefaultSecurityGroup(c *gc.C, useDefault bool) {
-	attrs := s.TestConfig.Merge(coretesting.Attrs{
-		"name":                 "sample-" + randomName(),
+	newConfig := s.TestConfig.Merge(coretesting.Attrs{
 		"use-default-secgroup": useDefault,
 	})
-	cfg, err := config.New(config.NoDefaults, attrs)
-	c.Assert(err, jc.ErrorIsNil)
-	// Set up a test environment.
-	env, err := environs.New(cfg)
-	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(env, gc.NotNil)
-	defer env.Destroy()
-	// Bootstrap and start an instance.
-	err = bootstrap.Bootstrap(envtesting.BootstrapContext(c), env, bootstrap.BootstrapParams{
-		ControllerUUID: s.ControllerUUID,
-	})
-	c.Assert(err, jc.ErrorIsNil)
-	inst, _ := jujutesting.AssertStartInstance(c, env, s.ControllerUUID, "100")
+	s.BaseSuite.PatchValue(&s.TestConfig, newConfig)
+	s.Destroy(c)
+	s.BootstrapOnce(c)
+
+	inst, _ := jujutesting.AssertStartInstance(c, s.Env, s.ControllerUUID, "100")
 	// Check whether the instance has the default security group assigned.
-	novaClient := openstack.GetNovaClient(env)
+	novaClient := openstack.GetNovaClient(s.Env)
 	groups, err := novaClient.GetServerSecurityGroups(string(inst.Id()))
 	c.Assert(err, jc.ErrorIsNil)
 	defaultGroupFound := false

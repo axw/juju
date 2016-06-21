@@ -38,3 +38,20 @@ func (environProviderCredentials) CredentialSchemas() map[cloud.AuthType]cloud.C
 func (environProviderCredentials) DetectCredentials() (*cloud.CloudCredential, error) {
 	return nil, errors.NotFoundf("credentials")
 }
+
+func validateCloudCredential(credential cloud.Credential) error {
+	credentialAttrs := credential.Attributes()
+	if credentialAttrs[configAttrAppId] == "" {
+		return errors.Errorf("missing or empty application-id")
+	}
+	if credentialAttrs[configAttrSubscriptionId] == "" {
+		return errors.Errorf("missing or empty subscription-id")
+	}
+	if credentialAttrs[configAttrTenantId] == "" {
+		return errors.Errorf("missing or empty tenant-id")
+	}
+	if credentialAttrs[configAttrAppPassword] == "" {
+		return errors.Errorf("missing or empty application-password")
+	}
+	return nil
+}

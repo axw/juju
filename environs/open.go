@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/juju/utils"
 
 	"github.com/juju/juju/cert"
 	"github.com/juju/juju/cloud"
@@ -36,10 +37,9 @@ func New(config *config.Config) (Environ, error) {
 // PrepareParams contains the parameters for preparing a controller Environ
 // for bootstrapping.
 type PrepareParams struct {
-	// BaseConfig contains the base configuration for the controller.
-	//
-	// This includes the model name, cloud type, and any user-supplied
-	// configuration. It does not include any default attributes.
+	// Base Config contains the user-supplied configuration for the
+	// controller and model. This does not include UUIDs, cloud type,
+	// or model name.
 	BaseConfig map[string]interface{}
 
 	// ControllerName is the name of the controller being prepared.
@@ -49,19 +49,9 @@ type PrepareParams struct {
 	// prepared for.
 	CloudName string
 
-	// CloudRegion is the name of the region of the cloud to create
-	// the Juju controller in. This will be empty for clouds without
-	// regions.
-	CloudRegion string
-
-	// CloudEndpoint is the location of the primary API endpoint to
-	// use when communicating with the cloud.
-	CloudEndpoint string
-
-	// CloudStorageEndpoint is the location of the API endpoint to use
-	// when communicating with the cloud's storage service. This will
-	// be empty for clouds that have no cloud-specific API endpoint.
-	CloudStorageEndpoint string
+	// CloudConfig contains the cloud configuration that will be used
+	// for the controller model.
+	CloudConfig config.CloudConfig
 
 	// Credential is the credential to use to bootstrap.
 	Credential cloud.Credential
@@ -90,12 +80,7 @@ func Prepare(
 		return nil, errors.Annotatef(err, "error reading controller %q info", args.ControllerName)
 	}
 
-	cloudType, ok := args.BaseConfig["type"].(string)
-	if !ok {
-		return nil, errors.NotFoundf("cloud type in base configuration")
-	}
-
-	p, err := Provider(cloudType)
+	p, err := Provider(args.CloudConfig.Type)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -106,7 +91,7 @@ func Prepare(
 	}
 
 	if err := decorateAndWriteInfo(
-		store, details, args.ControllerName, env.Config().Name(),
+		store, details, args.ControllerName, ControllerModelName,
 	); err != nil {
 		return nil, errors.Annotatef(err, "cannot create controller %q info", args.ControllerName)
 	}
@@ -149,7 +134,28 @@ func prepare(
 ) (Environ, prepareDetails, error) {
 	var details prepareDetails
 
-	cfg, err := config.New(config.UseDefaults, args.BaseConfig)
+	controllerUUID, err := utils.NewUUID()
+	if err != nil {
+		return nil, details, errors.Trace(err)
+	}
+	attrs := map[string]interface{}{
+		config.NameKey:               ControllerModelName,
+		config.UUIDKey:               controllerUUID.String(),
+		controller.ControllerUUIDKey: controllerUUID.String(), // TODO delete? need to pass through another way
+		config.CloudKey:              args.CloudConfig.Attributes(),
+		config.TypeKey:               args.CloudConfig.Type, // TODO(axw) delete
+	}
+	if args.Credential.AuthType() != "" {
+		attrs[config.CredentialsKey] = config.CredentialAttributes(args.Credential)
+	}
+	for k, v := range args.BaseConfig {
+		if _, ok := attrs[k]; ok {
+			return nil, details, errors.Errorf("%q may not be specified in config", k)
+		}
+		attrs[k] = v
+	}
+
+	cfg, err := config.New(config.UseDefaults, attrs)
 	if err != nil {
 		return nil, details, errors.Trace(err)
 	}
@@ -163,8 +169,10 @@ func prepare(
 	}
 
 	cfg, err = p.BootstrapConfig(BootstrapConfigParams{
-		cfg, args.Credential, args.CloudRegion,
-		args.CloudEndpoint, args.CloudStorageEndpoint,
+		cfg, args.Credential,
+		args.CloudConfig.Region,
+		args.CloudConfig.Endpoint,
+		args.CloudConfig.StorageEndpoint,
 	})
 	if err != nil {
 		return nil, details, errors.Trace(err)
@@ -182,20 +190,18 @@ func prepare(
 	for k, v := range args.BaseConfig {
 		details.Config[k] = v
 	}
-	delete(details.Config, controller.ControllerUUIDKey)
-	delete(details.Config, config.UUIDKey)
 
 	details.CACert = caCert
-	details.ControllerUUID = controller.Config(cfg.AllAttrs()).ControllerUUID()
+	details.ControllerUUID = controllerUUID.String()
 	details.User = AdminUser
 	details.Password = adminSecret
-	details.ModelUUID = cfg.UUID()
+	details.ModelUUID = controllerUUID.String()
 	details.ControllerDetails.Cloud = args.CloudName
-	details.ControllerDetails.CloudRegion = args.CloudRegion
+	details.ControllerDetails.CloudRegion = args.CloudConfig.Region
 	details.BootstrapConfig.Cloud = args.CloudName
-	details.BootstrapConfig.CloudRegion = args.CloudRegion
-	details.CloudEndpoint = args.CloudEndpoint
-	details.CloudStorageEndpoint = args.CloudStorageEndpoint
+	details.BootstrapConfig.CloudRegion = args.CloudConfig.Region
+	details.CloudEndpoint = args.CloudConfig.Endpoint
+	details.CloudStorageEndpoint = args.CloudConfig.StorageEndpoint
 	details.Credential = args.CredentialName
 
 	return env, details, nil
@@ -243,7 +249,7 @@ func ensureCertificate(cfg *config.Config) (*config.Config, string, error) {
 	}
 
 	// TODO(perrito666) 2016-05-02 lp:1558657
-	caCert, caKey, err := cert.NewCA(cfg.Name(), cfg.UUID(), time.Now().UTC().AddDate(10, 0, 0))
+	caCert, caKey, err := cert.NewCA(ControllerModelName, cfg.UUID(), time.Now().UTC().AddDate(10, 0, 0))
 	if err != nil {
 		return nil, "", errors.Trace(err)
 	}
@@ -265,14 +271,14 @@ func Destroy(
 	store jujuclient.ControllerStore,
 ) error {
 	details, err := store.ControllerByName(controllerName)
-	if err != nil && !errors.IsNotFound(err) {
-		return errors.Trace(err)
-	}
-	if err := env.DestroyController(details.ControllerUUID); err != nil {
-		return errors.Trace(err)
-	}
-	err = store.RemoveController(controllerName)
-	if err != nil && !errors.IsNotFound(err) {
+	if err == nil {
+		if err := env.DestroyController(details.ControllerUUID); err != nil {
+			return errors.Trace(err)
+		}
+		if err := store.RemoveController(controllerName); err != nil {
+			return errors.Trace(err)
+		}
+	} else if !errors.IsNotFound(err) {
 		return errors.Trace(err)
 	}
 	return nil

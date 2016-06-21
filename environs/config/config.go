@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"gopkg.in/juju/environschema.v1"
 	"gopkg.in/juju/names.v2"
 
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/controller"
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/juju/osenv"
@@ -78,7 +80,16 @@ const (
 	NameKey = "name"
 
 	// TypeKey is the key for the model's cloud type.
+	//
+	// TODO(axw) remove TypeKey, update everything to
+	// use cloud.type only.
 	TypeKey = "type"
+
+	// CloudKey is the key for the model's cloud configuration.
+	CloudKey = "cloud"
+
+	// CredentialsKey is the key for the model's cloud credentials.
+	CredentialsKey = "credentials"
 
 	// AdminSecret is the administrator password.
 	AdminSecretKey = "admin-secret"
@@ -448,11 +459,13 @@ func Validate(cfg, old *Config) error {
 		return errors.Annotate(err, "validating resource tags")
 	}
 
+	// TODO(axw) check that we have a valid cloud config and credentials.
+
 	// Check the immutable config values.  These can't change
 	if old != nil {
 		allImmutableAttributes := append(immutableAttributes, controller.ControllerOnlyConfigAttributes...)
 		for _, attr := range allImmutableAttributes {
-			if newv, oldv := cfg.defined[attr], old.defined[attr]; newv != oldv {
+			if newv, oldv := cfg.defined[attr], old.defined[attr]; !reflect.DeepEqual(newv, oldv) {
 				return fmt.Errorf("cannot change %s from %#v to %#v", attr, oldv, newv)
 			}
 		}
@@ -517,7 +530,95 @@ func (c *Config) mustInt(name string) int {
 	return value
 }
 
+// CloudConfig contains the cloud configuration for an environment.
+type CloudConfig struct {
+	// Type is the cloud provider type: ec2, openstack, maas, etc.
+	Type string
+
+	// Region is the cloud region name, if applicable.
+	Region string
+
+	// Endpoint is the cloud (region) endpoint.
+	Endpoint string
+
+	// StorageEndpoint is the cloud (region) storage endpoint.
+	StorageEndpoint string
+}
+
+// Attributes returns the attributes that make up a CloudConfig.
+func (c CloudConfig) Attributes() map[string]string {
+	return map[string]string{
+		"type":             c.Type,
+		"region":           c.Region,
+		"endpoint":         c.Endpoint,
+		"storage-endpoint": c.StorageEndpoint,
+	}
+}
+
+// Cloud returns the cloud configuration for the environment.
+func (c *Config) Cloud() CloudConfig {
+	cloud, err := c.cloud()
+	if err != nil {
+		panic(err)
+	}
+	return cloud
+}
+
+func (c *Config) cloud() (CloudConfig, error) {
+	attrs, ok := c.defined[CloudKey].(map[string]string)
+	if !ok {
+		return CloudConfig{}, errors.New("missing cloud config")
+	}
+	cloudType, ok := attrs["type"]
+	if !ok {
+		return CloudConfig{}, errors.New("missing cloud type")
+	}
+	return CloudConfig{
+		Type:            cloudType,
+		Region:          attrs["region"],
+		Endpoint:        attrs["endpoint"],
+		StorageEndpoint: attrs["storage-endpoint"],
+	}, nil
+}
+
+// CredentialAttributes converts the given cloud credential
+// to a flattened attribute map.
+func CredentialAttributes(credential cloud.Credential) map[string]string {
+	attrs := credential.Attributes()
+	if attrs == nil {
+		attrs = make(map[string]string)
+	}
+	attrs["auth-type"] = string(credential.AuthType())
+	return attrs
+}
+
+// Credentials returns the cloud credentials for the environment,
+// if available. The bool result reports whether or not there are
+// any credentials.
+func (c *Config) Credentials() (cloud.Credential, bool) {
+	credential, ok, err := c.credentials()
+	if err != nil {
+		panic(err)
+	}
+	return credential, ok
+}
+
+func (c *Config) credentials() (cloud.Credential, bool, error) {
+	attrs, ok := c.defined[CredentialsKey].(map[string]string)
+	if !ok {
+		return cloud.Credential{}, false, nil
+	}
+	authType, ok := attrs["auth-type"]
+	if !ok {
+		return cloud.Credential{}, false, errors.New("missing auth-type")
+	}
+	return cloud.NewCredential(cloud.AuthType(authType), attrs), true, nil
+}
+
 // Type returns the model's cloud provider type.
+//
+// TODO(axw) delete this method, and update everything
+// to use Cloud().Type instead.
 func (c *Config) Type() string {
 	return c.mustString(TypeKey)
 }
@@ -558,7 +659,8 @@ func (c *Config) NumaCtlPreference() bool {
 
 // AuthorizedKeys returns the content for ssh's authorized_keys file.
 func (c *Config) AuthorizedKeys() string {
-	return c.mustString("authorized-keys")
+	keys, _ := c.defined["authorized-keys"].(string)
+	return keys
 }
 
 // ProxySSH returns a flag indicating whether SSH commands
@@ -936,7 +1038,7 @@ var alwaysOptional = schema.Defaults{
 
 	// Model config attributes
 	AgentVersionKey:              schema.Omit,
-	"authorized-keys":            schema.Omit,
+	"authorized-keys":            "",
 	"authorized-keys-path":       schema.Omit,
 	"logging-config":             schema.Omit,
 	ProvisionerHarvestModeKey:    schema.Omit,
@@ -958,6 +1060,10 @@ var alwaysOptional = schema.Defaults{
 	SetNumaControlPolicyKey:      DefaultNumaControlPolicy,
 	ResourceTagsKey:              schema.Omit,
 	CloudImageBaseURL:            schema.Omit,
+	CredentialsKey:               schema.Omit,
+
+	// TODO(axw) cloud should be mandatory; no default
+	CloudKey: schema.Omit,
 
 	// AutomaticallyRetryHooks is assumed to be true if missing
 	AutomaticallyRetryHooks: schema.Omit,
@@ -1324,6 +1430,20 @@ global or per instance security groups.`,
 		Type:        environschema.Tstring,
 		Mandatory:   true,
 		Immutable:   true,
+		Group:       environschema.EnvironGroup,
+	},
+	CloudKey: {
+		Description: "The cloud definition",
+		Type:        environschema.Tattrs,
+		Mandatory:   false, // TODO make this mandatory
+		Immutable:   false, // TODO handle this properly for Tattrs
+		Group:       environschema.EnvironGroup,
+	},
+	CredentialsKey: {
+		Description: "The cloud credentials",
+		Type:        environschema.Tattrs,
+		Mandatory:   false,
+		Immutable:   false,
 		Group:       environschema.EnvironGroup,
 	},
 	NoProxyKey: {

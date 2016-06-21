@@ -56,10 +56,16 @@ func (s *configSuite) TestValidateInvalidFirewallMode(c *gc.C) {
 }
 
 func (s *configSuite) TestValidateLocation(c *gc.C) {
-	s.assertConfigInvalid(c, testing.Attrs{"location": ""}, `"location" config not specified`)
-	// We don't validate locations, because new locations may be added.
-	// Azure will complain if the location is invalid anyway.
-	s.assertConfigValid(c, testing.Attrs{"location": "eurasia"})
+	// We don't validate regions within the provider,
+	// because new locations may be added. Azure will
+	// complain if the location is invalid, and we do
+	// validation in the model-creation code anyway.
+	s.assertConfigValid(c, testing.Attrs{
+		"cloud": testing.Attrs{
+			"type":   "azure",
+			"region": "eurasia",
+		},
+	})
 }
 
 func (s *configSuite) TestValidateModelNameLength(c *gc.C) {
@@ -71,10 +77,18 @@ Please choose a model name of no more than 32 characters.`)
 }
 
 func (s *configSuite) TestValidateInvalidCredentials(c *gc.C) {
-	s.assertConfigInvalid(c, testing.Attrs{"application-id": ""}, `"application-id" config not specified`)
-	s.assertConfigInvalid(c, testing.Attrs{"application-password": ""}, `"application-password" config not specified`)
-	s.assertConfigInvalid(c, testing.Attrs{"tenant-id": ""}, `"tenant-id" config not specified`)
-	s.assertConfigInvalid(c, testing.Attrs{"subscription-id": ""}, `"subscription-id" config not specified`)
+	creds := testing.Attrs{
+		"auth-type":            "userpass",
+		"application-id":       "foo",
+		"application-password": "bar",
+		"tenant-id":            "baz",
+		"subscription-id":      "qux",
+	}
+
+	s.assertConfigInvalid(c, testing.Attrs{"credentials": creds.Delete("application-id")}, "missing or empty application-id")
+	s.assertConfigInvalid(c, testing.Attrs{"credentials": creds.Delete("application-password")}, "missing or empty application-password")
+	s.assertConfigInvalid(c, testing.Attrs{"credentials": creds.Delete("tenant-id")}, "missing or empty tenant-id")
+	s.assertConfigInvalid(c, testing.Attrs{"credentials": creds.Delete("subscription-id")}, "missing or empty subscription-id")
 }
 
 func (s *configSuite) TestValidateStorageAccountCantChange(c *gc.C) {
@@ -105,15 +119,21 @@ func (s *configSuite) assertConfigInvalid(c *gc.C, attrs testing.Attrs, expect s
 
 func makeTestModelConfig(c *gc.C, extra ...testing.Attrs) *config.Config {
 	attrs := testing.Attrs{
-		"type":                 "azure",
-		"application-id":       fakeApplicationId,
-		"tenant-id":            fakeTenantId,
-		"application-password": "opensezme",
-		"subscription-id":      fakeSubscriptionId,
-		"location":             "westus",
-		"endpoint":             "https://api.azurestack.local",
-		"storage-endpoint":     "https://storage.azurestack.local",
-		"agent-version":        "1.2.3",
+		"type":          "azure",
+		"agent-version": "1.2.3",
+		"cloud": config.CloudConfig{
+			Type:            "azure",
+			Region:          "westus",
+			Endpoint:        "https://api.azurestack.local",
+			StorageEndpoint: "https://storage.azurestack.local",
+		}.Attributes(),
+		"credentials": testing.Attrs{
+			"auth-type":            "userpass",
+			"application-id":       fakeApplicationId,
+			"tenant-id":            fakeTenantId,
+			"application-password": "opensezme",
+			"subscription-id":      fakeSubscriptionId,
+		},
 	}
 	for _, extra := range extra {
 		attrs = attrs.Merge(extra)

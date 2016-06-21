@@ -6,6 +6,7 @@ package common
 import (
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/environs"
+	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/watcher"
 )
@@ -56,11 +57,11 @@ func (m *ModelWatcher) WatchForModelConfigChanges() (params.NotifyWatchResult, e
 func (m *ModelWatcher) ModelConfig() (params.ModelConfigResult, error) {
 	result := params.ModelConfigResult{}
 
-	config, err := m.st.ModelConfig()
+	cfg, err := m.st.ModelConfig()
 	if err != nil {
 		return result, err
 	}
-	allAttrs := config.AllAttrs()
+	allAttrs := cfg.AllAttrs()
 
 	if !m.authorizer.AuthModelManager() {
 		// Mask out any secrets in the environment configuration
@@ -70,14 +71,15 @@ func (m *ModelWatcher) ModelConfig() (params.ModelConfigResult, error) {
 		// Delete the code below and mark the bug as fixed,
 		// once it's live tested on MAAS and 1.16 compatibility
 		// is dropped.
-		provider, err := environs.Provider(config.Type())
+		provider, err := environs.Provider(cfg.Type())
 		if err != nil {
 			return result, err
 		}
-		secretAttrs, err := provider.SecretAttrs(config)
+		secretAttrs, err := provider.SecretAttrs(cfg)
 		for k := range secretAttrs {
 			allAttrs[k] = "not available"
 		}
+		delete(allAttrs, config.CredentialsKey)
 	}
 	result.Config = allAttrs
 	return result, nil

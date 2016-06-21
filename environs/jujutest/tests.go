@@ -34,8 +34,8 @@ import (
 type Tests struct {
 	TestConfig     coretesting.Attrs
 	Credential     cloud.Credential
-	CloudEndpoint  string
-	CloudRegion    string
+	CloudConfig    config.CloudConfig
+	ControllerName string
 	ControllerUUID string
 	envtesting.ToolsFixture
 	sstesting.TestDataSuite
@@ -67,10 +67,9 @@ func (t *Tests) PrepareParams(c *gc.C) environs.PrepareParams {
 	return environs.PrepareParams{
 		BaseConfig:     testConfigCopy,
 		Credential:     credential,
-		ControllerName: t.TestConfig["name"].(string),
-		CloudName:      t.TestConfig["type"].(string),
-		CloudEndpoint:  t.CloudEndpoint,
-		CloudRegion:    t.CloudRegion,
+		ControllerName: "ctrl",
+		CloudName:      t.CloudConfig.Type,
+		CloudConfig:    t.CloudConfig,
 	}
 }
 
@@ -84,6 +83,11 @@ func (t *Tests) PrepareWithParams(c *gc.C, params environs.PrepareParams) enviro
 	e, err := environs.Prepare(envtesting.BootstrapContext(c), t.ControllerStore, params)
 	c.Assert(err, gc.IsNil, gc.Commentf("preparing environ %#v", params.BaseConfig))
 	c.Assert(e, gc.NotNil)
+
+	t.ControllerName = params.ControllerName
+	details, err := t.ControllerStore.ControllerByName(t.ControllerName)
+	c.Assert(err, jc.ErrorIsNil)
+	t.ControllerUUID = details.ControllerUUID
 	return e
 }
 
@@ -107,7 +111,6 @@ func (t *Tests) SetUpTest(c *gc.C) {
 	t.UploadFakeTools(c, stor, "released", "released")
 	t.toolsStorage = stor
 	t.ControllerStore = jujuclienttesting.NewMemStore()
-	t.ControllerUUID = coretesting.ModelTag.Id()
 }
 
 func (t *Tests) TearDownTest(c *gc.C) {
@@ -171,28 +174,31 @@ func (t *Tests) TestBootstrap(c *gc.C) {
 	}
 
 	var regions []cloud.Region
-	if t.CloudRegion != "" {
+	if t.CloudConfig.Region != "" {
 		regions = []cloud.Region{{
-			Name:     t.CloudRegion,
-			Endpoint: t.CloudEndpoint,
+			Name:            t.CloudConfig.Region,
+			Endpoint:        t.CloudConfig.Endpoint,
+			StorageEndpoint: t.CloudConfig.StorageEndpoint,
 		}}
 	}
 
+	e := t.Prepare(c)
+
 	args := bootstrap.BootstrapParams{
 		ControllerUUID: t.ControllerUUID,
-		CloudName:      t.TestConfig["type"].(string),
+		CloudName:      t.CloudConfig.Type,
 		Cloud: cloud.Cloud{
-			Type:      t.TestConfig["type"].(string),
-			AuthTypes: []cloud.AuthType{credential.AuthType()},
-			Regions:   regions,
-			Endpoint:  t.CloudEndpoint,
+			Type:            t.CloudConfig.Type,
+			AuthTypes:       []cloud.AuthType{credential.AuthType()},
+			Regions:         regions,
+			Endpoint:        t.CloudConfig.Endpoint,
+			StorageEndpoint: t.CloudConfig.StorageEndpoint,
 		},
-		CloudRegion:         t.CloudRegion,
+		CloudRegion:         t.CloudConfig.Region,
 		CloudCredential:     &credential,
 		CloudCredentialName: "credential",
 	}
 
-	e := t.Prepare(c)
 	err := bootstrap.Bootstrap(envtesting.BootstrapContext(c), e, args)
 	c.Assert(err, jc.ErrorIsNil)
 
@@ -206,7 +212,7 @@ func (t *Tests) TestBootstrap(c *gc.C) {
 	c.Assert(controllerInstances2, gc.Not(gc.HasLen), 0)
 	c.Assert(controllerInstances2, jc.SameContents, controllerInstances)
 
-	err = environs.Destroy(e2.Config().Name(), e2, t.ControllerStore)
+	err = environs.Destroy(t.ControllerName, e2, t.ControllerStore)
 	c.Assert(err, jc.ErrorIsNil)
 
 	// Prepare again because Destroy invalidates old environments.
@@ -215,6 +221,6 @@ func (t *Tests) TestBootstrap(c *gc.C) {
 	err = bootstrap.Bootstrap(envtesting.BootstrapContext(c), e3, args)
 	c.Assert(err, jc.ErrorIsNil)
 
-	err = environs.Destroy(e3.Config().Name(), e3, t.ControllerStore)
+	err = environs.Destroy(t.ControllerName, e3, t.ControllerStore)
 	c.Assert(err, jc.ErrorIsNil)
 }

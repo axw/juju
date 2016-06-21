@@ -22,7 +22,6 @@ import (
 	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/constraints"
-	"github.com/juju/juju/controller"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
@@ -64,11 +63,8 @@ type LiveTests struct {
 	// bootstrapping. If this is unset, empty credentials will be used.
 	Credential cloud.Credential
 
-	// CloudRegion contains the cloud region name to create resources in.
-	CloudRegion string
-
-	// CloudEndpoint contains the cloud API endpoint to communicate with.
-	CloudEndpoint string
+	// CloudConfig contains the cloud config for models created by the tests.
+	CloudConfig config.CloudConfig
 
 	// Attempt holds a strategy for waiting until the environment
 	// becomes logically consistent.
@@ -143,7 +139,9 @@ func (t *LiveTests) PrepareOnce(c *gc.C) {
 	c.Assert(e, gc.NotNil)
 	t.Env = e
 	t.prepared = true
-	t.ControllerUUID = controller.Config(t.Env.Config().AllAttrs()).ControllerUUID()
+	controllerDetails, err := t.ControllerStore.ControllerByName("ctrl")
+	c.Assert(err, jc.ErrorIsNil)
+	t.ControllerUUID = controllerDetails.ControllerUUID
 }
 
 func (t *LiveTests) prepareForBootstrapParams(c *gc.C) environs.PrepareParams {
@@ -154,10 +152,9 @@ func (t *LiveTests) prepareForBootstrapParams(c *gc.C) environs.PrepareParams {
 	return environs.PrepareParams{
 		BaseConfig:     t.TestConfig,
 		Credential:     credential,
-		CloudEndpoint:  t.CloudEndpoint,
-		CloudRegion:    t.CloudRegion,
-		ControllerName: t.TestConfig["name"].(string),
-		CloudName:      t.TestConfig["type"].(string),
+		CloudConfig:    t.CloudConfig,
+		CloudName:      t.CloudConfig.Type,
+		ControllerName: "ctrl",
 	}
 }
 
@@ -167,22 +164,24 @@ func (t *LiveTests) bootstrapParams() bootstrap.BootstrapParams {
 		credential = cloud.NewEmptyCredential()
 	}
 	var regions []cloud.Region
-	if t.CloudRegion != "" {
+	if t.CloudConfig.Region != "" {
 		regions = []cloud.Region{{
-			Name:     t.CloudRegion,
-			Endpoint: t.CloudEndpoint,
+			Name:            t.CloudConfig.Region,
+			Endpoint:        t.CloudConfig.Endpoint,
+			StorageEndpoint: t.CloudConfig.StorageEndpoint,
 		}}
 	}
 	return bootstrap.BootstrapParams{
 		ControllerUUID: t.ControllerUUID,
-		CloudName:      t.TestConfig["type"].(string),
+		CloudName:      t.CloudConfig.Type,
 		Cloud: cloud.Cloud{
-			Type:      t.TestConfig["type"].(string),
-			AuthTypes: []cloud.AuthType{credential.AuthType()},
-			Regions:   regions,
-			Endpoint:  t.CloudEndpoint,
+			Type:            t.CloudConfig.Type,
+			AuthTypes:       []cloud.AuthType{credential.AuthType()},
+			Regions:         regions,
+			Endpoint:        t.CloudConfig.Endpoint,
+			StorageEndpoint: t.CloudConfig.StorageEndpoint,
 		},
-		CloudRegion:         t.CloudRegion,
+		CloudRegion:         t.CloudConfig.Region,
 		CloudCredential:     &credential,
 		CloudCredentialName: "credential",
 	}
@@ -212,7 +211,7 @@ func (t *LiveTests) Destroy(c *gc.C) {
 	if t.Env == nil {
 		return
 	}
-	err := environs.Destroy(t.Env.Config().Name(), t.Env, t.ControllerStore)
+	err := environs.Destroy("ctrl", t.Env, t.ControllerStore)
 	c.Assert(err, jc.ErrorIsNil)
 	t.bootstrapped = false
 	t.prepared = false

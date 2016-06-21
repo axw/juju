@@ -80,6 +80,7 @@ func (c ModelConfigCreator) NewModelConfig(
 			}
 		}
 	}
+	attrs[controller.ControllerUUIDKey] = baseAttrs[controller.ControllerUUIDKey]
 
 	// Generate a new UUID for the model as necessary,
 	// and finalize the new config.
@@ -181,7 +182,7 @@ func RestrictedProviderFields(providerType string) ([]string, error) {
 	}
 	var fields []string
 	// For now, all models in a controller must be of the same type.
-	fields = append(fields, config.TypeKey)
+	//fields = append(fields, config.TypeKey)
 	fields = append(fields, provider.RestrictedConfigAttributes()...)
 	return fields, nil
 }

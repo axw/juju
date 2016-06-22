@@ -94,11 +94,6 @@ Will build juju and install the binary commands into `$GOPATH/bin`. It is likely
 if you have just completed the previous step to get the `juju` source, the
 install process will produce no output, as the final executables are up-to-date.
 
-If you do see any errors, there is a good chance they are due to changes in
-juju's dependencies.  See the
-[Dependency management](CONTRIBUTING.md#dependency-management) section of
-`CONTRIBUTING` for more information on getting the dependencies right.
-
 
 Using juju
 ==========

@@ -133,6 +133,8 @@ $ git push
 Dependency management
 =====================
 
+TODO(axw) document use govendor
+
 In the top-level directory of the juju repo, there is a file,
 [dependencies.tsv](dependencies.tsv), that holds the revision ids of all
 the external projects that juju depends on.  That file is used to freeze

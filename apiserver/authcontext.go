@@ -111,14 +111,19 @@ func newExternalMacaroonAuth(st *state.State) (*authentication.ExternalMacaroonA
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot get model config")
 	}
-	idURL := controllerCfg.IdentityURL()
+	idURL := controllerCfg.IdentityURL
 	if idURL == "" {
 		return nil, errMacaroonAuthNotConfigured
 	}
 	// The identity server has been configured,
 	// so configure the bakery service appropriately.
-	idPK := controllerCfg.IdentityPublicKey()
-	if idPK == nil {
+	var idPK *bakery.PublicKey
+	if controllerCfg.IdentityPublicKey != "" {
+		idPK = &bakery.PublicKey{}
+		if err := idPK.UnmarshalText([]byte(controllerCfg.IdentityPublicKey)); err != nil {
+			return nil, errors.Annotate(err, "unmarshaling identity manager public key")
+		}
+	} else {
 		// No public key supplied - retrieve it from the identity manager.
 		idPK, err = httpbakery.PublicKeyForLocation(http.DefaultClient, idURL)
 		if err != nil {

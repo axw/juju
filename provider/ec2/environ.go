@@ -450,7 +450,7 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (_ *environs.
 	logger.Debugf("ec2 user data; %d bytes", len(userData))
 	var apiPort int
 	if args.InstanceConfig.Controller != nil {
-		apiPort = args.InstanceConfig.Controller.Config.APIPort()
+		apiPort = args.InstanceConfig.Controller.Config.APIPort
 	}
 	groups, err := e.setUpGroups(args.ControllerUUID, args.InstanceConfig.MachineId, apiPort)
 	if err != nil {

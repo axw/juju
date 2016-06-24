@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
@@ -42,19 +41,6 @@ const (
 	// useful for clouds without support for either global or per
 	// instance security groups.
 	FwNone = "none"
-
-	// DefaultBootstrapSSHTimeout is the amount of time to wait
-	// contacting a controller, in seconds.
-	DefaultBootstrapSSHTimeout int = 600
-
-	// DefaultBootstrapSSHRetryDelay is the amount of time between
-	// attempts to connect to an address, in seconds.
-	DefaultBootstrapSSHRetryDelay int = 5
-
-	// DefaultBootstrapSSHAddressesDelay is the amount of time between
-	// refreshing the addresses, in seconds. Not too frequent, as we
-	// refresh addresses from the provider each time.
-	DefaultBootstrapSSHAddressesDelay int = 10
 )
 
 // TODO(katco-): Please grow this over time.
@@ -70,9 +56,6 @@ const (
 
 	// TypeKey is the key for the model's cloud type.
 	TypeKey = "type"
-
-	// AdminSecret is the administrator password.
-	AdminSecretKey = "admin-secret"
 
 	// AgentVersionKey is the key for the model's Juju agent version.
 	AgentVersionKey = "agent-version"
@@ -336,7 +319,7 @@ func (c *Config) fillInDefaults() error {
 	if name == "" {
 		return fmt.Errorf("empty name in model configuration")
 	}
-	return controller.Config(c.defined).FillInDefaults(name)
+	return nil
 }
 
 func (c *Config) fillInStringDefault(attr string) {
@@ -381,10 +364,6 @@ func (e *InvalidConfigValueError) Error() string {
 // it holds the previous environment configuration for consideration when
 // validating changes.
 func Validate(cfg, old *Config) error {
-	// First validate the controller portion.
-	if err := controller.Validate(controller.ControllerConfig(cfg.AllAttrs())); err != nil {
-		return err
-	}
 	// Check that we don't have any disallowed fields.
 	for _, attr := range allowedWithDefaultsOnly {
 		if _, ok := cfg.defined[attr]; ok {
@@ -456,8 +435,7 @@ func Validate(cfg, old *Config) error {
 
 	// Check the immutable config values.  These can't change
 	if old != nil {
-		allImmutableAttributes := append(immutableAttributes, controller.ControllerOnlyConfigAttributes...)
-		for _, attr := range allImmutableAttributes {
+		for _, attr := range immutableAttributes {
 			if newv, oldv := cfg.defined[attr], old.defined[attr]; newv != oldv {
 				return fmt.Errorf("cannot change %s from %#v to %#v", attr, oldv, newv)
 			}
@@ -646,26 +624,6 @@ func (c *Config) AptMirror() string {
 	return c.asString("apt-mirror")
 }
 
-// BootstrapSSHOpts returns the SSH timeout and retry delays used
-// during bootstrap.
-func (c *Config) BootstrapSSHOpts() SSHTimeoutOpts {
-	opts := SSHTimeoutOpts{
-		Timeout:        time.Duration(DefaultBootstrapSSHTimeout) * time.Second,
-		RetryDelay:     time.Duration(DefaultBootstrapSSHRetryDelay) * time.Second,
-		AddressesDelay: time.Duration(DefaultBootstrapSSHAddressesDelay) * time.Second,
-	}
-	if v, ok := c.defined["bootstrap-timeout"].(int); ok && v != 0 {
-		opts.Timeout = time.Duration(v) * time.Second
-	}
-	if v, ok := c.defined["bootstrap-retry-delay"].(int); ok && v != 0 {
-		opts.RetryDelay = time.Duration(v) * time.Second
-	}
-	if v, ok := c.defined["bootstrap-addresses-delay"].(int); ok && v != 0 {
-		opts.AddressesDelay = time.Duration(v) * time.Second
-	}
-	return opts
-}
-
 // LogFwdSyslog returns the syslog forwarding config.
 func (c *Config) LogFwdSyslog() (*syslog.RawConfig, bool) {
 	partial := false
@@ -700,16 +658,6 @@ func (c *Config) LogFwdSyslog() (*syslog.RawConfig, bool) {
 		return nil, false
 	}
 	return &lfCfg, true
-}
-
-// AdminSecret returns the administrator password.
-// It's empty if the password has not been set.
-// TODO(wallyworld) - remove this, it is a bootstrap parameter only
-func (c *Config) AdminSecret() string {
-	if s, ok := c.defined[AdminSecretKey]; ok && s != "" {
-		return s.(string)
-	}
-	return ""
 }
 
 // FirewallMode returns whether the firewall should
@@ -956,28 +904,11 @@ var fields = func() schema.Fields {
 // but some fields listed as optional here are actually mandatory
 // with NoDefaults and are checked at the later Validate stage.
 var alwaysOptional = schema.Defaults{
-	// The following attributes are for the controller config
-	// but are included here because we currently parse model
-	// and controller config together.
-	controller.ControllerUUIDKey:       schema.Omit,
-	controller.CACertKey:               schema.Omit,
-	controller.CAPrivateKey:            schema.Omit,
-	controller.ApiPort:                 schema.Omit,
-	controller.StatePort:               schema.Omit,
-	controller.IdentityURL:             schema.Omit,
-	controller.IdentityPublicKey:       schema.Omit,
-	controller.CACertKey + "-path":     schema.Omit,
-	controller.CAPrivateKey + "-path":  schema.Omit,
-	controller.SetNumaControlPolicyKey: schema.Omit,
-
 	// Model config attributes
 	AgentVersionKey:              schema.Omit,
 	AuthorizedKeysKey:            schema.Omit,
 	"logging-config":             schema.Omit,
 	ProvisionerHarvestModeKey:    schema.Omit,
-	"bootstrap-timeout":          schema.Omit,
-	"bootstrap-retry-delay":      schema.Omit,
-	"bootstrap-addresses-delay":  schema.Omit,
 	LogFwdSyslogHost:             schema.Omit,
 	LogFwdSyslogServerCert:       schema.Omit,
 	LogFwdSyslogCACert:           schema.Omit,
@@ -1009,7 +940,6 @@ var alwaysOptional = schema.Defaults{
 	"enable-os-upgrade":        schema.Omit,
 	"image-stream":             schema.Omit,
 	"image-metadata-url":       schema.Omit,
-	AdminSecretKey:             schema.Omit,
 	AgentMetadataURLKey:        schema.Omit,
 	"default-series":           "",
 	"test-mode":                false,
@@ -1026,19 +956,13 @@ var defaults = allDefaults()
 // UseDefaults.
 func allDefaults() schema.Defaults {
 	d := schema.Defaults{
-		"firewall-mode":                    FwInstance,
-		"development":                      false,
-		"ssl-hostname-verification":        true,
-		"bootstrap-timeout":                DefaultBootstrapSSHTimeout,
-		"bootstrap-retry-delay":            DefaultBootstrapSSHRetryDelay,
-		"bootstrap-addresses-delay":        DefaultBootstrapSSHAddressesDelay,
-		"proxy-ssh":                        false,
-		"disable-network-management":       false,
-		IgnoreMachineAddresses:             false,
-		AutomaticallyRetryHooks:            true,
-		controller.StatePort:               controller.DefaultStatePort,
-		controller.ApiPort:                 controller.DefaultAPIPort,
-		controller.SetNumaControlPolicyKey: controller.DefaultNumaControlPolicy,
+		"firewall-mode":              FwInstance,
+		"development":                false,
+		"ssl-hostname-verification":  true,
+		"proxy-ssh":                  false,
+		"disable-network-management": false,
+		IgnoreMachineAddresses:       false,
+		AutomaticallyRetryHooks:      true,
 	}
 	for attr, val := range alwaysOptional {
 		if _, ok := d[attr]; !ok {
@@ -1064,9 +988,6 @@ var immutableAttributes = []string{
 	TypeKey,
 	UUIDKey,
 	"firewall-mode",
-	"bootstrap-timeout",
-	"bootstrap-retry-delay",
-	"bootstrap-addresses-delay",
 }
 
 var (
@@ -1117,24 +1038,6 @@ func SpecializeCharmRepo(repo charmrepo.Interface, cfg *Config) charmrepo.Interf
 	return repo
 }
 
-// SSHTimeoutOpts lists the amount of time we will wait for various
-// parts of the SSH connection to complete. This is similar to
-// DialOpts, see http://pad.lv/1258889 about possibly deduplicating
-// them.
-type SSHTimeoutOpts struct {
-	// Timeout is the amount of time to wait contacting a state
-	// server.
-	Timeout time.Duration
-
-	// RetryDelay is the amount of time between attempts to connect to
-	// an address.
-	RetryDelay time.Duration
-
-	// AddressesDelay is the amount of time between refreshing the
-	// addresses.
-	AddressesDelay time.Duration
-}
-
 func addIfNotEmpty(settings map[string]interface{}, key, value string) {
 	if value != "" {
 		settings[key] = value
@@ -1168,16 +1071,16 @@ func AptProxyConfigMap(proxySettings proxy.Settings) map[string]interface{} {
 // package.
 func Schema(extra environschema.Fields) (environschema.Fields, error) {
 	fields := make(environschema.Fields)
-	for name, field := range controller.ConfigSchema {
-		fields[name] = field
-	}
 	for name, field := range configSchema {
-		if _, ok := fields[name]; ok {
+		if controller.ControllerOnlyAttribute(name) {
 			return nil, errors.Errorf("config field %q clashes with controller config", name)
 		}
 		fields[name] = field
 	}
 	for name, field := range extra {
+		if controller.ControllerOnlyAttribute(name) {
+			return nil, errors.Errorf("config field %q clashes with controller config", name)
+		}
 		if _, ok := fields[name]; ok {
 			return nil, errors.Errorf("config field %q clashes with global config", name)
 		}
@@ -1190,13 +1093,6 @@ func Schema(extra environschema.Fields) (environschema.Fields, error) {
 // the config package.
 // TODO(rog) make this available to external packages.
 var configSchema = environschema.Fields{
-	AdminSecretKey: {
-		Description: "The password for the administrator user",
-		Type:        environschema.Tstring,
-		Secret:      true,
-		Example:     "<random secret>",
-		Group:       environschema.EnvironGroup,
-	},
 	AgentMetadataURLKey: {
 		Description: "URL of private stream",
 		Type:        environschema.Tstring,
@@ -1240,24 +1136,6 @@ var configSchema = environschema.Fields{
 	AuthorizedKeysKey: {
 		Description: "Any authorized SSH public keys for the model, as found in a ~/.ssh/authorized_keys file",
 		Type:        environschema.Tstring,
-		Group:       environschema.EnvironGroup,
-	},
-	"bootstrap-addresses-delay": {
-		Description: "The amount of time between refreshing the addresses in seconds. Not too frequent as we refresh addresses from the provider each time.",
-		Type:        environschema.Tint,
-		Immutable:   true,
-		Group:       environschema.EnvironGroup,
-	},
-	"bootstrap-retry-delay": {
-		Description: "Time between attempts to connect to an address in seconds.",
-		Type:        environschema.Tint,
-		Immutable:   true,
-		Group:       environschema.EnvironGroup,
-	},
-	"bootstrap-timeout": {
-		Description: "The amount of time to wait contacting a controller in seconds",
-		Type:        environschema.Tint,
-		Immutable:   true,
 		Group:       environschema.EnvironGroup,
 	},
 	CloudImageBaseURL: {

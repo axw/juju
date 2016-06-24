@@ -140,15 +140,23 @@ func (env *maasEnviron) Bootstrap(ctx environs.BootstrapContext, args environs.B
 			}
 		}
 	}()
-	// Wait for bootstrap instance to change to deployed state.
-	if err := env.waitForNodeDeployment(result.Instance.Id()); err != nil {
-		return nil, errors.Annotate(err, "bootstrap instance started but did not change to Deployed state")
+
+	waitingFinalizer := func(
+		ctx environs.BootstrapContext,
+		icfg *instancecfg.InstanceConfig,
+		opts environs.BootstrapTimeoutOpts,
+	) error {
+		// Wait for bootstrap instance to change to deployed state.
+		if err := env.waitForNodeDeployment(result.Instance.Id(), opts); err != nil {
+			return errors.Annotate(err, "bootstrap instance started but did not change to Deployed state")
+		}
+		return finalizer(ctx, icfg, opts)
 	}
 
 	bsResult := &environs.BootstrapResult{
 		Arch:     *result.Hardware.Arch,
 		Series:   series,
-		Finalize: finalizer,
+		Finalize: waitingFinalizer,
 	}
 	return bsResult, nil
 }
@@ -998,21 +1006,15 @@ func (environ *maasEnviron) StartInstance(args environs.StartInstanceParams) (
 	}, nil
 }
 
-// Override for testing.
-var nodeDeploymentTimeout = func(environ *maasEnviron) time.Duration {
-	sshTimeouts := environ.Config().BootstrapSSHOpts()
-	return sshTimeouts.Timeout
-}
-
-func (environ *maasEnviron) waitForNodeDeployment(id instance.Id) error {
+func (environ *maasEnviron) waitForNodeDeployment(id instance.Id, opts environs.BootstrapTimeoutOpts) error {
 	if environ.usingMAAS2() {
-		return environ.waitForNodeDeployment2(id)
+		return environ.waitForNodeDeployment2(id, opts)
 	}
 	systemId := extractSystemId(id)
 
 	longAttempt := utils.AttemptStrategy{
 		Delay: 10 * time.Second,
-		Total: nodeDeploymentTimeout(environ),
+		Total: opts.Timeout,
 	}
 
 	for a := longAttempt.Start(); a.Next(); {
@@ -1033,10 +1035,10 @@ func (environ *maasEnviron) waitForNodeDeployment(id instance.Id) error {
 	return errors.Errorf("instance %q is started but not deployed", id)
 }
 
-func (environ *maasEnviron) waitForNodeDeployment2(id instance.Id) error {
+func (environ *maasEnviron) waitForNodeDeployment2(id instance.Id, opts environs.BootstrapTimeoutOpts) error {
 	longAttempt := utils.AttemptStrategy{
 		Delay: 10 * time.Second,
-		Total: nodeDeploymentTimeout(environ),
+		Total: opts.Timeout,
 	}
 
 	for a := longAttempt.Start(); a.Next(); {

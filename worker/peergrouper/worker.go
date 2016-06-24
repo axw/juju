@@ -115,8 +115,8 @@ func New(st *state.State) (worker.Worker, error) {
 	}
 	shim := &stateShim{
 		State:     st,
-		mongoPort: cfg.StatePort(),
-		apiPort:   cfg.APIPort(),
+		mongoPort: cfg.StatePort,
+		apiPort:   cfg.APIPort,
 	}
 	supportsSpaces := networkingcommon.SupportsSpaces(shim) == nil
 	return newWorker(shim, newPublisher(st), supportsSpaces)

@@ -28,6 +28,14 @@ func (s *ControllerConfigAPI) ControllerConfig() (params.ControllerConfigResult,
 	if err != nil {
 		return result, err
 	}
-	result.Config = params.ControllerConfig(config)
+	result.Config = params.ControllerConfig{
+		APIPort:              config.APIPort,
+		StatePort:            config.StatePort,
+		UUID:                 config.UUID,
+		CACert:               config.CACert,
+		IdentityURL:          config.IdentityURL,
+		IdentityPublicKey:    config.IdentityPublicKey,
+		SetNumaControlPolicy: config.SetNumaControlPolicy,
+	}
 	return result, nil
 }

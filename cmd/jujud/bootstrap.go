@@ -231,8 +231,9 @@ func (c *BootstrapCommand) Run(_ *cmd.Context) error {
 		// Set a longer socket timeout than usual, as the machine
 		// will be starting up and disk I/O slower than usual. This
 		// has been known to cause timeouts in queries.
-		timeouts := controllerModelCfg.BootstrapSSHOpts()
-		dialOpts.SocketTimeout = timeouts.Timeout
+		// TODO(axw)
+		//timeouts := controllerModelCfg.BootstrapSSHOpts()
+		//dialOpts.SocketTimeout = timeouts.Timeout
 		if dialOpts.SocketTimeout < minSocketTimeout {
 			dialOpts.SocketTimeout = minSocketTimeout
 		}

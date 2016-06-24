@@ -26,7 +26,16 @@ func (e *ControllerConfigAPI) ControllerConfig() (controller.Config, error) {
 	var result params.ControllerConfigResult
 	err := e.facade.FacadeCall("ControllerConfig", nil, &result)
 	if err != nil {
-		return nil, err
+		return controller.Config{}, err
 	}
-	return controller.Config(result.Config), nil
+	config := controller.Config{
+		APIPort:              result.Config.APIPort,
+		StatePort:            result.Config.StatePort,
+		UUID:                 result.Config.UUID,
+		CACert:               result.Config.CACert,
+		IdentityURL:          result.Config.IdentityURL,
+		IdentityPublicKey:    result.Config.IdentityPublicKey,
+		SetNumaControlPolicy: result.Config.SetNumaControlPolicy,
+	}
+	return config, config.Validate()
 }

@@ -147,7 +147,7 @@ func (s *JujuConnSuite) MongoInfo(c *gc.C) *mongo.MongoInfo {
 }
 
 func (s *JujuConnSuite) APIInfo(c *gc.C) *api.Info {
-	apiInfo, err := environs.APIInfo(s.ControllerConfig.ControllerUUID(), testing.ModelTag.Id(), testing.CACert, s.ControllerConfig.APIPort(), s.Environ)
+	apiInfo, err := environs.APIInfo(s.ControllerConfig.UUID, testing.ModelTag.Id(), testing.CACert, s.ControllerConfig.APIPort, s.Environ)
 	c.Assert(err, jc.ErrorIsNil)
 	apiInfo.Tag = s.AdminUserTag(c)
 	apiInfo.Password = "dummy-secret"
@@ -264,10 +264,10 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 
 	ctx := testing.Context(c)
 	s.ControllerConfig = testing.FakeControllerBootstrapConfig()
-	environ, err := environs.Prepare(
+	environ, err := bootstrap.Prepare(
 		modelcmd.BootstrapContext(ctx),
 		s.ControllerStore,
-		environs.PrepareParams{
+		bootstrap.PrepareParams{
 			ControllerConfig: s.ControllerConfig,
 			BaseConfig:       cfg.AllAttrs(),
 			Credential:       cloud.NewEmptyCredential(),
@@ -298,7 +298,7 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	s.PatchValue(&juju.JujuPublicKey, sstesting.SignedMetadataPublicKey)
 	// Dummy provider uses a random port, which is added to cfg used to create environment.
 	apiPort := dummy.ApiPort(environ.Provider())
-	s.ControllerConfig["api-port"] = apiPort
+	s.ControllerConfig.APIPort = apiPort
 	err = bootstrap.Bootstrap(modelcmd.BootstrapContext(ctx), environ, bootstrap.BootstrapParams{
 		ControllerConfig: s.ControllerConfig,
 		CloudName:        "dummy",
@@ -316,7 +316,7 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 	s.State, err = newState(environ, s.BackingState.MongoConnectionInfo())
 	c.Assert(err, jc.ErrorIsNil)
 
-	apiInfo, err := environs.APIInfo(s.ControllerConfig.ControllerUUID(), testing.ModelTag.Id(), testing.CACert, s.ControllerConfig.APIPort(), environ)
+	apiInfo, err := environs.APIInfo(s.ControllerConfig.UUID, testing.ModelTag.Id(), testing.CACert, s.ControllerConfig.APIPort, environ)
 	c.Assert(err, jc.ErrorIsNil)
 	apiInfo.Tag = s.AdminUserTag(c)
 	apiInfo.Password = environ.Config().AdminSecret()

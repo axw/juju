@@ -120,7 +120,7 @@ func NewMetadataState(db DB, machine, series string) (*Metadata, error) {
 	if err != nil {
 		return nil, errors.Annotate(err, "could not get controller config")
 	}
-	meta.CACert, _ = controllerCfg.CACert()
+	meta.CACert = controllerCfg.CACert
 	meta.CAPrivateKey = si.CAPrivateKey
 	return meta, nil
 }

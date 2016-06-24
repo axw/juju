@@ -153,7 +153,7 @@ func (p *provisioner) getStartTask(harvestMode config.HarvestMode) (ProvisionerT
 		secureServerConnection = info.CAPrivateKey != ""
 	}
 	task, err := NewProvisionerTask(
-		controllerCfg.ControllerUUID(),
+		controllerCfg.UUID,
 		machineTag,
 		harvestMode,
 		p.st,

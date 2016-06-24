@@ -44,12 +44,13 @@ func destroyModel(st ModelManagerBackend, modelTag names.ModelTag, destroyHosted
 
 	if destroyHostedModels {
 		// Check we are operating on the controller state.
+		// TODO(axw) check this without using controller config.
 		controllerCfg, err := st.ControllerConfig()
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if modelTag.Id() != controllerCfg.ControllerUUID() {
-			return errors.Errorf("expected controller model UUID %v, got %v", modelTag.Id(), controllerCfg.ControllerUUID())
+		if modelTag.Id() != controllerCfg.UUID {
+			return errors.Errorf("expected controller model UUID %v, got %v", modelTag.Id(), controllerCfg.UUID)
 		}
 		models, err := st.AllModels()
 		if err != nil {

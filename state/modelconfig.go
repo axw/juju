@@ -25,9 +25,6 @@ func (st *State) ModelConfig() (*config.Config, error) {
 
 // checkModelConfig returns an error if the config is definitely invalid.
 func checkModelConfig(cfg *config.Config) error {
-	if cfg.AdminSecret() != "" {
-		return errors.Errorf("admin-secret should never be written to the state")
-	}
 	if _, ok := cfg.AgentVersion(); !ok {
 		return errors.Errorf("agent-version must always be set in state")
 	}
@@ -36,15 +33,15 @@ func checkModelConfig(cfg *config.Config) error {
 
 // checkLocalCloudConfigDefaults returns an error if the shared local cloud config is definitely invalid.
 func checkLocalCloudConfigDefaults(attrs map[string]interface{}) error {
-	if _, ok := attrs[config.AdminSecretKey]; ok {
-		return errors.Errorf("local cloud config cannot contain admin-secret")
-	}
 	if _, ok := attrs[config.AgentVersionKey]; ok {
 		return errors.Errorf("local cloud config cannot contain agent-version")
 	}
-	for _, attrName := range controller.ControllerOnlyConfigAttributes {
-		if _, ok := attrs[attrName]; ok {
-			return errors.Errorf("local cloud config cannot contain controller attribute %q", attrName)
+	for attr := range attrs {
+		//if bootstrap.IsBootstrapAttribute(attr) {
+		//	return errors.Errorf("local cloud config cannot contain bootstrap attribute %q", attr)
+		//}
+		if controller.ControllerOnlyAttribute(attr) {
+			return errors.Errorf("local cloud config cannot contain controller attribute %q", attr)
 		}
 	}
 	return nil

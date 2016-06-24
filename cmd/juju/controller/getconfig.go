@@ -4,7 +4,6 @@
 package controller
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/juju/cmd"
@@ -89,11 +88,14 @@ func (c *getConfigCommand) Run(ctx *cmd.Context) error {
 	}
 
 	if c.key != "" {
-		if value, found := attrs[c.key]; found {
-			return c.out.Write(ctx, value)
-		}
-		return fmt.Errorf("key %q not found in %q controller.", c.key, c.ControllerName())
+		// TODO(axw)
+		panic("not implemented")
 	}
+	//	if value, found := attrs[c.key]; found {
+	//		return c.out.Write(ctx, value)
+	//	}
+	//	return fmt.Errorf("key %q not found in %q controller.", c.key, c.ControllerName())
+	//}
 	// If key is empty, write out the whole lot.
 	return c.out.Write(ctx, attrs)
 }

@@ -227,7 +227,7 @@ func (mm *ModelManagerAPI) CreateModel(args params.ModelCreateArgs) (params.Mode
 		return result, errors.Trace(err)
 	}
 
-	newConfig, err := mm.newModelConfig(args, controllerCfg.ControllerUUID(), controllerModel, credential)
+	newConfig, err := mm.newModelConfig(args, controllerCfg.UUID, controllerModel, credential)
 	if err != nil {
 		return result, errors.Annotate(err, "failed to create config")
 	}
@@ -379,7 +379,7 @@ func (m *ModelManagerAPI) getModelInfo(tag names.ModelTag) (params.ModelInfo, er
 	info := params.ModelInfo{
 		Name:            cfg.Name(),
 		UUID:            cfg.UUID(),
-		ControllerUUID:  controllerCfg.ControllerUUID(),
+		ControllerUUID:  controllerCfg.UUID,
 		OwnerTag:        owner.String(),
 		Life:            params.Life(model.Life().String()),
 		Status:          common.EntityStatusFromState(status),

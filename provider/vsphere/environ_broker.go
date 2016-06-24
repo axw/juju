@@ -130,7 +130,7 @@ func (env *environ) newRawInstance(args environs.StartInstanceParams, img *OvaFi
 		}
 		apiPort := 0
 		if args.InstanceConfig.Controller != nil {
-			apiPort = args.InstanceConfig.Controller.Config.APIPort()
+			apiPort = args.InstanceConfig.Controller.Config.APIPort
 		}
 		spec := &instanceSpec{
 			machineID:      machineID,

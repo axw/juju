@@ -42,11 +42,11 @@ var ModelTag = names.NewModelTag("deadbeef-0bad-400d-8000-4b1d0d06f00d")
 // that is expected to be found in state for a fake controller.
 func FakeControllerConfig() controller.Config {
 	return controller.Config{
-		"controller-uuid":         ModelTag.Id(),
-		"ca-cert":                 CACert,
-		"state-port":              1234,
-		"api-port":                17777,
-		"set-numa-control-policy": false,
+		UUID:                 ModelTag.Id(),
+		CACert:               CACert,
+		StatePort:            1234,
+		APIPort:              17777,
+		SetNumaControlPolicy: false,
 	}
 }
 
@@ -54,7 +54,8 @@ func FakeControllerConfig() controller.Config {
 // for a fake provider with all required attributes set for bootstrap.
 func FakeControllerBootstrapConfig() controller.Config {
 	cfg := FakeControllerConfig()
-	cfg["ca-private-key"] = CAKey
+	// TODO(axw)
+	//cfg["ca-private-key"] = CAKey
 	return cfg
 }
 

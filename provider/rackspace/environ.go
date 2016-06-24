@@ -49,7 +49,8 @@ func (e environ) StartInstance(args environs.StartInstanceParams) (*environs.Sta
 	}
 	if fwmode != config.FwNone {
 		interrupted := make(chan os.Signal, 1)
-		timeout := config.SSHTimeoutOpts{
+		// TODO(axw) rename BootstrapTimeout back to SSHTimeout
+		timeout := environs.BootstrapTimeoutOpts{
 			Timeout:        time.Minute * 5,
 			RetryDelay:     time.Second * 5,
 			AddressesDelay: time.Second * 20,
@@ -61,7 +62,7 @@ func (e environ) StartInstance(args environs.StartInstanceParams) (*environs.Sta
 		client := newInstanceConfigurator(addr)
 		apiPort := 0
 		if args.InstanceConfig.Controller != nil {
-			apiPort = args.InstanceConfig.Controller.Config.APIPort()
+			apiPort = args.InstanceConfig.Controller.Config.APIPort
 		}
 		err = client.DropAllPorts([]int{apiPort, 22}, addr)
 		if err != nil {

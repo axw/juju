@@ -117,7 +117,7 @@ func BootstrapInstance(ctx environs.BootstrapContext, env environs.Environ, args
 	instanceConfig.EnableOSRefreshUpdate = env.Config().EnableOSRefreshUpdate()
 	instanceConfig.EnableOSUpgrade = env.Config().EnableOSUpgrade()
 
-	instanceConfig.Tags = instancecfg.InstanceTags(envCfg.UUID(), args.ControllerConfig.ControllerUUID(), envCfg, instanceConfig.Jobs)
+	instanceConfig.Tags = instancecfg.InstanceTags(envCfg.UUID(), args.ControllerConfig.UUID, envCfg, instanceConfig.Jobs)
 	maybeSetBridge := func(icfg *instancecfg.InstanceConfig) {
 		// If we need to override the default bridge name, do it now. When
 		// args.ContainerBridgeName is empty, the default names for LXC
@@ -138,7 +138,7 @@ func BootstrapInstance(ctx environs.BootstrapContext, env environs.Environ, args
 		return nil
 	}
 	result, err := env.StartInstance(environs.StartInstanceParams{
-		ControllerUUID: args.ControllerConfig.ControllerUUID(),
+		ControllerUUID: args.ControllerConfig.UUID,
 		Constraints:    args.BootstrapConstraints,
 		Tools:          availableTools,
 		InstanceConfig: instanceConfig,
@@ -151,7 +151,7 @@ func BootstrapInstance(ctx environs.BootstrapContext, env environs.Environ, args
 	}
 	fmt.Fprintf(ctx.GetStderr(), " - %s\n", result.Instance.Id())
 
-	finalize := func(ctx environs.BootstrapContext, icfg *instancecfg.InstanceConfig) error {
+	finalize := func(ctx environs.BootstrapContext, icfg *instancecfg.InstanceConfig, opts environs.BootstrapTimeoutOpts) error {
 		icfg.Bootstrap.BootstrapMachineInstanceId = result.Instance.Id()
 		icfg.Bootstrap.BootstrapMachineHardwareCharacteristics = result.Hardware
 		envConfig := env.Config()
@@ -166,7 +166,7 @@ func BootstrapInstance(ctx environs.BootstrapContext, env environs.Environ, args
 			return err
 		}
 		maybeSetBridge(icfg)
-		return FinishBootstrap(ctx, client, env, result.Instance, icfg)
+		return FinishBootstrap(ctx, client, env, result.Instance, icfg, opts)
 	}
 	return result, selectedSeries, finalize, nil
 }
@@ -181,6 +181,7 @@ var FinishBootstrap = func(
 	env environs.Environ,
 	inst instance.Instance,
 	instanceConfig *instancecfg.InstanceConfig,
+	timeoutOpts environs.BootstrapTimeoutOpts,
 ) error {
 	interrupted := make(chan os.Signal, 1)
 	ctx.InterruptNotify(interrupted)
@@ -191,7 +192,7 @@ var FinishBootstrap = func(
 		client,
 		GetCheckNonceCommand(instanceConfig),
 		&RefreshableInstance{inst, env},
-		instanceConfig.Bootstrap.ControllerModelConfig.BootstrapSSHOpts(),
+		timeoutOpts,
 	)
 	if err != nil {
 		return err
@@ -413,7 +414,7 @@ var connectSSH = func(client ssh.Client, host, checkHostScript string) error {
 // the presence of a file on the machine that contains the
 // machine's nonce. The "checkHostScript" is a bash script
 // that performs this file check.
-func WaitSSH(stdErr io.Writer, interrupted <-chan os.Signal, client ssh.Client, checkHostScript string, inst Addresser, timeout config.SSHTimeoutOpts) (addr string, err error) {
+func WaitSSH(stdErr io.Writer, interrupted <-chan os.Signal, client ssh.Client, checkHostScript string, inst Addresser, timeout environs.BootstrapTimeoutOpts) (addr string, err error) {
 	globalTimeout := time.After(timeout.Timeout)
 	pollAddresses := time.NewTimer(0)
 

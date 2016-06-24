@@ -122,6 +122,9 @@ type BootstrapParams struct {
 	// used to retrieve the Juju GUI archive installed in the controller.
 	// If not set, the Juju GUI is not installed from simplestreams.
 	GUIDataSourceBaseURL string
+
+	// BootstrapConfig contains bootstrap-time configuration.
+	BootstrapConfig Config
 }
 
 // Bootstrap bootstraps the given environment. The supplied constraints are
@@ -129,8 +132,11 @@ type BootstrapParams struct {
 // environment.
 func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args BootstrapParams) error {
 	cfg := environ.Config()
-	if secret := cfg.AdminSecret(); secret == "" {
-		return errors.Errorf("model configuration has no admin-secret")
+	if err := args.BootstrapConfig.Validate(); err != nil {
+		return errors.Annotate(err, "validating bootstrap config")
+	}
+	if err := args.ControllerConfig.Validate(); err != nil {
+		return errors.Annotate(err, "validating controller config")
 	}
 	if authKeys := ssh.SplitAuthorisedKeys(cfg.AuthorizedKeys()); len(authKeys) == 0 {
 		// Apparently this can never happen, so it's not tested. But, one day,
@@ -139,15 +145,6 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 		// to actually *create* a config without them)... and when it does,
 		// we'll be here to catch this problem early.
 		return errors.Errorf("model configuration has no authorized-keys")
-	}
-	if args.ControllerConfig.ControllerUUID() == "" {
-		return errors.Errorf("bootstrap configuration has no controller UUID")
-	}
-	if _, hasCACert := args.ControllerConfig.CACert(); !hasCACert {
-		return errors.Errorf("controller configuration has no ca-cert")
-	}
-	if _, hasCAKey := args.ControllerConfig.CAPrivateKey(); !hasCAKey {
-		return errors.Errorf("controller configuration has no ca-private-key")
 	}
 
 	// Set default tools metadata source, add image metadata source,
@@ -302,11 +299,17 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 	instanceConfig.Bootstrap.ControllerConfig = args.ControllerConfig
 	instanceConfig.Bootstrap.LocalCloudConfig = args.LocalCloudConfig
 	instanceConfig.Bootstrap.HostedModelConfig = args.HostedModelConfig
+	instanceConfig.Bootstrap.AdminSecret = args.BootstrapConfig.AdminSecret
+	instanceConfig.Bootstrap.CAPrivateKey = args.BootstrapConfig.CAPrivateKey
 	instanceConfig.Bootstrap.GUI = guiArchive(args.GUIDataSourceBaseURL, func(msg string) {
 		ctx.Infof(msg)
 	})
 
-	if err := result.Finalize(ctx, instanceConfig); err != nil {
+	if err := result.Finalize(ctx, instanceConfig, environs.BootstrapTimeoutOpts{
+		args.BootstrapConfig.BootstrapTimeout,
+		args.BootstrapConfig.BootstrapRetryDelay,
+		args.BootstrapConfig.BootstrapAddressesDelay,
+	}); err != nil {
 		return err
 	}
 	ctx.Infof("Bootstrap agent installed")

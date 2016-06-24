@@ -503,10 +503,5 @@ var getControllerCACert = func(st migrationBackend) (string, error) {
 	if err != nil {
 		return "", errors.Trace(err)
 	}
-
-	cacert, ok := cfg.CACert()
-	if !ok {
-		return "", errors.New("missing CA cert for controller model")
-	}
-	return cacert, nil
+	return cfg.CACert, nil
 }

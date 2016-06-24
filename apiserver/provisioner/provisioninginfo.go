@@ -103,7 +103,18 @@ func (p *ProvisionerAPI) getProvisioningInfo(m *state.Machine) (*params.Provisio
 		SubnetsToZones:   subnetsToZones,
 		EndpointBindings: endpointBindings,
 		ImageMetadata:    imageMetadata,
-		ControllerConfig: controllerCfg,
+		ControllerConfig: params.ControllerConfig{
+			// TODO(axw) define a common function for conversion
+			// ... we don't really need *all* the controller config
+			// though, do we?
+			APIPort:              controllerCfg.APIPort,
+			StatePort:            controllerCfg.StatePort,
+			UUID:                 controllerCfg.UUID,
+			CACert:               controllerCfg.CACert,
+			IdentityURL:          controllerCfg.IdentityURL,
+			IdentityPublicKey:    controllerCfg.IdentityPublicKey,
+			SetNumaControlPolicy: controllerCfg.SetNumaControlPolicy,
+		},
 	}, nil
 }
 
@@ -141,7 +152,7 @@ func (p *ProvisionerAPI) machineVolumeParams(m *state.Machine) ([]params.VolumeP
 			return nil, errors.Annotatef(err, "getting volume %q storage instance", volumeTag.Id())
 		}
 		volumeParams, err := storagecommon.VolumeParams(
-			volume, storageInstance, modelConfig.UUID(), controllerCfg.ControllerUUID(), modelConfig, poolManager)
+			volume, storageInstance, modelConfig.UUID(), controllerCfg.UUID, modelConfig, poolManager)
 		if err != nil {
 			return nil, errors.Annotatef(err, "getting volume %q parameters", volumeTag.Id())
 		}
@@ -204,7 +215,7 @@ func (p *ProvisionerAPI) machineTags(m *state.Machine, jobs []multiwatcher.Machi
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	machineTags := instancecfg.InstanceTags(cfg.UUID(), controllerCfg.ControllerUUID(), cfg, jobs)
+	machineTags := instancecfg.InstanceTags(cfg.UUID(), controllerCfg.UUID, cfg, jobs)
 	if len(unitNames) > 0 {
 		machineTags[tags.JujuUnitsDeployed] = strings.Join(unitNames, " ")
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/cloudconfig/instancecfg"
 	"github.com/juju/juju/constraints"
+	"github.com/juju/juju/controller"
 	"github.com/juju/juju/controller/authentication"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
@@ -526,9 +527,16 @@ func (task *provisionerTask) constructInstanceConfig(
 			PublicImageSigningKey: publicKey,
 			MongoInfo:             stateInfo,
 		}
-		instanceConfig.Controller.Config = make(map[string]interface{})
-		for k, v := range pInfo.ControllerConfig {
-			instanceConfig.Controller.Config[k] = v
+		// TODO(axw) helper function for converting from params.
+		// I don't think we want all the controller config though.
+		instanceConfig.Controller.Config = controller.Config{
+			APIPort:              pInfo.ControllerConfig.APIPort,
+			StatePort:            pInfo.ControllerConfig.StatePort,
+			UUID:                 pInfo.ControllerConfig.UUID,
+			CACert:               pInfo.ControllerConfig.CACert,
+			SetNumaControlPolicy: pInfo.ControllerConfig.SetNumaControlPolicy,
+			IdentityURL:          pInfo.ControllerConfig.IdentityURL,
+			IdentityPublicKey:    pInfo.ControllerConfig.IdentityPublicKey,
 		}
 	}
 

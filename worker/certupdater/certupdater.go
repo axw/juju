@@ -130,9 +130,13 @@ func (c *CertificateUpdater) updateCertificate(addresses []network.Address, done
 		return nil
 	}
 
+	// TODO(axw) add CACert to StateServingInfo, so we don't need this.
 	cfg, err := c.configGetter.ControllerConfig()
 	if err != nil {
 		return errors.Annotate(err, "cannot read controller config")
+	}
+	if err := cfg.Validate(); err != nil {
+		return errors.Annotate(err, "validating controller config")
 	}
 
 	// For backwards compatibility, we must include "anything", "juju-apiserver"
@@ -157,11 +161,7 @@ func (c *CertificateUpdater) updateCertificate(addresses []network.Address, done
 	}
 
 	// Generate a new controller certificate with the machine addresses in the SAN value.
-	caCert, hasCACert := cfg.CACert()
-	if !hasCACert {
-		return errors.New("configuration has no ca-cert")
-	}
-	newCert, newKey, err := controller.GenerateControllerCertAndKey(caCert, caPrivateKey, newServerAddrs)
+	newCert, newKey, err := controller.GenerateControllerCertAndKey(cfg.CACert, caPrivateKey, newServerAddrs)
 	if err != nil {
 		return errors.Annotate(err, "cannot generate controller certificate")
 	}

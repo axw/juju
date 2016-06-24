@@ -166,16 +166,16 @@ func (c *restoreCommand) getEnviron(
 	}
 
 	controllerCfg := controller.Config{
-		controller.ControllerUUIDKey: params.ControllerUUID,
-		controller.CACertKey:         meta.CACert,
-		controller.CAPrivateKey:      meta.CAPrivateKey,
+		UUID:   params.ControllerUUID,
+		CACert: meta.CACert,
 	}
+	// TODO(axw) we need to include the AdminSecret and CAPrivateKuy somehow?
 
 	// We may have previous controller metadata. We need to update that so it
 	// will contain the new CA Cert and UUID required to connect to the newly
 	// bootstrapped controller API.
 	details := jujuclient.ControllerDetails{
-		ControllerUUID: controllerCfg.ControllerUUID(),
+		ControllerUUID: controllerCfg.UUID,
 		CACert:         meta.CACert,
 	}
 	err = store.UpdateController(controllerName, details)
@@ -226,7 +226,7 @@ func (c *restoreCommand) rebootstrap(ctx *cmd.Context, meta *params.BackupsMetad
 	if err != nil {
 		return errors.Trace(err)
 	}
-	instanceIds, err := env.ControllerInstances(params.ControllerConfig.ControllerUUID())
+	instanceIds, err := env.ControllerInstances(params.ControllerConfig.UUID)
 	if err != nil && errors.Cause(err) != environs.ErrNotBootstrapped {
 		return errors.Annotatef(err, "cannot determine controller instances")
 	}
@@ -285,8 +285,7 @@ func (c *restoreCommand) rebootstrap(ctx *cmd.Context, meta *params.BackupsMetad
 
 	// New controller is bootstrapped, so now record the API address so
 	// we can connect.
-	controllerCfg := controller.ControllerConfig(env.Config().AllAttrs())
-	err = common.SetBootstrapEndpointAddress(store, c.ControllerName(), controllerCfg.APIPort(), env)
+	err = common.SetBootstrapEndpointAddress(store, c.ControllerName(), params.ControllerConfig.APIPort, env)
 	if err != nil {
 		return errors.Trace(err)
 	}

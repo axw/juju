@@ -89,7 +89,7 @@ func (env *azureEnviron) Bootstrap(
 	args environs.BootstrapParams,
 ) (*environs.BootstrapResult, error) {
 
-	cfg, err := env.initResourceGroup(args.ControllerConfig.ControllerUUID())
+	cfg, err := env.initResourceGroup(args.ControllerConfig.UUID)
 	if err != nil {
 		return nil, errors.Annotate(err, "creating controller resource group")
 	}
@@ -480,8 +480,7 @@ func (env *azureEnviron) StartInstance(args environs.StartInstanceParams) (*envi
 	// API port for it.
 	var apiPortPtr *int
 	if args.InstanceConfig.Controller != nil {
-		apiPort := args.InstanceConfig.Controller.Config.APIPort()
-		apiPortPtr = &apiPort
+		apiPortPtr = &args.InstanceConfig.Controller.Config.APIPort
 	}
 
 	vm, err := createVirtualMachine(

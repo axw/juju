@@ -168,7 +168,7 @@ func (s *imageMetadataUpdateSuite) TestUpdateFromPublishedImagesForProviderWithN
 			modelcmd.BootstrapContext(testing.Context(c)),
 			jujuclienttesting.NewMemStore(),
 			environs.PrepareParams{
-				ControllerConfig: testing.FakeControllerBootstrapConfig(),
+				ControllerConfig: testing.FakeControllerConfig(),
 				ControllerName:   "dummycontroller",
 				BaseConfig:       dummy.SampleConfig(),
 				CloudName:        "dummy",

@@ -81,7 +81,7 @@ func (st *State) Addresses() ([]string, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return appendPort(addrs, config.StatePort()), nil
+	return appendPort(addrs, config.StatePort), nil
 }
 
 // APIAddressesFromMachines returns the list of cloud-internal addresses that
@@ -97,7 +97,7 @@ func (st *State) APIAddressesFromMachines() ([]string, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return appendPort(addrs, config.APIPort()), nil
+	return appendPort(addrs, config.APIPort), nil
 }
 
 const apiHostPortsKey = "apiHostPorts"

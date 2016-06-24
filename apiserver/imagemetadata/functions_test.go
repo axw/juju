@@ -36,7 +36,7 @@ func (s *funcSuite) SetUpTest(c *gc.C) {
 		envtesting.BootstrapContext(c),
 		jujuclienttesting.NewMemStore(),
 		environs.PrepareParams{
-			ControllerConfig: testing.FakeControllerBootstrapConfig(),
+			ControllerConfig: testing.FakeControllerConfig(),
 			ControllerName:   "dummycontroller",
 			BaseConfig:       mockConfig(),
 			CloudName:        "dummy",

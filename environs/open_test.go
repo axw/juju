@@ -52,7 +52,7 @@ func (s *OpenSuite) TestNewDummyEnviron(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	ctx := envtesting.BootstrapContext(c)
 	cache := jujuclienttesting.NewMemStore()
-	controllerCfg := testing.FakeControllerBootstrapConfig()
+	controllerCfg := testing.FakeControllerConfig()
 	env, err := environs.Prepare(ctx, cache, environs.PrepareParams{
 		ControllerConfig: controllerCfg,
 		ControllerName:   cfg.Name(),
@@ -87,7 +87,7 @@ func (s *OpenSuite) TestUpdateEnvInfo(c *gc.C) {
 		"uuid": uuid,
 	})
 	c.Assert(err, jc.ErrorIsNil)
-	controllerCfg := testing.FakeControllerBootstrapConfig()
+	controllerCfg := testing.FakeControllerConfig()
 	controllerCfg["controller-uuid"] = uuid
 	_, err = environs.Prepare(ctx, store, environs.PrepareParams{
 		ControllerConfig: controllerCfg,
@@ -197,7 +197,7 @@ func (*OpenSuite) TestPrepareGeneratesDifferentAdminSecrets(c *gc.C) {
 
 	ctx := envtesting.BootstrapContext(c)
 	env0, err := environs.Prepare(ctx, jujuclienttesting.NewMemStore(), environs.PrepareParams{
-		ControllerConfig: testing.FakeControllerBootstrapConfig(),
+		ControllerConfig: testing.FakeControllerConfig(),
 		ControllerName:   "erewhemos",
 		BaseConfig:       baselineAttrs,
 		CloudName:        "dummy",
@@ -210,7 +210,7 @@ func (*OpenSuite) TestPrepareGeneratesDifferentAdminSecrets(c *gc.C) {
 	// Allocate a new UUID, or we'll end up with the same config.
 	newUUID := utils.MustNewUUID()
 	baselineAttrs[config.UUIDKey] = newUUID.String()
-	controllerCfg := testing.FakeControllerBootstrapConfig()
+	controllerCfg := testing.FakeControllerConfig()
 	controllerCfg[controller.ControllerUUIDKey] = newUUID.String()
 
 	env1, err := environs.Prepare(ctx, jujuclienttesting.NewMemStore(), environs.PrepareParams{
@@ -236,7 +236,7 @@ func (*OpenSuite) TestPrepareWithMissingKey(c *gc.C) {
 	))
 	c.Assert(err, jc.ErrorIsNil)
 	controllerStore := jujuclienttesting.NewMemStore()
-	controllerCfg := testing.FakeControllerBootstrapConfig()
+	controllerCfg := testing.FakeControllerConfig()
 	delete(controllerCfg, "ca-private-key")
 	env, err := environs.Prepare(envtesting.BootstrapContext(c), controllerStore, environs.PrepareParams{
 		ControllerConfig: controllerCfg,
@@ -257,7 +257,7 @@ func (*OpenSuite) TestPrepareWithExistingKeyPair(c *gc.C) {
 	))
 	c.Assert(err, jc.ErrorIsNil)
 	ctx := envtesting.BootstrapContext(c)
-	controllerCfg := testing.FakeControllerBootstrapConfig()
+	controllerCfg := testing.FakeControllerConfig()
 	_, err = environs.Prepare(ctx, jujuclienttesting.NewMemStore(), environs.PrepareParams{
 		ControllerConfig: controllerCfg,
 		ControllerName:   cfg.Name(),
@@ -284,7 +284,7 @@ func (*OpenSuite) TestDestroy(c *gc.C) {
 	store := jujuclienttesting.NewMemStore()
 	// Prepare the environment and sanity-check that
 	// the config storage info has been made.
-	controllerCfg := testing.FakeControllerBootstrapConfig()
+	controllerCfg := testing.FakeControllerConfig()
 	ctx := envtesting.BootstrapContext(c)
 	e, err := environs.Prepare(ctx, store, environs.PrepareParams{
 		ControllerConfig: controllerCfg,

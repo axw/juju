@@ -58,7 +58,7 @@ func (s *configureSuite) getCloudConfig(c *gc.C, controller bool, vers version.B
 	var err error
 	if controller {
 		icfg, err = instancecfg.NewBootstrapInstanceConfig(
-			coretesting.FakeControllerBootstrapConfig(),
+			coretesting.FakeControllerConfig(),
 			constraints.Value{}, constraints.Value{},
 			vers.Series, "",
 		)

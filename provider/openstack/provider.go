@@ -968,7 +968,7 @@ func (e *Environ) StartInstance(args environs.StartInstanceParams) (*environs.St
 
 	var apiPort int
 	if args.InstanceConfig.Controller != nil {
-		apiPort = args.InstanceConfig.Controller.Config.APIPort()
+		apiPort = args.InstanceConfig.Controller.Config.APIPort
 	} else {
 		// All ports are the same so pick the first.
 		apiPort = args.InstanceConfig.APIInfo.Ports()[0]

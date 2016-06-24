@@ -7,7 +7,6 @@ import (
 	"github.com/juju/errors"
 
 	"github.com/juju/juju/api/base"
-	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 )
 
@@ -37,11 +36,6 @@ type OrchestratorArgs struct {
 }
 
 func newOrchestratorForController(args OrchestratorArgs) (*orchestrator, error) {
-	if args.Config.Name() != environs.ControllerModelName {
-		return nil, errors.New("model-level log forwarding not supported")
-	}
-	controllerUUID := args.Config.UUID() // This won't work for per-model forwarding.
-
 	// For now we work with only 1 forwarder. Later we can have a proper
 	// orchestrator that spawns a sub-worker for each log sink.
 	if len(args.SinkOpeners) == 0 {
@@ -51,8 +45,11 @@ func newOrchestratorForController(args OrchestratorArgs) (*orchestrator, error) 
 		return nil, errors.Errorf("multiple log forwarding targets not supported (yet)")
 	}
 	lf, err := args.OpenLogForwarder(OpenLogForwarderArgs{
-		AllModels:      true,
-		ControllerUUID: controllerUUID,
+		AllModels: true,
+		// TODO(axw) s/ControllerUUID/ModelUUID/, and drop the AllModels
+		// field. If ModelUUID is empty, then we will receive all models'
+		// logs.
+		ControllerUUID: args.Config.UUID(),
 		Config:         args.Config,
 		Caller:         args.Caller,
 		OpenSink:       args.SinkOpeners[0],

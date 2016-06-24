@@ -579,7 +579,7 @@ func (s *StorageProvisionerAPI) VolumeParams(args params.Entities) (params.Volum
 			return params.VolumeParams{}, err
 		}
 		volumeParams, err := storagecommon.VolumeParams(
-			volume, storageInstance, modelCfg.UUID(), controllerCfg.ControllerUUID(), modelCfg, poolManager)
+			volume, storageInstance, modelCfg.UUID(), controllerCfg.UUID, modelCfg, poolManager)
 		if err != nil {
 			return params.VolumeParams{}, err
 		}
@@ -666,7 +666,7 @@ func (s *StorageProvisionerAPI) FilesystemParams(args params.Entities) (params.F
 			return params.FilesystemParams{}, err
 		}
 		filesystemParams, err := storagecommon.FilesystemParams(
-			filesystem, storageInstance, modelConfig.UUID(), controllerCfg.ControllerUUID(), modelConfig, poolManager,
+			filesystem, storageInstance, modelConfig.UUID(), controllerCfg.UUID, modelConfig, poolManager,
 		)
 		if err != nil {
 			return params.FilesystemParams{}, err

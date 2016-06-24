@@ -32,7 +32,7 @@ func (*ConfigSuite) TestSecretAttrs(c *gc.C) {
 	env, err := environs.Prepare(
 		ctx, jujuclienttesting.NewMemStore(),
 		environs.PrepareParams{
-			ControllerConfig: testing.FakeControllerBootstrapConfig(),
+			ControllerConfig: testing.FakeControllerConfig(),
 			BaseConfig:       attrs,
 			ControllerName:   attrs["name"].(string),
 			CloudName:        "dummy",
@@ -95,7 +95,7 @@ func (s *ConfigSuite) TestFirewallMode(c *gc.C) {
 		env, err := environs.Prepare(
 			ctx, jujuclienttesting.NewMemStore(),
 			environs.PrepareParams{
-				ControllerConfig: testing.FakeControllerBootstrapConfig(),
+				ControllerConfig: testing.FakeControllerConfig(),
 				ControllerName:   cfg.Name(),
 				BaseConfig:       cfg.AllAttrs(),
 				CloudName:        "dummy",

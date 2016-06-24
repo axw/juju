@@ -859,7 +859,7 @@ func (s *ModelCloudValidationSuite) initializeState(
 		for controllerCredential = range credentials {
 		}
 	}
-	controllerCfg := testing.FakeControllerBootstrapConfig()
+	controllerCfg := testing.FakeControllerConfig()
 	controllerCfg["controller-uuid"] = cfg.UUID()
 	st, err := state.Initialize(state.InitializeParams{
 		ControllerConfig: controllerCfg,

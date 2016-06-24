@@ -65,7 +65,7 @@ func (t *Tests) PrepareParams(c *gc.C) environs.PrepareParams {
 		credential = cloud.NewEmptyCredential()
 	}
 	return environs.PrepareParams{
-		ControllerConfig: coretesting.FakeControllerBootstrapConfig(),
+		ControllerConfig: coretesting.FakeControllerConfig(),
 		BaseConfig:       testConfigCopy,
 		Credential:       credential,
 		ControllerName:   t.TestConfig["name"].(string),
@@ -180,7 +180,7 @@ func (t *Tests) TestBootstrap(c *gc.C) {
 	}
 
 	args := bootstrap.BootstrapParams{
-		ControllerConfig: coretesting.FakeControllerBootstrapConfig(),
+		ControllerConfig: coretesting.FakeControllerConfig(),
 		CloudName:        t.TestConfig["type"].(string),
 		Cloud: cloud.Cloud{
 			Type:      t.TestConfig["type"].(string),

@@ -11,6 +11,7 @@ import (
 	"path"
 	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
@@ -171,6 +172,16 @@ type BootstrapConfig struct {
 	// GUI is the Juju GUI archive to be installed in the new instance.
 	GUI *coretools.GUIArchive
 
+	// AdminSecret contains the password for the admin user.
+	AdminSecret string
+
+	// CAPrivateKey contains the controller's CA private key.
+	CAPrivateKey string
+
+	// Timeout is the amount of time to wait for the bootstrap
+	// agent to complete.
+	Timeout time.Duration
+
 	// StateServingInfo holds the information for serving the state.
 	// This is only specified for bootstrap; controllers started
 	// subsequently will acquire their serving info from another
@@ -242,7 +253,7 @@ type StateInitializationParams struct {
 }
 
 type stateInitializationParamsInternal struct {
-	ControllerConfig                        map[string]interface{}            `yaml:"controller-config"`
+	ControllerConfig                        controller.Config                 `yaml:"controller-config"`
 	ControllerModelConfig                   map[string]interface{}            `yaml:"controller-model-config"`
 	ControllerInheritedConfig               map[string]interface{}            `yaml:"controller-config-defaults,omitempty"`
 	HostedModelConfig                       map[string]interface{}            `yaml:"hosted-model-config,omitempty"`
@@ -583,6 +594,9 @@ func (cfg *BootstrapConfig) VerifyConfig() (err error) {
 	if cfg.ControllerModelConfig == nil {
 		return errors.New("missing model configuration")
 	}
+	if _, ok := cfg.ControllerModelConfig.AgentVersion(); !ok {
+		return fmt.Errorf("model configuration has no agent-version")
+	}
 	if len(cfg.StateServingInfo.Cert) == 0 {
 		return errors.New("missing controller certificate")
 	}
@@ -614,6 +628,9 @@ func (cfg *ControllerConfig) VerifyConfig() error {
 	}
 	if len(cfg.MongoInfo.CACert) == 0 {
 		return errors.New("missing CA certificate")
+	}
+	if err := cfg.Config.Validate(); err != nil {
+		return errors.Annotate(err, "validating controller config")
 	}
 	return nil
 }
@@ -691,10 +708,7 @@ func NewBootstrapInstanceConfig(
 	icfg.Controller = &ControllerConfig{
 		PublicImageSigningKey: publicImageSigningKey,
 	}
-	icfg.Controller.Config = make(map[string]interface{})
-	for k, v := range config {
-		icfg.Controller.Config[k] = v
-	}
+	icfg.Controller.Config = config
 	icfg.Bootstrap = &BootstrapConfig{
 		StateInitializationParams: StateInitializationParams{
 			BootstrapMachineConstraints: cons,
@@ -770,9 +784,9 @@ func FinishInstanceConfig(icfg *InstanceConfig, cfg *config.Config) (err error) 
 	if icfg.Controller != nil {
 		// Add NUMACTL preference. Needed to work for both bootstrap and high availability
 		// Only makes sense for controller
-		logger.Debugf("Setting numa ctl preference to %v", icfg.Controller.Config.NumaCtlPreference())
+		logger.Debugf("Setting numa ctl preference to %v", icfg.Controller.Config.SetNumaControlPolicy)
 		// Unfortunately, AgentEnvironment can only take strings as values
-		icfg.AgentEnvironment[agent.NumaCtlPreference] = fmt.Sprintf("%v", icfg.Controller.Config.NumaCtlPreference())
+		icfg.AgentEnvironment[agent.NumaCtlPreference] = fmt.Sprintf("%v", icfg.Controller.Config.SetNumaControlPolicy)
 	}
 
 	// The following settings are only appropriate at bootstrap time.
@@ -782,19 +796,8 @@ func FinishInstanceConfig(icfg *InstanceConfig, cfg *config.Config) (err error) 
 	if icfg.APIInfo != nil || icfg.Controller.MongoInfo != nil {
 		return errors.New("machine configuration already has api/state info")
 	}
-	controllerCfg := icfg.Controller.Config
-	caCert, hasCACert := controllerCfg.CACert()
-	if !hasCACert {
-		return errors.New("controller configuration has no ca-cert")
-	}
-	caPrivateKey, hasCAPrivateKey := controllerCfg.CAPrivateKey()
-	if !hasCAPrivateKey {
-		return errors.New("controller configuration has no ca-private-key")
-	}
-	password := cfg.AdminSecret()
-	if password == "" {
-		return errors.New("model configuration has no admin-secret")
-	}
+	password := icfg.Bootstrap.AdminSecret
+	caCert := icfg.Controller.Config.CACert
 	icfg.APIInfo = &api.Info{
 		Password: password,
 		CACert:   caCert,
@@ -808,23 +811,23 @@ func FinishInstanceConfig(icfg *InstanceConfig, cfg *config.Config) (err error) 
 	// Initially, generate a controller certificate with no host IP
 	// addresses in the SAN field. Once the controller is up and the
 	// NIC addresses become known, the certificate can be regenerated.
-	cert, key, err := controller.GenerateControllerCertAndKey(caCert, caPrivateKey, nil)
+	cert, key, err := controller.GenerateControllerCertAndKey(
+		caCert, icfg.Bootstrap.CAPrivateKey, nil,
+	)
 	if err != nil {
 		return errors.Annotate(err, "cannot generate controller certificate")
 	}
 	icfg.Bootstrap.StateServingInfo = params.StateServingInfo{
-		StatePort:    controllerCfg.StatePort(),
-		APIPort:      controllerCfg.APIPort(),
+		StatePort:    icfg.Controller.Config.StatePort,
+		APIPort:      icfg.Controller.Config.APIPort,
 		Cert:         string(cert),
 		PrivateKey:   string(key),
-		CAPrivateKey: caPrivateKey,
+		CAPrivateKey: icfg.Bootstrap.CAPrivateKey,
 	}
-	if icfg.Bootstrap.ControllerModelConfig, err = bootstrapConfig(cfg); err != nil {
-		return errors.Trace(err)
+	if err := validateControllerModelConfig(cfg); err != nil {
+		return errors.Annotate(err, "validating controller model config")
 	}
-	// We never want to save the root CA provide key to the cloud.
-	delete(icfg.Controller.Config, controller.CAPrivateKey)
-
+	icfg.Bootstrap.ControllerModelConfig = cfg
 	return nil
 }
 
@@ -842,19 +845,11 @@ func InstanceTags(modelUUID, controllerUUID string, tagger tags.ResourceTagger, 
 	return instanceTags
 }
 
-// bootstrapConfig returns a copy of the supplied configuration with the
-// admin-secret attribute removed. If the resulting config is not suitable
-// for bootstrapping an environment, an error is returned.
-func bootstrapConfig(cfg *config.Config) (*config.Config, error) {
-	m := cfg.AllAttrs()
-	// We never want to push admin-secret to the cloud.
-	delete(m, config.AdminSecretKey)
-	cfg, err := config.New(config.NoDefaults, m)
-	if err != nil {
-		return nil, err
-	}
+// validateControllerModelConfig checks that the supplied model config is
+// suitable for the controller model.
+func validateControllerModelConfig(cfg *config.Config) error {
 	if _, ok := cfg.AgentVersion(); !ok {
-		return nil, fmt.Errorf("model configuration has no agent-version")
+		return fmt.Errorf("model configuration has no agent-version")
 	}
-	return cfg, nil
+	return nil
 }

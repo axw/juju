@@ -144,7 +144,7 @@ func InitializeState(
 			attrs[k] = v
 		}
 	}
-	controllerUUID := args.ControllerConfig.ControllerUUID()
+	controllerUUID := args.ControllerConfig.UUID
 	hostedModelConfig, err := modelmanager.ModelConfigCreator{}.NewModelConfig(
 		modelmanager.IsAdmin, controllerUUID, args.ControllerModelConfig, attrs,
 	)

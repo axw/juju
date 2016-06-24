@@ -653,13 +653,6 @@ func (e *environ) Bootstrap(ctx environs.BootstrapContext, args environs.Bootstr
 	if err := e.checkBroken("Bootstrap"); err != nil {
 		return nil, err
 	}
-	password := e.Config().AdminSecret()
-	if password == "" {
-		return nil, fmt.Errorf("admin-secret is required for bootstrap")
-	}
-	if _, ok := args.ControllerConfig.CACert(); !ok {
-		return nil, fmt.Errorf("no CA certificate in controller configuration")
-	}
 
 	logger.Infof("would pick tools from %s", availableTools)
 
@@ -689,7 +682,7 @@ func (e *environ) Bootstrap(ctx environs.BootstrapContext, args environs.Bootstr
 	estate.bootstrapped = true
 	estate.ops <- OpBootstrap{Context: ctx, Env: e.name, Args: args}
 
-	finalize := func(ctx environs.BootstrapContext, icfg *instancecfg.InstanceConfig) error {
+	finalize := func(ctx environs.BootstrapContext, icfg *instancecfg.InstanceConfig, _ environs.BootstrapTimeoutOpts) error {
 		if e.ecfg().controller() {
 			icfg.Bootstrap.BootstrapMachineInstanceId = BootstrapInstanceId
 			if err := instancecfg.FinishInstanceConfig(icfg, e.Config()); err != nil {
@@ -730,6 +723,7 @@ func (e *environ) Bootstrap(ctx environs.BootstrapContext, args environs.Bootstr
 			if err := st.SetModelConstraints(args.ModelConstraints); err != nil {
 				return err
 			}
+			password := icfg.Bootstrap.AdminSecret
 			if err := st.SetAdminMongoPassword(password); err != nil {
 				return err
 			}

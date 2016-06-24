@@ -265,7 +265,7 @@ var getBootstrapFuncs = func() BootstrapInterface {
 }
 
 var (
-	environsPrepare            = environs.Prepare
+	environsPrepare            = bootstrap.Prepare
 	environsDestroy            = environs.Destroy
 	waitForAgentInitialisation = common.WaitForAgentInitialisation
 )
@@ -426,26 +426,49 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		*credential = cred
 	}
 
-	// Create an environment config from the cloud and credentials.
-	configAttrs := map[string]interface{}{
+	// Create a model config, and split out any controller
+	// config attributes.
+	modelConfigAttrs := map[string]interface{}{
 		"type":         cloud.Type,
-		"name":         environs.ControllerModelName,
+		"name":         bootstrap.ControllerModelName,
 		config.UUIDKey: controllerUUID.String(),
 	}
 	for k, v := range cloud.Config {
-		configAttrs[k] = v
+		modelConfigAttrs[k] = v
 	}
 	userConfigAttrs, err := c.config.ReadAttrs(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	for k, v := range userConfigAttrs {
-		configAttrs[k] = v
+		modelConfigAttrs[k] = v
 	}
-	if err := common.FinalizeAuthorizedKeys(ctx, configAttrs); err != nil {
-		return errors.Trace(err)
+	bootstrapConfigAttrs := make(map[string]interface{})
+	controllerConfigAttrs := make(map[string]interface{})
+	for k, v := range modelConfigAttrs {
+		switch {
+		case bootstrap.IsBootstrapAttribute(k):
+			bootstrapConfigAttrs[k] = v
+			delete(modelConfigAttrs, k)
+		case controller.ControllerOnlyAttribute(k):
+			controllerConfigAttrs[k] = v
+			delete(modelConfigAttrs, k)
+		}
 	}
-	logger.Debugf("preparing controller with config: %v", configAttrs)
+	bootstrapConfig, err := bootstrap.NewConfig(controllerUUID.String(), bootstrapConfigAttrs)
+	if err != nil {
+		return errors.Annotate(err, "constructing bootstrap config")
+	}
+	controllerConfig, err := controller.NewConfig(
+		controllerUUID.String(), bootstrapConfig.CACert, controllerConfigAttrs,
+	)
+	if err != nil {
+		return errors.Annotate(err, "constructing controller config")
+	}
+	if err := common.FinalizeAuthorizedKeys(ctx, modelConfigAttrs); err != nil {
+		return errors.Annotate(err, "finalizing authorized-keys")
+	}
+	logger.Debugf("preparing controller with config: %v", modelConfigAttrs)
 
 	// Read existing current controller so we can clean up on error.
 	var oldCurrentController string
@@ -476,23 +499,10 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 		}
 	}()
 
-	// TODO(wallyworld) - we need to separate controller and model schemas
-	// Extract any controller attributes from the bucket of config options
-	// the user may have specified.
-	controllerConfig := controller.Config{
-		controller.ControllerUUIDKey: controllerUUID.String(),
-	}
-	for attr, cfgValue := range configAttrs {
-		if !controller.ControllerOnlyAttribute(attr) {
-			continue
-		}
-		controllerConfig[attr] = cfgValue
-	}
-
 	environ, err := environsPrepare(
 		modelcmd.BootstrapContext(ctx), store,
-		environs.PrepareParams{
-			BaseConfig:           configAttrs,
+		bootstrap.PrepareParams{
+			BaseConfig:           modelConfigAttrs,
 			ControllerConfig:     controllerConfig,
 			ControllerName:       c.controllerName,
 			CloudName:            c.Cloud,
@@ -501,6 +511,7 @@ func (c *bootstrapCommand) Run(ctx *cmd.Context) (resultErr error) {
 			CloudStorageEndpoint: region.StorageEndpoint,
 			Credential:           *credential,
 			CredentialName:       credentialName,
+			AdminSecret:          bootstrapConfig.AdminSecret,
 		},
 	)
 	if err != nil {
@@ -649,6 +660,7 @@ to clean up the model.`[1:])
 		ControllerInheritedConfig: inheritedControllerAttrs,
 		HostedModelConfig:         hostedModelConfig,
 		GUIDataSourceBaseURL:      guiDataSourceBaseURL,
+		BootstrapConfig:           bootstrapConfig,
 	})
 	if err != nil {
 		return errors.Annotate(err, "failed to bootstrap model")
@@ -658,7 +670,7 @@ to clean up the model.`[1:])
 		return errors.Trace(err)
 	}
 
-	err = common.SetBootstrapEndpointAddress(c.ClientStore(), c.controllerName, controllerConfig.APIPort(), environ)
+	err = common.SetBootstrapEndpointAddress(c.ClientStore(), c.controllerName, controllerConfig.APIPort, environ)
 	if err != nil {
 		return errors.Annotate(err, "saving bootstrap endpoint address")
 	}

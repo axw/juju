@@ -221,7 +221,15 @@ type ConfigSettingsResults struct {
 type ModelConfig map[string]interface{}
 
 // ControllerConfig holds a controller configuration.
-type ControllerConfig map[string]interface{}
+type ControllerConfig struct {
+	APIPort              int    `json:"api-port"`
+	StatePort            int    `json:"state-port"`
+	UUID                 string `json:"uuid"`
+	CACert               string `json:"ca-cert"`
+	IdentityURL          string `json:"identity-url,omitempty"`
+	IdentityPublicKey    string `json:"identity-public-key,omitempty"`
+	SetNumaControlPolicy bool   `json:"set-numa-control-policy"`
+}
 
 // ModelConfigResult holds model configuration.
 type ModelConfigResult struct {
@@ -598,7 +606,7 @@ type ProvisioningInfo struct {
 	SubnetsToZones   map[string][]string       `json:"subnets-to-zones,omitempty"`
 	ImageMetadata    []CloudImageMetadata      `json:"image-metadata,omitempty"`
 	EndpointBindings map[string]string         `json:"endpoint-bindings,omitempty"`
-	ControllerConfig map[string]interface{}    `json:"controller-config,omitempty"`
+	ControllerConfig ControllerConfig          `json:"controller-config,omitempty"`
 }
 
 // ProvisioningInfoResult holds machine provisioning info or an error.

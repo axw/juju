@@ -138,21 +138,21 @@ func (t *LiveTests) PrepareOnce(c *gc.C) {
 		return
 	}
 	args := t.prepareForBootstrapParams(c)
-	e, err := environs.Prepare(envtesting.BootstrapContext(c), t.ControllerStore, args)
+	e, err := bootstrap.Prepare(envtesting.BootstrapContext(c), t.ControllerStore, args)
 	c.Assert(err, gc.IsNil, gc.Commentf("preparing environ %#v", t.TestConfig))
 	c.Assert(e, gc.NotNil)
 	t.Env = e
 	t.prepared = true
-	t.ControllerUUID = coretesting.FakeControllerConfig().ControllerUUID()
+	t.ControllerUUID = coretesting.FakeControllerConfig().UUID
 }
 
-func (t *LiveTests) prepareForBootstrapParams(c *gc.C) environs.PrepareParams {
+func (t *LiveTests) prepareForBootstrapParams(c *gc.C) bootstrap.PrepareParams {
 	credential := t.Credential
 	if credential.AuthType() == "" {
 		credential = cloud.NewEmptyCredential()
 	}
-	return environs.PrepareParams{
-		ControllerConfig: coretesting.FakeControllerBootstrapConfig(),
+	return bootstrap.PrepareParams{
+		ControllerConfig: coretesting.FakeControllerConfig(),
 		BaseConfig:       t.TestConfig,
 		Credential:       credential,
 		CloudEndpoint:    t.CloudEndpoint,
@@ -175,7 +175,7 @@ func (t *LiveTests) bootstrapParams() bootstrap.BootstrapParams {
 		}}
 	}
 	return bootstrap.BootstrapParams{
-		ControllerConfig: coretesting.FakeControllerBootstrapConfig(),
+		ControllerConfig: coretesting.FakeControllerConfig(),
 		CloudName:        t.TestConfig["type"].(string),
 		Cloud: cloud.Cloud{
 			Type:      t.TestConfig["type"].(string),
@@ -475,8 +475,8 @@ func (t *LiveTests) TestBootstrapAndDeploy(c *gc.C) {
 	c.Logf("opening API connection")
 	controllerCfg, err := st.ControllerConfig()
 	c.Assert(err, jc.ErrorIsNil)
-	caCert, _ := controllerCfg.CACert()
-	apiInfo, err := environs.APIInfo(model.Tag().Id(), model.Tag().Id(), caCert, controllerCfg.APIPort(), t.Env)
+	caCert := controllerCfg.CACert
+	apiInfo, err := environs.APIInfo(model.Tag().Id(), model.Tag().Id(), caCert, controllerCfg.APIPort, t.Env)
 	c.Assert(err, jc.ErrorIsNil)
 	apiInfo.Tag = owner
 	apiInfo.Password = t.Env.Config().AdminSecret()

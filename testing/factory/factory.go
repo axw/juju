@@ -580,8 +580,8 @@ func (factory *Factory) MakeModel(c *gc.C, params *ModelParams) *state.State {
 		"name":       params.Name,
 		"uuid":       uuid.String(),
 		"type":       currentCfg.Type(),
-		"state-port": controllerCfg.StatePort(),
-		"api-port":   controllerCfg.APIPort(),
+		"state-port": controllerCfg.StatePort,
+		"api-port":   controllerCfg.APIPort,
 	}.Merge(params.ConfigAttrs))
 	_, st, err := factory.st.NewModel(state.ModelArgs{
 		CloudName:       params.CloudName,

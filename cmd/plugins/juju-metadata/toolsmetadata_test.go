@@ -57,7 +57,7 @@ func (s *ToolsMetadataSuite) SetUpTest(c *gc.C) {
 		modelcmd.BootstrapContextNoVerify(coretesting.Context(c)),
 		jujuclienttesting.NewMemStore(),
 		environs.PrepareParams{
-			ControllerConfig: coretesting.FakeControllerBootstrapConfig(),
+			ControllerConfig: coretesting.FakeControllerConfig(),
 			ControllerName:   cfg.Name(),
 			BaseConfig:       cfg.AllAttrs(),
 			CloudName:        "dummy",

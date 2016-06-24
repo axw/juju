@@ -92,7 +92,7 @@ func (s *NewAPIClientSuite) bootstrapModel(c *gc.C) (environs.Environ, jujuclien
 	ctx := envtesting.BootstrapContext(c)
 
 	env, err := environs.Prepare(ctx, store, environs.PrepareParams{
-		ControllerConfig: coretesting.FakeControllerBootstrapConfig(),
+		ControllerConfig: coretesting.FakeControllerConfig(),
 		ControllerName:   controllerName,
 		BaseConfig:       dummy.SampleConfig(),
 		CloudName:        "dummy",
@@ -106,7 +106,7 @@ func (s *NewAPIClientSuite) bootstrapModel(c *gc.C) (environs.Environ, jujuclien
 	envtesting.UploadFakeTools(c, stor, "released", "released")
 
 	err = bootstrap.Bootstrap(ctx, env, bootstrap.BootstrapParams{
-		ControllerConfig: coretesting.FakeControllerBootstrapConfig(),
+		ControllerConfig: coretesting.FakeControllerConfig(),
 		CloudName:        "dummy",
 		Cloud: cloud.Cloud{
 			Type:      "dummy",

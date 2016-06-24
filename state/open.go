@@ -149,8 +149,11 @@ func (p InitializeParams) Validate() error {
 	if p.ControllerModelArgs.MigrationMode != MigrationModeActive {
 		return errors.NotValidf("migration mode %q", p.ControllerModelArgs.MigrationMode)
 	}
+	if err := p.ControllerConfig.Validate(); err != nil {
+		return errors.Annotate(err, "validating controller config")
+	}
 	uuid := p.ControllerModelArgs.Config.UUID()
-	controllerUUID := p.ControllerConfig.ControllerUUID()
+	controllerUUID := p.ControllerConfig.UUID
 	if uuid != controllerUUID {
 		return errors.NotValidf("mismatching uuid (%v) and controller-uuid (%v)", uuid, controllerUUID)
 	}
@@ -258,7 +261,7 @@ func Initialize(args InitializeParams) (_ *State, err error) {
 			Assert: txn.DocMissing,
 			Insert: &hostedModelCountDoc{},
 		},
-		createSettingsOp(controllersC, controllerSettingsGlobalKey, args.ControllerConfig),
+		createControllerConfigOp(args.ControllerConfig),
 		createSettingsOp(globalSettingsC, controllerInheritedSettingsGlobalKey, args.ControllerInheritedConfig),
 	}
 	if len(args.CloudCredentials) > 0 {

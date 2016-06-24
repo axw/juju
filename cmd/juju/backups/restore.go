@@ -9,6 +9,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
@@ -134,6 +135,7 @@ func (c *restoreCommand) Init(args []string) error {
 
 type restoreBootstrapParams struct {
 	ControllerConfig controller.Config
+	BootstrapConfig  bootstrap.Config
 	CloudName        string
 	CloudRegion      string
 	CredentialName   string
@@ -166,16 +168,15 @@ func (c *restoreCommand) getEnviron(
 	}
 
 	controllerCfg := controller.Config{
-		controller.ControllerUUIDKey: params.ControllerUUID,
-		controller.CACertKey:         meta.CACert,
-		controller.CAPrivateKey:      meta.CAPrivateKey,
+		UUID:   params.ControllerUUID,
+		CACert: meta.CACert,
 	}
 
 	// We may have previous controller metadata. We need to update that so it
 	// will contain the new CA Cert and UUID required to connect to the newly
 	// bootstrapped controller API.
 	details := jujuclient.ControllerDetails{
-		ControllerUUID: controllerCfg.ControllerUUID(),
+		ControllerUUID: controllerCfg.UUID,
 		CACert:         meta.CACert,
 	}
 	err = store.UpdateController(controllerName, details)
@@ -199,19 +200,25 @@ func (c *restoreCommand) getEnviron(
 		return nil, nil, errors.Trace(err)
 	}
 
+	bootstrapCfg := bootstrap.Config{
+		AdminSecret:             adminSecret,
+		CACert:                  meta.CACert,
+		CAPrivateKey:            meta.CAPrivateKey,
+		BootstrapTimeout:        time.Duration(bootstrap.DefaultBootstrapSSHTimeout) * time.Second,
+		BootstrapRetryDelay:     time.Duration(bootstrap.DefaultBootstrapSSHRetryDelay) * time.Second,
+		BootstrapAddressesDelay: time.Duration(bootstrap.DefaultBootstrapSSHAddressesDelay) * time.Second,
+	}
+
 	// Turn on safe mode so that the newly bootstrapped instance
 	// will not destroy all the instances it does not know about.
-	// Also set the admin secret and ca cert info.
-	cfg, err = cfg.Apply(map[string]interface{}{
-		"provisioner-safe-mode": true,
-		"admin-secret":          adminSecret,
-	})
+	cfg, err = cfg.Apply(map[string]interface{}{"provisioner-safe-mode": true})
 	if err != nil {
 		return nil, nil, errors.Annotatef(err, "cannot enable provisioner-safe-mode")
 	}
 	env, err := environs.New(cfg)
 	return env, &restoreBootstrapParams{
 		ControllerConfig: controllerCfg,
+		BootstrapConfig:  bootstrapCfg,
 		CloudName:        config.Cloud,
 		CloudRegion:      config.CloudRegion,
 		CredentialName:   config.Credential,
@@ -226,7 +233,7 @@ func (c *restoreCommand) rebootstrap(ctx *cmd.Context, meta *params.BackupsMetad
 	if err != nil {
 		return errors.Trace(err)
 	}
-	instanceIds, err := env.ControllerInstances(params.ControllerConfig.ControllerUUID())
+	instanceIds, err := env.ControllerInstances(params.ControllerConfig.UUID)
 	if err != nil && errors.Cause(err) != environs.ErrNotBootstrapped {
 		return errors.Annotatef(err, "cannot determine controller instances")
 	}
@@ -274,6 +281,7 @@ func (c *restoreCommand) rebootstrap(ctx *cmd.Context, meta *params.BackupsMetad
 		HostedModelConfig:   hostedModelConfig,
 		BootstrapSeries:     meta.Series,
 		AgentVersion:        &bootVers,
+		BootstrapConfig:     params.BootstrapConfig,
 	}
 	if err := BootstrapFunc(modelcmd.BootstrapContext(ctx), env, args); err != nil {
 		return errors.Annotatef(err, "cannot bootstrap new instance")
@@ -285,8 +293,7 @@ func (c *restoreCommand) rebootstrap(ctx *cmd.Context, meta *params.BackupsMetad
 
 	// New controller is bootstrapped, so now record the API address so
 	// we can connect.
-	controllerCfg := controller.ControllerConfig(env.Config().AllAttrs())
-	err = common.SetBootstrapEndpointAddress(store, c.ControllerName(), controllerCfg.APIPort(), env)
+	err = common.SetBootstrapEndpointAddress(store, c.ControllerName(), params.ControllerConfig.APIPort, env)
 	if err != nil {
 		return errors.Trace(err)
 	}

@@ -142,7 +142,7 @@ func (s *CloudInitSuite) TestFinishBootstrapConfig(c *gc.C) {
 	icfg := &instancecfg.InstanceConfig{
 		Bootstrap: &instancecfg.BootstrapConfig{},
 		Controller: &instancecfg.ControllerConfig{
-			Config: testing.FakeControllerBootstrapConfig(),
+			Config: testing.FakeControllerConfig(),
 		},
 	}
 	err = instancecfg.FinishInstanceConfig(icfg, cfg)
@@ -161,7 +161,7 @@ func (s *CloudInitSuite) TestFinishBootstrapConfig(c *gc.C) {
 	c.Check(controllerCfg["ca-private-key"], gc.IsNil)
 	c.Check(icfg.Bootstrap.StateServingInfo.StatePort, gc.Equals, controllerCfg.StatePort())
 	c.Check(icfg.Bootstrap.StateServingInfo.APIPort, gc.Equals, controllerCfg.APIPort())
-	c.Check(icfg.Bootstrap.StateServingInfo.CAPrivateKey, gc.Equals, testing.FakeControllerBootstrapConfig()["ca-private-key"])
+	c.Check(icfg.Bootstrap.StateServingInfo.CAPrivateKey, gc.Equals, testing.FakeControllerConfig()["ca-private-key"])
 
 	delete(oldAttrs, "admin-secret")
 	c.Check(icfg.Bootstrap.ControllerModelConfig.AllAttrs(), jc.DeepEquals, oldAttrs)
@@ -235,7 +235,7 @@ func (*CloudInitSuite) testUserData(c *gc.C, series string, bootstrap bool) {
 	err = cfg.SetTools(toolsList)
 	c.Assert(err, jc.ErrorIsNil)
 	if bootstrap {
-		controllerCfg := testing.FakeControllerBootstrapConfig()
+		controllerCfg := testing.FakeControllerConfig()
 		cfg.Bootstrap = &instancecfg.BootstrapConfig{
 			StateInitializationParams: instancecfg.StateInitializationParams{
 				ControllerConfig:      controllerCfg,

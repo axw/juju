@@ -158,7 +158,7 @@ func (s *BaseSuiteUnpatched) initInst(c *gc.C) {
 	// nothing
 	}
 
-	instanceConfig, err := instancecfg.NewBootstrapInstanceConfig(testing.FakeControllerBootstrapConfig(), cons, cons, "trusty", "")
+	instanceConfig, err := instancecfg.NewBootstrapInstanceConfig(testing.FakeControllerConfig(), cons, cons, "trusty", "")
 	c.Assert(err, jc.ErrorIsNil)
 
 	err = instanceConfig.SetTools(coretools.List{

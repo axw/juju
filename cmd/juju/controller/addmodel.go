@@ -234,9 +234,20 @@ func (c *addModelCommand) getConfigValues(ctx *cmd.Context) (map[string]interfac
 	if err != nil {
 		return nil, errors.Annotatef(err, "unable to parse config")
 	}
-	stringParams, ok := coercedValues.(map[string]interface{})
+	attrs, ok := coercedValues.(map[string]interface{})
 	if !ok {
 		return nil, errors.New("params must contain a YAML map with string keys")
 	}
-	return stringParams, nil
+	if err := common.FinalizeAuthorizedKeys(ctx, attrs); err != nil {
+		if errors.Cause(err) != common.ErrNoAuthorizedKeys {
+			return nil, errors.Trace(err)
+		}
+		// It is not an error to have no authorized-keys when adding a
+		// model, though this should never happen since we generate
+		// juju-specific SSH keys.
+		ctx.Infof(`No SSH authorized-keys were found.
+You must use "juju add-ssh-key" before "juju ssh", "juju scp", or "juju debug-hooks" will work.
+`[1:])
+	}
+	return attrs, nil
 }

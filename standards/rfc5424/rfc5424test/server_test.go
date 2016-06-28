@@ -16,17 +16,17 @@ import (
 	"github.com/juju/juju/testing"
 )
 
-type ClientSuite struct {
+type ServerSuite struct {
 	gitjujutesting.IsolationSuite
 }
 
-var _ = gc.Suite(&ClientSuite{})
+var _ = gc.Suite(&ServerSuite{})
 
-func (s *ClientSuite) SetUpTest(c *gc.C) {
+func (s *ServerSuite) SetUpTest(c *gc.C) {
 	s.IsolationSuite.SetUpTest(c)
 }
 
-func (s *ClientSuite) TestSend(c *gc.C) {
+func (s *ServerSuite) TestSend(c *gc.C) {
 	received := make(chan rfc5424test.Message, 1)
 	server := rfc5424test.NewServer(rfc5424test.HandlerFunc(func(msg rfc5424test.Message) {
 		received <- msg

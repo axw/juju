@@ -1,7 +1,7 @@
 // Copyright 2016 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package logforwarder
+package sinks
 
 import (
 	"github.com/juju/errors"
@@ -10,7 +10,7 @@ import (
 	"github.com/juju/juju/worker/logforwarder"
 )
 
-func OpenSyslog(cfg logforwarder.LoggingConfig) (logforwarder.LogSink, error) {
+func OpenSyslog(cfg logforwarder.LoggingConfig) (*logforwarder.LogSink, error) {
 	client, name, err := OpenSyslogSender(cfg, syslog.Open)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -29,6 +29,6 @@ func OpenSyslogSender(cfg logforwarder.LoggingConfig, open func(syslog.RawConfig
 	}
 	sink := syslogCfg.Host
 
-	client, err := Open(*syslogCfg)
+	client, err := syslog.Open(*syslogCfg)
 	return client, sink, errors.Trace(err)
 }

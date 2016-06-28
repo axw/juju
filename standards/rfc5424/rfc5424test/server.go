@@ -5,6 +5,7 @@ package rfc5424test
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"sync"
@@ -31,11 +32,12 @@ type Message struct {
 // Server is a server for testing the receipt of RFC5424 messages.
 type Server struct {
 	Listener net.Listener
+	TLS      *tls.Config
 	handler  Handler
 
 	mu       sync.Mutex
 	wg       sync.WaitGroup
-	listener net.Listener // wraps Listener with TLS
+	listener net.Listener // Listener, or Listener wrapped with TLS
 	closed   bool
 	conns    []net.Conn
 }
@@ -59,10 +61,31 @@ func NewServer(handler Handler) *Server {
 func (s *Server) Start() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		panic("Start: server already closed")
+	}
 	if s.listener != nil {
 		panic("Start: server already started")
 	}
 	s.listener = s.Listener
+	s.goServe()
+}
+
+// StartTLS starts the server listening for client connections
+// using TLS.
+func (s *Server) StartTLS() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		panic("StartTLS: server already closed")
+	}
+	if s.listener != nil {
+		panic("StartTLS: server already started")
+	}
+	if s.TLS == nil || len(s.TLS.Certificates) == 0 {
+		panic("no certificates specified")
+	}
+	s.listener = tls.NewListener(s.Listener, s.TLS)
 	s.goServe()
 }
 
@@ -74,9 +97,11 @@ func (s *Server) Close() {
 	defer s.mu.Unlock()
 	if !s.closed {
 		s.closed = true
-		s.listener.Close()
-		for _, conn := range s.conns {
-			conn.Close()
+		if s.listener != nil {
+			s.listener.Close()
+			for _, conn := range s.conns {
+				conn.Close()
+			}
 		}
 	}
 }
@@ -113,7 +138,6 @@ func (s *Server) serve() {
 func (s *Server) serveConn(conn net.Conn) {
 	remoteAddr := conn.RemoteAddr().String()
 	scanner := bufio.NewScanner(conn)
-	fmt.Println(remoteAddr)
 	for scanner.Scan() {
 		text := scanner.Text()
 		message := Message{

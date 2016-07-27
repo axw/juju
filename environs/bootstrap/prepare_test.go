@@ -9,6 +9,7 @@ import (
 	gc "gopkg.in/check.v1"
 
 	"github.com/juju/juju/controller"
+	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
 	sstesting "github.com/juju/juju/environs/simplestreams/testing"
@@ -61,7 +62,7 @@ func (*PrepareSuite) TestPrepare(c *gc.C) {
 		ControllerConfig: controllerCfg,
 		ControllerName:   cfg.Name(),
 		BaseConfig:       cfg.AllAttrs(),
-		CloudName:        "dummy",
+		Cloud:            dummy.SampleCloudSpec(),
 		AdminSecret:      "admin-secret",
 	})
 	c.Assert(err, jc.ErrorIsNil)
@@ -103,7 +104,7 @@ func (*PrepareSuite) TestPrepare(c *gc.C) {
 		ControllerConfig: controllerCfg,
 		ControllerName:   cfg.Name(),
 		BaseConfig:       cfg.AllAttrs(),
-		CloudName:        "dummy",
+		Cloud:            dummy.SampleCloudSpec(),
 		AdminSecret:      "admin-secret",
 	})
 	c.Assert(err, jc.Satisfies, errors.IsAlreadyExists)

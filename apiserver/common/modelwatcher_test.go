@@ -14,6 +14,7 @@ import (
 	"github.com/juju/juju/apiserver/params"
 	apiservertesting "github.com/juju/juju/apiserver/testing"
 	"github.com/juju/juju/cmd/modelcmd"
+	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/jujuclient/jujuclienttesting"
@@ -127,7 +128,7 @@ func testingEnvConfig(c *gc.C) *config.Config {
 			ControllerConfig: testing.FakeControllerConfig(),
 			ControllerName:   "dummycontroller",
 			BaseConfig:       dummy.SampleConfig(),
-			CloudName:        "dummy",
+			Cloud:            dummy.SampleCloudSpec(),
 			AdminSecret:      "admin-secret",
 		},
 	)

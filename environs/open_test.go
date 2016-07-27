@@ -55,7 +55,7 @@ func (s *OpenSuite) TestNewDummyEnviron(c *gc.C) {
 		ControllerConfig: controllerCfg,
 		ControllerName:   cfg.Name(),
 		BaseConfig:       cfg.AllAttrs(),
-		CloudName:        "dummy",
+		Cloud:            dummy.SampleCLoudSpec(),
 		AdminSecret:      "admin-secret",
 	})
 	c.Assert(err, jc.ErrorIsNil)
@@ -94,8 +94,11 @@ func (s *OpenSuite) TestUpdateEnvInfo(c *gc.C) {
 		ControllerConfig: controllerCfg,
 		ControllerName:   "controller-name",
 		BaseConfig:       cfg.AllAttrs(),
-		CloudName:        "dummy",
-		AdminSecret:      "admin-secret",
+		Cloud: environs.CloudSpec{
+			Type:  "dummy",
+			Cloud: "dummy",
+		},
+		AdminSecret: "admin-secret",
 	})
 	c.Assert(err, jc.ErrorIsNil)
 
@@ -153,8 +156,11 @@ func (*OpenSuite) TestDestroy(c *gc.C) {
 		ControllerConfig: controllerCfg,
 		ControllerName:   "controller-name",
 		BaseConfig:       cfg.AllAttrs(),
-		CloudName:        "dummy",
-		AdminSecret:      "admin-secret",
+		Cloud: environs.CloudSpec{
+			Type:  "dummy",
+			Cloud: "dummy",
+		},
+		AdminSecret: "admin-secret",
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	_, err = store.ControllerByName("controller-name")

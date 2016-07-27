@@ -279,10 +279,12 @@ func (s *JujuConnSuite) setUpConn(c *gc.C) {
 		bootstrap.PrepareParams{
 			ControllerConfig: s.ControllerConfig,
 			BaseConfig:       cfg.AllAttrs(),
-			Credential:       cloud.NewEmptyCredential(),
-			ControllerName:   ControllerName,
-			CloudName:        "dummy",
-			AdminSecret:      AdminSecret,
+			Cloud: environs.CloudSpec{
+				Type:  "dummy",
+				Cloud: "dummy",
+			},
+			ControllerName: ControllerName,
+			AdminSecret:    AdminSecret,
 		},
 	)
 	c.Assert(err, jc.ErrorIsNil)

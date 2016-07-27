@@ -7,6 +7,7 @@ import (
 	jc "github.com/juju/testing/checkers"
 	gc "gopkg.in/check.v1"
 
+	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/bootstrap"
 	"github.com/juju/juju/environs/config"
 	envtesting "github.com/juju/juju/environs/testing"
@@ -35,7 +36,7 @@ func (*ConfigSuite) TestSecretAttrs(c *gc.C) {
 			ControllerConfig: testing.FakeControllerConfig(),
 			BaseConfig:       attrs,
 			ControllerName:   attrs["name"].(string),
-			CloudName:        "dummy",
+			Cloud:            dummy.SampleCloudSpec(),
 			AdminSecret:      AdminSecret,
 		},
 	)
@@ -99,7 +100,7 @@ func (s *ConfigSuite) TestFirewallMode(c *gc.C) {
 				ControllerConfig: testing.FakeControllerConfig(),
 				ControllerName:   cfg.Name(),
 				BaseConfig:       cfg.AllAttrs(),
-				CloudName:        "dummy",
+				Cloud:            dummy.SampleCloudSpec(),
 				AdminSecret:      AdminSecret,
 			},
 		)

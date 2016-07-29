@@ -22,6 +22,7 @@ import (
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/multiwatcher"
+	"github.com/juju/juju/storage"
 )
 
 var logger = loggo.GetLogger("juju.agent.agentbootstrap")
@@ -40,6 +41,10 @@ type InitializeStateParams struct {
 
 	// SharedSecret is the Mongo replica set shared secret (keyfile).
 	SharedSecret string
+
+	// StorageProviderRegistry is used to determine and store the
+	// details of the default storage pools.
+	StorageProviderRegistry storage.ProviderRegistry
 }
 
 // InitializeState should be called on the bootstrap machine's agent
@@ -90,12 +95,13 @@ func InitializeState(
 	logger.Debugf("initializing address %v", info.Addrs)
 	st, err := state.Initialize(state.InitializeParams{
 		ControllerModelArgs: state.ModelArgs{
-			Owner:           adminUser,
-			Config:          args.ControllerModelConfig,
-			Constraints:     args.ModelConstraints,
-			CloudName:       args.ControllerCloudName,
-			CloudRegion:     args.ControllerCloudRegion,
-			CloudCredential: args.ControllerCloudCredentialName,
+			Owner:                   adminUser,
+			Config:                  args.ControllerModelConfig,
+			Constraints:             args.ModelConstraints,
+			CloudName:               args.ControllerCloudName,
+			CloudRegion:             args.ControllerCloudRegion,
+			CloudCredential:         args.ControllerCloudCredentialName,
+			StorageProviderRegistry: args.StorageProviderRegistry,
 		},
 		CloudName:                 args.ControllerCloudName,
 		Cloud:                     args.ControllerCloud,
@@ -169,12 +175,13 @@ func InitializeState(
 		return nil, nil, errors.Annotate(err, "creating hosted model config")
 	}
 	_, hostedModelState, err := st.NewModel(state.ModelArgs{
-		Owner:           adminUser,
-		Config:          hostedModelConfig,
-		Constraints:     args.ModelConstraints,
-		CloudName:       args.ControllerCloudName,
-		CloudRegion:     args.ControllerCloudRegion,
-		CloudCredential: args.ControllerCloudCredentialName,
+		Owner:                   adminUser,
+		Config:                  hostedModelConfig,
+		Constraints:             args.ModelConstraints,
+		CloudName:               args.ControllerCloudName,
+		CloudRegion:             args.ControllerCloudRegion,
+		CloudCredential:         args.ControllerCloudCredentialName,
+		StorageProviderRegistry: args.StorageProviderRegistry,
 	})
 	if err != nil {
 		return nil, nil, errors.Annotate(err, "creating hosted model")

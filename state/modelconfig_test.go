@@ -16,6 +16,7 @@ import (
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/storage"
 	"github.com/juju/juju/testing"
 )
 
@@ -234,6 +235,7 @@ func (s *ModelConfigSourceSuite) TestNewModelConfigForksControllerValue(c *gc.C)
 	owner := names.NewUserTag("test@remote")
 	_, st, err := s.State.NewModel(state.ModelArgs{
 		Config: cfg, Owner: owner, CloudName: "dummy",
+		StorageProviderRegistry: storage.StaticProviderRegistry{},
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	defer st.Close()

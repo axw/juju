@@ -31,6 +31,7 @@ import (
 	"github.com/juju/juju/provider/dummy"
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/state/multiwatcher"
+	"github.com/juju/juju/storage/provider"
 	"github.com/juju/juju/testing"
 	jujuversion "github.com/juju/juju/version"
 )
@@ -133,7 +134,7 @@ LXC_BRIDGE="ignored"`[1:])
 	)
 
 	// Prepare bootstrap config, so we can use it in the state policy.
-	provider, err := environs.Provider("dummy")
+	environProvider, err := environs.Provider("dummy")
 	c.Assert(err, jc.ErrorIsNil)
 	modelAttrs := dummy.SampleConfig().Delete("admin-secret").Merge(testing.Attrs{
 		"agent-version":  jujuversion.Current.String(),
@@ -148,7 +149,7 @@ LXC_BRIDGE="ignored"`[1:])
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	// Dummy provider uses a random port, which is added to cfg used to create environment.
-	apiPort := dummy.ApiPort(provider)
+	apiPort := dummy.ApiPort(environProvider)
 	controllerCfg["api-port"] = apiPort
 	defer dummy.Reset(c)
 
@@ -182,6 +183,7 @@ LXC_BRIDGE="ignored"`[1:])
 		BootstrapMachineAddresses: initialAddrs,
 		BootstrapMachineJobs:      []multiwatcher.MachineJob{multiwatcher.JobManageModel},
 		SharedSecret:              "abc123",
+		StorageProviderRegistry:   provider.CommonStorageProviders(),
 	}
 
 	adminUser := names.NewLocalUserTag("agent-admin")
@@ -368,8 +370,9 @@ func (s *bootstrapSuite) TestInitializeStateFailsSecondTime(c *gc.C) {
 			ControllerModelConfig: modelCfg,
 			HostedModelConfig:     hostedModelConfigAttrs,
 		},
-		BootstrapMachineJobs: []multiwatcher.MachineJob{multiwatcher.JobManageModel},
-		SharedSecret:         "abc123",
+		BootstrapMachineJobs:    []multiwatcher.MachineJob{multiwatcher.JobManageModel},
+		SharedSecret:            "abc123",
+		StorageProviderRegistry: provider.CommonStorageProviders(),
 	}
 
 	adminUser := names.NewLocalUserTag("agent-admin")

@@ -42,7 +42,6 @@ import (
 	"github.com/juju/juju/state/cloudimagemetadata"
 	"github.com/juju/juju/state/multiwatcher"
 	"github.com/juju/juju/state/stateenvirons"
-	"github.com/juju/juju/storage/poolmanager"
 	"github.com/juju/juju/tools"
 	jujuversion "github.com/juju/juju/version"
 	"github.com/juju/juju/worker/peergrouper"
@@ -260,6 +259,7 @@ func (c *BootstrapCommand) Run(_ *cmd.Context) error {
 			agentConfig,
 			agentbootstrap.InitializeStateParams{
 				args, addrs, jobs, sharedSecret,
+				stateenvirons.NewStorageProviderRegistry(env),
 			},
 			dialOpts,
 			stateenvirons.GetNewPolicyFunc(
@@ -291,11 +291,6 @@ func (c *BootstrapCommand) Run(_ *cmd.Context) error {
 		if err := c.saveCustomImageMetadata(st, args.CustomImageMetadata); err != nil {
 			return err
 		}
-	}
-
-	// Populate the storage pools.
-	if err = c.populateDefaultStoragePools(st); err != nil {
-		return err
 	}
 
 	// bootstrap machine always gets the vote
@@ -352,12 +347,6 @@ func (c *BootstrapCommand) startMongo(addrs []network.Address, agentConfig agent
 	}
 	logger.Infof("started mongo")
 	return nil
-}
-
-// populateDefaultStoragePools creates the default storage pools.
-func (c *BootstrapCommand) populateDefaultStoragePools(st *state.State) error {
-	settings := state.NewStateSettings(st)
-	return poolmanager.AddDefaultStoragePools(settings)
 }
 
 // populateTools stores uploaded tools in provider storage

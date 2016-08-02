@@ -11,14 +11,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest"
-	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/azure"
-	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/Azure/azure-sdk-for-go/arm/network"
-	"github.com/Azure/azure-sdk-for-go/arm/resources"
+	"github.com/Azure/azure-sdk-for-go/arm/resources/resources"
 	"github.com/Azure/azure-sdk-for-go/arm/storage"
 	azurestorage "github.com/Azure/azure-sdk-for-go/storage"
+	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/go-autorest/autorest/azure"
+	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/utils/arch"
@@ -78,7 +78,8 @@ type azureEnviron struct {
 	envName string
 
 	// azure auth token, and management clients
-	token         *azure.ServicePrincipalToken
+	token *azure.ServicePrincipalToken
+
 	compute       compute.ManagementClient
 	resources     resources.ManagementClient
 	storage       storage.ManagementClient
@@ -89,7 +90,7 @@ type azureEnviron struct {
 	config             *azureModelConfig
 	instanceTypes      map[string]instances.InstanceType
 	storageAccount     *storage.Account
-	storageAccountKeys *storage.AccountKeys
+	storageAccountKeys []storage.AccountKey
 }
 
 var _ environs.Environ = (*azureEnviron)(nil)
@@ -133,11 +134,22 @@ func (env *azureEnviron) initEnviron() error {
 	tenantId := credAttrs[credAttrTenantId]
 	appId := credAttrs[credAttrAppId]
 	appPassword := credAttrs[credAttrAppPassword]
+
+	// TODO(axw) we need to be able to construct
+	// an Environment from the CloudSpec. Using
+	// azure.PublicCloud is not always appropriate.
+	oauthConfig, err := azure.PublicCloud.OAuthConfigForTenant(tenantId)
+	if err != nil {
+		return errors.Annotate(err, "getting OAuth configuration")
+	}
+
+	// TODO(axw) is this the right thing to use for AzureChina etc.?
+	const resource = "https://management.azure.com/"
 	token, err := azure.NewServicePrincipalToken(
+		*oauthConfig,
 		appId,
 		appPassword,
-		tenantId,
-		azure.AzureResourceManagerScope,
+		resource,
 	)
 	if err != nil {
 		return errors.Annotate(err, "constructing service principal token")
@@ -180,11 +192,22 @@ func (env *azureEnviron) initEnviron() error {
 
 // PrepareForBootstrap is part of the Environ interface.
 func (env *azureEnviron) PrepareForBootstrap(ctx environs.BootstrapContext) error {
+	env.mu.Lock()
+	providersClient := resources.ProvidersClient{env.resources}
+	env.mu.Unlock()
+
 	if ctx.ShouldVerifyCredentials() {
 		if err := verifyCredentials(env); err != nil {
 			return errors.Trace(err)
 		}
 	}
+
+	// Make sure the Azure Resource Manager providers we require are
+	// registered for this subscription.
+	if err := registerAzureProviders(ctx, env.callAPI, providersClient); err != nil {
+		return errors.Annotate(err, "registering Azure Resource Manager providers")
+	}
+
 	return nil
 }
 
@@ -238,7 +261,7 @@ func (env *azureEnviron) initResourceGroup(controllerUUID string) error {
 	if err := env.callAPI(func() (autorest.Response, error) {
 		group, err := resourceGroupsClient.CreateOrUpdate(env.resourceGroup, resources.ResourceGroup{
 			Location: to.StringPtr(location),
-			Tags:     toTagsPtr(tags),
+			Tags:     to.StringMapPtr(tags),
 		})
 		return group.Response, err
 	}); err != nil {
@@ -275,7 +298,7 @@ func (env *azureEnviron) initResourceGroup(controllerUUID string) error {
 func createStorageAccount(
 	callAPI callAPIFunc,
 	client storage.AccountsClient,
-	accountType storage.AccountType,
+	accountType string,
 	resourceGroup string,
 	location string,
 	tags map[string]string,
@@ -310,9 +333,9 @@ func createStorageAccount(
 		}
 		createParams := storage.AccountCreateParameters{
 			Location: to.StringPtr(location),
-			Tags:     toTagsPtr(tags),
-			Properties: &storage.AccountPropertiesCreateParameters{
-				AccountType: accountType,
+			Tags:     to.StringMapPtr(tags),
+			Sku: &storage.Sku{
+				Name: storage.SkuName(accountType),
 			},
 		}
 		logger.Debugf("- creating %q storage account %q", accountType, accountName)
@@ -320,8 +343,7 @@ func createStorageAccount(
 		// available, but contains profanity. We should retry a set
 		// number of times even if creating fails.
 		if err := callAPI(func() (autorest.Response, error) {
-			result, err := client.Create(resourceGroup, accountName, createParams)
-			return result.Response, err
+			return client.Create(resourceGroup, accountName, createParams, nil)
 		}); err != nil {
 			return errors.Trace(err)
 		}
@@ -641,9 +663,10 @@ func createVirtualMachine(
 		return compute.VirtualMachine{}, errors.Annotate(err, "creating availability set")
 	}
 
+	logger.Debugf("- creating virtual machine")
 	vmArgs := compute.VirtualMachine{
 		Location: to.StringPtr(location),
-		Tags:     toTagsPtr(vmTags),
+		Tags:     to.StringMapPtr(vmTags),
 		Properties: &compute.VirtualMachineProperties{
 			HardwareProfile: &compute.HardwareProfile{
 				VMSize: compute.VirtualMachineSizeTypes(
@@ -658,13 +681,20 @@ func createVirtualMachine(
 			},
 		},
 	}
+	if err := callAPI(func() (autorest.Response, error) {
+		return vmClient.CreateOrUpdate(resourceGroup, vmName, vmArgs, nil)
+	}); err != nil {
+		return compute.VirtualMachine{}, errors.Annotate(err, "creating virtual machine")
+	}
+
+	logger.Debugf("- getting virtual machine")
 	var vm compute.VirtualMachine
 	if err := callAPI(func() (autorest.Response, error) {
 		var err error
-		vm, err = vmClient.CreateOrUpdate(resourceGroup, vmName, vmArgs)
+		vm, err = vmClient.Get(resourceGroup, vmName, "")
 		return vm.Response, err
 	}); err != nil {
-		return compute.VirtualMachine{}, errors.Annotate(err, "creating virtual machine")
+		return compute.VirtualMachine{}, errors.Annotate(err, "getting virtual machine")
 	}
 
 	// On Windows and CentOS, we must add the CustomScript VM
@@ -766,7 +796,7 @@ func createAvailabilitySet(
 				Location: to.StringPtr(location),
 				// NOTE(axw) we do *not* want to use vmTags here,
 				// because an availability set is shared by machines.
-				Tags: toTagsPtr(envTags),
+				Tags: to.StringMapPtr(envTags),
 			},
 		)
 		return availabilitySet.Response, err
@@ -808,7 +838,7 @@ func newStorageProfile(
 				osDisksRoot + osDiskName + vhdExtension,
 			),
 		},
-		DiskSizeGB: to.IntPtr(int(osDiskSizeGB)),
+		DiskSizeGB: to.Int32Ptr(int32(osDiskSizeGB)),
 	}
 	return &compute.StorageProfile{
 		ImageReference: &compute.ImageReference{
@@ -932,7 +962,7 @@ func deleteInstance(
 	var deleteResult autorest.Response
 	if err := callAPI(func() (autorest.Response, error) {
 		var err error
-		deleteResult, err = vmClient.Delete(inst.env.resourceGroup, vmName)
+		deleteResult, err = vmClient.Delete(inst.env.resourceGroup, vmName, nil)
 		return deleteResult, err
 	}); err != nil {
 		if deleteResult.Response == nil || deleteResult.StatusCode != http.StatusNotFound {
@@ -943,7 +973,7 @@ func deleteInstance(
 	// Delete the VM's OS disk VHD.
 	logger.Debugf("- deleting OS VHD")
 	blobClient := storageClient.GetBlobService()
-	if _, err := blobClient.DeleteBlobIfExists(osDiskVHDContainer, vmName); err != nil {
+	if _, err := blobClient.DeleteBlobIfExists(osDiskVHDContainer, vmName, nil); err != nil {
 		return errors.Annotate(err, "deleting OS VHD")
 	}
 
@@ -976,10 +1006,11 @@ func deleteInstance(
 		}
 		if detached {
 			if err := callAPI(func() (autorest.Response, error) {
-				result, err := nicClient.CreateOrUpdate(
-					inst.env.resourceGroup, to.String(nic.Name), nic,
+				return nicClient.CreateOrUpdate(
+					inst.env.resourceGroup,
+					to.String(nic.Name), nic,
+					nil, // abort channel
 				)
-				return result.Response, err
 			}); err != nil {
 				return errors.Annotate(err, "detaching public IP addresses")
 			}
@@ -994,7 +1025,7 @@ func deleteInstance(
 		var result autorest.Response
 		if err := callAPI(func() (autorest.Response, error) {
 			var err error
-			result, err = publicIPClient.Delete(inst.env.resourceGroup, pipName)
+			result, err = publicIPClient.Delete(inst.env.resourceGroup, pipName, nil)
 			return result, err
 		}); err != nil {
 			if result.Response == nil || result.StatusCode != http.StatusNotFound {
@@ -1013,7 +1044,7 @@ func deleteInstance(
 		var result autorest.Response
 		if err := callAPI(func() (autorest.Response, error) {
 			var err error
-			result, err = nicClient.Delete(inst.env.resourceGroup, nicName)
+			result, err = nicClient.Delete(inst.env.resourceGroup, nicName, nil)
 			return result, err
 		}); err != nil {
 			if result.Response == nil || result.StatusCode != http.StatusNotFound {
@@ -1246,7 +1277,7 @@ func (env *azureEnviron) deleteResourceGroup(resourceGroup string) error {
 	var result autorest.Response
 	if err := env.callAPI(func() (autorest.Response, error) {
 		var err error
-		result, err = client.Delete(resourceGroup)
+		result, err = client.Delete(resourceGroup, nil)
 		return result, err
 	}); err != nil {
 		if result.Response == nil || result.StatusCode != http.StatusNotFound {
@@ -1341,18 +1372,7 @@ func (env *azureEnviron) getInstanceTypesLocked() (map[string]instances.Instance
 
 // getInternalSubnetLocked queries the internal subnet for the environment.
 func (env *azureEnviron) getInternalSubnetLocked() (*network.Subnet, error) {
-	client := network.SubnetsClient{env.network}
-	vnetName := internalNetworkName
-	subnetName := internalSubnetName
-	var subnet network.Subnet
-	if err := env.callAPI(func() (autorest.Response, error) {
-		var err error
-		subnet, err = client.Get(env.resourceGroup, vnetName, subnetName)
-		return subnet.Response, err
-	}); err != nil {
-		return nil, errors.Annotate(err, "getting internal subnet")
-	}
-	return &subnet, nil
+	return getInternalSubnet(env.callAPI, env.network, env.resourceGroup)
 }
 
 // getStorageClient queries the storage account key, and uses it to construct
@@ -1419,18 +1439,18 @@ func (env *azureEnviron) getStorageAccountLocked(refresh bool) (*storage.Account
 // getStorageAccountKeys returns the storage account keys for this
 // environment's storage account. If refresh is true, cached keys
 // will be refreshed.
-func (env *azureEnviron) getStorageAccountKeys(accountName string, refresh bool) (*storage.AccountKeys, error) {
+func (env *azureEnviron) getStorageAccountKeys(accountName string, refresh bool) ([]storage.AccountKey, error) {
 	env.mu.Lock()
 	defer env.mu.Unlock()
 	return env.getStorageAccountKeysLocked(accountName, refresh)
 }
 
-func (env *azureEnviron) getStorageAccountKeysLocked(accountName string, refresh bool) (*storage.AccountKeys, error) {
+func (env *azureEnviron) getStorageAccountKeysLocked(accountName string, refresh bool) ([]storage.AccountKey, error) {
 	if !refresh && env.storageAccountKeys != nil {
 		return env.storageAccountKeys, nil
 	}
 	client := storage.AccountsClient{env.storage}
-	var listKeysResult storage.AccountKeys
+	var listKeysResult storage.AccountListKeysResult
 	if err := env.callAPI(func() (autorest.Response, error) {
 		var err error
 		listKeysResult, err = client.ListKeys(env.resourceGroup, accountName)
@@ -1438,7 +1458,10 @@ func (env *azureEnviron) getStorageAccountKeysLocked(accountName string, refresh
 	}); err != nil {
 		return nil, errors.Annotate(err, "listing storage account keys")
 	}
-	env.storageAccountKeys = &listKeysResult
+	if listKeysResult.Keys == nil {
+		return nil, errors.New("no storage account keys found")
+	}
+	env.storageAccountKeys = *listKeysResult.Keys
 	return env.storageAccountKeys, nil
 }
 

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/go-autorest/autorest"
 	jc "github.com/juju/testing/checkers"
 	gc "gopkg.in/check.v1"
 

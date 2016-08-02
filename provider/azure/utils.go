@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest"
-	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/to"
+	"github.com/Azure/azure-sdk-for-go/arm/resources/resources"
+	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/go-autorest/autorest/to"
+	"github.com/juju/errors"
+	"github.com/juju/juju/environs"
 	"github.com/juju/retry"
 	"github.com/juju/utils"
 	"github.com/juju/utils/clock"
@@ -20,11 +23,6 @@ const (
 	maxRetryDelay    = 1 * time.Minute
 	maxRetryDuration = 5 * time.Minute
 )
-
-func toTagsPtr(tags map[string]string) *map[string]*string {
-	stringPtrMap := to.StringMapPtr(tags)
-	return &stringPtrMap
-}
 
 func toTags(tags *map[string]*string) map[string]string {
 	if tags == nil {
@@ -52,6 +50,27 @@ func randomAdminPassword() string {
 		password[i], password[j] = password[j], password[i]
 	}
 	return string(password)
+}
+
+// registerAzureProviders registers the specified providers
+// for use by the specified subscription.
+func registerAzureProviders(
+	ctx environs.BootstrapContext,
+	callAPI func(func() (autorest.Response, error)) error,
+	client resources.ProvidersClient,
+) error {
+	required := [...]string{"Microsoft.Compute", "Microsoft.Network", "Microsoft.Storage"}
+	for _, provider := range required {
+		ctx.Verbosef("Registering Azure provider: %s", provider)
+		if err := callAPI(func() (autorest.Response, error) {
+			result, err := client.Register(provider)
+			return result.Response, err
+		}); err != nil {
+			return errors.Annotatef(err, "registering %q", provider)
+		}
+	}
+
+	return nil
 }
 
 // callAPIFunc is a function type that should wrap any any

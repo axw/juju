@@ -1,4 +1,5 @@
-github.com/Azure/azure-sdk-for-go	git	3b480eaaf6b4236d43a3c06cba969da6f53c8b66	2015-11-23T16:56:25Z
+github.com/Azure/azure-sdk-for-go	git	902d95d9f311ae585ee98cfd18f418b467d60d5a	2016-07-20T05:16:58Z
+github.com/Azure/go-autorest	git	6f40a8acfe03270d792cb8155e2942c09d7cff95	2016-07-19T23:14:56Z
 github.com/ajstarks/svgo	git	89e3ac64b5b3e403a5e7c35ea4f98d45db7b4518	2014-10-04T21:11:59Z
 github.com/altoros/gosigma	git	31228935eec685587914528585da4eb9b073c76d	2015-04-08T14:52:32Z
 github.com/bmizerany/pat	git	c068ca2f0aacee5ac3681d68e4d0a003b7d1fd2c	2016-02-17T10:32:42Z

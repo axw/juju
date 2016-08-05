@@ -68,8 +68,16 @@ func (s *localLiveSuite) SetUpSuite(c *gc.C) {
 	s.cSrv.setupServer(c)
 	s.AddCleanup(s.cSrv.destroyServer)
 
-	s.TestConfig = GetFakeConfig(s.cSrv.Server.URL)
-	s.TestConfig = s.TestConfig.Merge(coretesting.Attrs{
+	s.Credential = cloud.NewCredential(cloud.UserPassAuthType, map[string]string{
+		"sdc-user":    testUser,
+		"sdc-key-id":  testKeyFingerprint,
+		"private-key": testPrivateKey,
+		"algorithm":   "rsa-sha256",
+	})
+	s.CloudEndpoint = s.cSrv.Server.URL
+	s.CloudRegion = "some-region"
+
+	s.TestConfig = GetFakeConfig().Merge(coretesting.Attrs{
 		"image-metadata-url": "test://host",
 	})
 	s.LiveTests.UploadArches = []string{arch.AMD64}
@@ -85,12 +93,7 @@ func (s *localLiveSuite) TearDownSuite(c *gc.C) {
 func (s *localLiveSuite) SetUpTest(c *gc.C) {
 	s.providerSuite.SetUpTest(c)
 	s.LiveTests.SetUpTest(c)
-	credentialsAttrs := joyent.CredentialsAttributes(s.TestConfig)
-	s.Credential = cloud.NewCredential(
-		cloud.UserPassAuthType,
-		credentialsAttrs,
-	)
-	creds := joyent.MakeCredentials(c, s.TestConfig)
+	creds := joyent.MakeCredentials(c, s.CloudEndpoint, s.Credential)
 	joyent.UseExternalTestImageMetadata(c, creds)
 	imagetesting.PatchOfficialDataSources(&s.CleanupSuite, "test://host")
 	restoreFinishBootstrap := envtesting.DisableFinishBootstrap()
@@ -131,14 +134,19 @@ func (s *localServerSuite) SetUpTest(c *gc.C) {
 
 	s.Tests.ToolsFixture.UploadArches = []string{arch.AMD64}
 	s.Tests.SetUpTest(c)
-	s.TestConfig = GetFakeConfig(s.cSrv.Server.URL)
-	credentialsAttrs := joyent.CredentialsAttributes(s.TestConfig)
-	s.Credential = cloud.NewCredential(
-		cloud.UserPassAuthType,
-		credentialsAttrs,
-	)
+
+	s.Credential = cloud.NewCredential(cloud.UserPassAuthType, map[string]string{
+		"sdc-user":    testUser,
+		"sdc-key-id":  testKeyFingerprint,
+		"private-key": testPrivateKey,
+		"algorithm":   "rsa-sha256",
+	})
+	s.CloudEndpoint = s.cSrv.Server.URL
+	s.CloudRegion = "some-region"
+	s.TestConfig = GetFakeConfig()
+
 	// Put some fake image metadata in place.
-	creds := joyent.MakeCredentials(c, s.TestConfig)
+	creds := joyent.MakeCredentials(c, s.CloudEndpoint, s.Credential)
 	joyent.UseExternalTestImageMetadata(c, creds)
 	imagetesting.PatchOfficialDataSources(&s.CleanupSuite, "test://host")
 }

@@ -70,15 +70,10 @@ func (s *providerSuite) TearDownTest(c *gc.C) {
 	s.FakeJujuXDGDataHomeSuite.TearDownTest(c)
 }
 
-func GetFakeConfig(sdcUrl string) coretesting.Attrs {
+func GetFakeConfig() coretesting.Attrs {
 	return coretesting.FakeConfig().Merge(coretesting.Attrs{
 		"name":          "joyent-test-model",
 		"type":          "joyent",
-		"sdc-user":      testUser,
-		"sdc-key-id":    testKeyFingerprint,
-		"sdc-url":       sdcUrl,
-		"private-key":   testPrivateKey,
-		"algorithm":     "rsa-sha256",
 		"agent-version": coretesting.FakeVersionNumber.String(),
 	})
 }

@@ -33,7 +33,7 @@ func (s *providerSuite) TestRegistered(c *gc.C) {
 
 func (s *providerSuite) TestOpen(c *gc.C) {
 	env, err := s.provider.Open(environs.OpenParams{
-		Cloud:  makeTestCloudSpec(),
+		Cloud:  gce.MakeTestCloudSpec(),
 		Config: s.Config,
 	})
 	c.Check(err, jc.ErrorIsNil)
@@ -45,7 +45,7 @@ func (s *providerSuite) TestOpen(c *gc.C) {
 func (s *providerSuite) TestPrepareConfig(c *gc.C) {
 	cfg, err := s.provider.PrepareConfig(environs.PrepareConfigParams{
 		Config: s.Config,
-		Cloud:  makeTestCloudSpec(),
+		Cloud:  gce.MakeTestCloudSpec(),
 	})
 	c.Check(err, jc.ErrorIsNil)
 	c.Check(cfg, gc.NotNil)
@@ -62,10 +62,7 @@ func (s *providerSuite) TestValidate(c *gc.C) {
 func (s *providerSuite) TestSecretAttrs(c *gc.C) {
 	obtainedAttrs, err := s.provider.SecretAttrs(s.Config)
 	c.Check(err, jc.ErrorIsNil)
-
-	expectedAttrs := map[string]string{"private-key": gce.PrivateKey}
-	c.Assert(obtainedAttrs, gc.DeepEquals, expectedAttrs)
-
+	c.Assert(obtainedAttrs, gc.HasLen, 0)
 }
 
 func (s *providerSuite) TestUpgradeConfig(c *gc.C) {

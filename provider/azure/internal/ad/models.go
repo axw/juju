@@ -10,27 +10,35 @@ import (
 	"github.com/Azure/go-autorest/autorest"
 )
 
-type ApplicationListResult struct {
-	autorest.Response `json:"-"`
-	Value             []Application `json:"value,omitempty"`
+type AADObject struct {
+	autorest.Response     `json:"-"`
+	ObjectID              string   `json:"objectId"`
+	ObjectType            string   `json:"objectType"`
+	DisplayName           string   `json:"displayName"`
+	UserPrincipalName     string   `json:"userPrincipalName"`
+	Mail                  string   `json:"mail"`
+	MailEnabled           bool     `json:"mailEnabled"`
+	SecurityEnabled       bool     `json:"securityEnabled"`
+	SignInName            string   `json:"signInName"`
+	ServicePrincipalNames []string `json:"servicePrincipalNames"`
+	UserType              string   `json:"userType"`
 }
 
-type Application struct {
-	autorest.Response       `json:"-"`
-	ApplicationID           string               `json:"appId,omitempty"`
-	ObjectID                string               `json:"objectId,omitempty"`
-	AvailableToOtherTenants *bool                `json:"availableToOtherTenants,omitempty"`
-	DisplayName             string               `json:"displayName,omitempty"`
-	Homepage                string               `json:"homepage,omitempty"`
-	IdentifierURIs          []string             `json:"identifierUris,omitempty"`
-	PasswordCredentials     []PasswordCredential `json:"passwordCredentials,omitempty"`
+type PasswordCredentialsListResult struct {
+	autorest.Response `json:"-"`
+	Value             []PasswordCredential `json:"value,omitempty"`
+}
+
+type PasswordCredentialsUpdateParameters struct {
+	Value []PasswordCredential `json:"value,omitempty"`
 }
 
 type PasswordCredential struct {
-	KeyId     string    `json:"keyId,omitempty"`
-	Value     string    `json:"value,omitempty"`
-	StartDate time.Time `json:"startDate,omitempty"`
-	EndDate   time.Time `json:"endDate,omitempty"`
+	CustomKeyIdentifier []byte    `json:"customKeyIdentifier,omitempty"`
+	KeyId               string    `json:"keyId,omitempty"`
+	Value               string    `json:"value,omitempty"`
+	StartDate           time.Time `json:"startDate,omitempty"`
+	EndDate             time.Time `json:"endDate,omitempty"`
 }
 
 type ServicePrincipalListResult struct {
@@ -38,8 +46,15 @@ type ServicePrincipalListResult struct {
 	Value             []ServicePrincipal `json:"value,omitempty"`
 }
 
+type ServicePrincipalCreateParameters struct {
+	ApplicationID       string               `json:"appId,omitempty"`
+	AccountEnabled      bool                 `json:"accountEnabled,omitempty"`
+	PasswordCredentials []PasswordCredential `json:"passwordCredentials,omitempty"`
+}
+
 type ServicePrincipal struct {
-	ApplicationID  string `json:"appId,omitempty"`
-	ObjectID       string `json:"objectId,omitempty"`
-	AccountEnabled bool   `json:"accountEnabled,omitempty"`
+	autorest.Response `json:"-"`
+	ApplicationID     string `json:"appId,omitempty"`
+	ObjectID          string `json:"objectId,omitempty"`
+	AccountEnabled    bool   `json:"accountEnabled,omitempty"`
 }

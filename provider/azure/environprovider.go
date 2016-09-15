@@ -11,6 +11,7 @@ import (
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
+	"github.com/juju/juju/provider/azure/internal/azureauth"
 	"github.com/juju/juju/provider/azure/internal/azurestorage"
 )
 
@@ -65,7 +66,14 @@ func NewEnvironProvider(config ProviderConfig) (*azureEnvironProvider, error) {
 	if err := config.Validate(); err != nil {
 		return nil, errors.Annotate(err, "validating environ provider configuration")
 	}
-	return &azureEnvironProvider{config: config}, nil
+	return &azureEnvironProvider{
+		environProviderCredentials: environProviderCredentials{
+			sender:                            config.Sender,
+			requestInspector:                  config.RequestInspector,
+			interactiveCreateServicePrincipal: azureauth.InteractiveCreateServicePrincipal,
+		},
+		config: config,
+	}, nil
 }
 
 // Open is part of the EnvironProvider interface.

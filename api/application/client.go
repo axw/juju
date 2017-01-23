@@ -11,6 +11,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"gopkg.in/juju/charm.v6-unstable"
+	"gopkg.in/juju/names.v2"
 
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/api/base"
@@ -89,6 +90,9 @@ type DeployArgs struct {
 	// handled.
 	Storage map[string]storage.Constraints
 
+	StorageVolumes     map[string][]names.VolumeTag
+	StorageFilesystems map[string][]names.FilesystemTag
+
 	// EndpointBindings
 	EndpointBindings map[string]string
 
@@ -102,6 +106,21 @@ type DeployArgs struct {
 // it. Placement directives, if provided, specify the machine on which the charm
 // is deployed.
 func (c *Client) Deploy(args DeployArgs) error {
+	storageEntities := make(map[string]params.Entities)
+	for name, tags := range args.StorageVolumes {
+		entities := storageEntities[name]
+		for _, tag := range tags {
+			entities.Entities = append(entities.Entities, params.Entity{tag.String()})
+		}
+		storageEntities[name] = entities
+	}
+	for name, tags := range args.StorageFilesystems {
+		entities := storageEntities[name]
+		for _, tag := range tags {
+			entities.Entities = append(entities.Entities, params.Entity{tag.String()})
+		}
+		storageEntities[name] = entities
+	}
 	deployArgs := params.ApplicationsDeploy{
 		Applications: []params.ApplicationDeploy{{
 			ApplicationName:  args.ApplicationName,
@@ -113,6 +132,7 @@ func (c *Client) Deploy(args DeployArgs) error {
 			Constraints:      args.Cons,
 			Placement:        args.Placement,
 			Storage:          args.Storage,
+			StorageEntities:  storageEntities,
 			EndpointBindings: args.EndpointBindings,
 			Resources:        args.Resources,
 		}},

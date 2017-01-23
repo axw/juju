@@ -972,17 +972,19 @@ var (
 )
 
 type AddApplicationArgs struct {
-	Name             string
-	Series           string
-	Charm            *Charm
-	Channel          csparams.Channel
-	Storage          map[string]StorageConstraints
-	EndpointBindings map[string]string
-	Settings         charm.Settings
-	NumUnits         int
-	Placement        []*instance.Placement
-	Constraints      constraints.Value
-	Resources        map[string]string
+	Name               string
+	Series             string
+	Charm              *Charm
+	Channel            csparams.Channel
+	Storage            map[string]StorageConstraints
+	StorageVolumes     map[string][]names.VolumeTag
+	StorageFilesystems map[string][]names.FilesystemTag
+	EndpointBindings   map[string]string
+	Settings           charm.Settings
+	NumUnits           int
+	Placement          []*instance.Placement
+	Constraints        constraints.Value
+	Resources          map[string]string
 }
 
 // AddApplication creates a new application, running the supplied charm, with the
@@ -1019,6 +1021,11 @@ func (st *State) AddApplication(args AddApplicationArgs) (_ *Application, err er
 	if err := validateStorageConstraints(st, args.Storage, args.Charm.Meta()); err != nil {
 		return nil, errors.Trace(err)
 	}
+	// TODO(axw) validate args.Storage{Volumes,Filesystems}:
+	// - ensure not in use
+	// - ensure not more than charm's max storage count
+	// - ensure matching charm storage type
+	// - ensure NumUnits == 1
 	storagePools := make(set.Strings)
 	for _, storageParams := range args.Storage {
 		storagePools.Add(storageParams.Pool)
@@ -1172,11 +1179,13 @@ func (st *State) AddApplication(args AddApplicationArgs) (_ *Application, err er
 			endpointBindingsOp,
 		}
 		addOps, err := addApplicationOps(st, addApplicationOpsArgs{
-			applicationDoc: appDoc,
-			statusDoc:      statusDoc,
-			constraints:    args.Constraints,
-			storage:        args.Storage,
-			settings:       map[string]interface{}(args.Settings),
+			applicationDoc:     appDoc,
+			statusDoc:          statusDoc,
+			constraints:        args.Constraints,
+			storage:            args.Storage,
+			storageVolumes:     args.StorageVolumes,
+			storageFilesystems: args.StorageFilesystems,
+			settings:           map[string]interface{}(args.Settings),
 		})
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -1208,7 +1217,12 @@ func (st *State) AddApplication(args AddApplicationArgs) (_ *Application, err er
 
 		// Collect unit-adding operations.
 		for x := 0; x < args.NumUnits; x++ {
-			unitName, unitOps, err := app.addApplicationUnitOps(applicationAddUnitOpsArgs{cons: args.Constraints, storageCons: args.Storage})
+			unitName, unitOps, err := app.addApplicationUnitOps(applicationAddUnitOpsArgs{
+				cons:               args.Constraints,
+				storageCons:        args.Storage,
+				storageVolumes:     args.StorageVolumes,
+				storageFilesystems: args.StorageFilesystems,
+			})
 			if err != nil {
 				return nil, errors.Trace(err)
 			}

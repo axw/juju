@@ -895,6 +895,10 @@ func (s *VolumeStateSuite) TestVolumeBindingStorage(c *gc.C) {
 	removeStorageInstance(c, s.State, storageTag)
 	volume = s.volume(c, volume.VolumeTag())
 	c.Assert(volume.Life(), gc.Equals, state.Alive)
+
+	// ... but the volume attachment should be Dying.
+	attachment := s.volumeAttachment(c, machine.MachineTag(), volume.VolumeTag())
+	c.Assert(attachment.Life(), gc.Equals, state.Dying)
 }
 
 func (s *VolumeStateSuite) setupStorageVolumeAttachment(c *gc.C) (state.Volume, *state.Machine) {

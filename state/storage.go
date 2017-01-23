@@ -313,7 +313,8 @@ func removeStorageInstanceOps(
 
 	// If the storage instance has an assigned volume and/or filesystem,
 	// unassign them. Any volumes and filesystems bound to the storage
-	// will be destroyed.
+	// will be destroyed; unbound volumes and filesystems will be detached
+	// from the machine containing the unit, for unit-owned storage.
 	volume, err := st.storageInstanceVolume(tag)
 	if err == nil {
 		ops = append(ops, machineStorageOp(
@@ -321,6 +322,32 @@ func removeStorageInstanceOps(
 		))
 		if volume.LifeBinding() == tag {
 			ops = append(ops, destroyVolumeOps(st, volume)...)
+		} else if unitTag, ok := owner.(names.UnitTag); ok {
+			u, err := st.Unit(unitTag.Id())
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			mid, err := u.AssignedMachineId()
+			if errors.IsNotAssigned(err) {
+				// TODO(axw) assert not assigned
+			} else if err != nil {
+				return nil, errors.Trace(err)
+			} else {
+				att, err := st.VolumeAttachment(
+					names.NewMachineTag(mid),
+					volume.VolumeTag(),
+				)
+				if errors.IsNotFound(err) {
+					// Nothing to do.
+				} else if err != nil {
+					return nil, errors.Trace(err)
+				} else if att.Life() == Alive {
+					ops = append(ops, detachVolumeOps(
+						att.Machine(),
+						att.Volume(),
+					)...)
+				}
+			}
 		}
 	} else if !errors.IsNotFound(err) {
 		return nil, errors.Trace(err)
@@ -332,6 +359,32 @@ func removeStorageInstanceOps(
 		))
 		if filesystem.LifeBinding() == tag {
 			ops = append(ops, destroyFilesystemOps(st, filesystem)...)
+		} else if unitTag, ok := owner.(names.UnitTag); ok {
+			u, err := st.Unit(unitTag.Id())
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			mid, err := u.AssignedMachineId()
+			if errors.IsNotAssigned(err) {
+				// TODO(axw) assert not assigned
+			} else if err != nil {
+				return nil, errors.Trace(err)
+			} else {
+				att, err := st.FilesystemAttachment(
+					names.NewMachineTag(mid),
+					filesystem.FilesystemTag(),
+				)
+				if errors.IsNotFound(err) {
+					// Nothing to do.
+				} else if err != nil {
+					return nil, errors.Trace(err)
+				} else if att.Life() == Alive {
+					ops = append(ops, detachFilesystemOps(
+						att.Machine(),
+						att.Filesystem(),
+					)...)
+				}
+			}
 		}
 	} else if !errors.IsNotFound(err) {
 		return nil, errors.Trace(err)
@@ -385,6 +438,8 @@ func createStorageOps(
 	entityTag names.Tag,
 	charmMeta *charm.Meta,
 	cons map[string]StorageConstraints,
+	storageVolumes map[string][]names.VolumeTag,
+	storageFilesystems map[string][]names.FilesystemTag,
 	series string,
 	maybeMachineAssignable machineAssignable,
 ) (ops []txn.Op, numStorageAttachments int, err error) {
@@ -470,7 +525,34 @@ func createStorageOps(
 				Owner:       owner,
 				StorageName: t.storageName,
 			}
-			var machineOps []txn.Op
+
+			// If the user has requested that existing volumes or
+			// filesystems be assigned to the storage, then we set
+			// the storage ID on the volume/filesystem docs here.
+			// When the storage instance's unit is assigned to a
+			// machine, the volumes/filesystems will be attached.
+			var machineStorageOps []txn.Op
+			switch kind {
+			case StorageKindBlock:
+				for _, tag := range storageVolumes[t.storageName] {
+					machineStorageOps = append(machineStorageOps, txn.Op{
+						C:      volumesC,
+						Id:     tag.Id(),
+						Assert: bson.D{{"storageid", bson.D{{"$exists", false}}}},
+						Update: bson.D{{"$set", bson.D{{"storageid", id}}}},
+					})
+				}
+			case StorageKindFilesystem:
+				for _, tag := range storageFilesystems[t.storageName] {
+					machineStorageOps = append(machineStorageOps, txn.Op{
+						C:      filesystemsC,
+						Id:     tag.Id(),
+						Assert: bson.D{{"storageid", bson.D{{"$exists", false}}}},
+						Update: bson.D{{"$set", bson.D{{"storageid", id}}}},
+					})
+				}
+			}
+
 			if unitTag, ok := entityTag.(names.UnitTag); ok {
 				doc.AttachmentCount = 1
 				storage := names.NewStorageTag(id)
@@ -479,7 +561,9 @@ func createStorageOps(
 
 				if maybeMachineAssignable != nil {
 					var err error
-					machineOps, err = unitAssignedMachineStorageOps(
+					// TODO(axw) pass volumes/filesystems in, so we know
+					// to create attachments to them.
+					machineStorageOps, err = unitAssignedMachineStorageOps(
 						st, unitTag, charmMeta, cons, series,
 						&storageInstance{st, *doc},
 						maybeMachineAssignable,
@@ -497,7 +581,7 @@ func createStorageOps(
 				Assert: txn.DocMissing,
 				Insert: doc,
 			})
-			ops = append(ops, machineOps...)
+			ops = append(ops, machineStorageOps...)
 		}
 	}
 
@@ -1269,6 +1353,8 @@ func (st *State) addUnitStorageOps(
 		u.Tag(),
 		charmMeta,
 		map[string]StorageConstraints{storageName: cons},
+		nil, // volumes
+		nil, // filesystems
 		u.Series(),
 		u,
 	)

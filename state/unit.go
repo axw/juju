@@ -1830,28 +1830,46 @@ func machineStorageParamsForStorageInstance(
 		volumeAttachmentParams := VolumeAttachmentParams{
 			charmStorage.ReadOnly,
 		}
-		if unit == storage.Owner() {
-			// The storage instance is owned by the unit, so we'll need
-			// to create a volume.
-			cons := allCons[storage.StorageName()]
-			volumeParams := VolumeParams{
-				storage: storage.StorageTag(),
-				Pool:    cons.Pool,
-				Size:    cons.Size,
-			}
-			volumes = append(volumes, MachineVolumeParams{
-				volumeParams, volumeAttachmentParams,
-			})
-		} else {
-			// The storage instance is owned by the service, so there
-			// should be a (shared) volume already, for which we will
-			// just add an attachment.
-			volume, err := st.StorageInstanceVolume(storage.StorageTag())
-			if err != nil {
-				return nil, errors.Annotatef(err, "getting volume for storage %q", storage.Tag().Id())
-			}
+		// The storage may have an assigned volume already. Only if the
+		// storage is owned by a unit is this not a requirement; in
+		// that case we create and attach a new volume.
+		//
+		// TODO(axw) we need to pass in the tags of volumes/filesystems
+		// that have been assigned to storage, but whose ops have not
+		// yet been executed.
+		volume, volumeErr := st.StorageInstanceVolume(storage.StorageTag())
+		if volumeErr == nil {
+			// There is a volume already, so we just need to attach
+			// it to the machine.
 			volumeAttachments[volume.VolumeTag()] = volumeAttachmentParams
+			break
+		} else if !errors.IsNotFound(volumeErr) {
+			return nil, errors.Annotatef(
+				volumeErr, "getting volume for storage %q",
+				storage.Tag().Id(),
+			)
 		}
+		// There is no existing volume assigned to the storage instance.
+		if unit != storage.Owner() {
+			// The storage instance is owned by the application, so
+			// there should be a (shared) volume already. Error out.
+			return nil, errors.Annotatef(
+				volumeErr, "getting volume for storage %q",
+				storage.Tag().Id(),
+			)
+		}
+		// The storage instance is owned by the unit, so we'll need to
+		// create a volume.
+		cons := allCons[storage.StorageName()]
+		volumeParams := VolumeParams{
+			storage: storage.StorageTag(),
+			Pool:    cons.Pool,
+			Size:    cons.Size,
+		}
+		volumes = append(volumes, MachineVolumeParams{
+			volumeParams, volumeAttachmentParams,
+		})
+
 	case StorageKindFilesystem:
 		location, err := filesystemMountPoint(charmStorage, storage.StorageTag(), series)
 		if err != nil {
@@ -1865,6 +1883,7 @@ func machineStorageParamsForStorageInstance(
 			location,
 			charmStorage.ReadOnly,
 		}
+		// TODO(axw) same as above
 		if unit == storage.Owner() {
 			// The storage instance is owned by the unit, so we'll need
 			// to create a filesystem.

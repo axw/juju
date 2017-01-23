@@ -1052,6 +1052,8 @@ func (a *Application) addUnitOps(principalName string, asserts bson.D) (string, 
 		cons:          cons,
 		principalName: principalName,
 		storageCons:   storageCons,
+		//storageVolumes:     storageVolumes,
+		//storageFilesystems: storageFilesystems,
 	}
 	names, ops, err := a.addUnitOpsWithCons(args)
 	if err != nil {
@@ -1064,9 +1066,11 @@ func (a *Application) addUnitOps(principalName string, asserts bson.D) (string, 
 }
 
 type applicationAddUnitOpsArgs struct {
-	principalName string
-	cons          constraints.Value
-	storageCons   map[string]StorageConstraints
+	principalName      string
+	cons               constraints.Value
+	storageCons        map[string]StorageConstraints
+	storageVolumes     map[string][]names.VolumeTag
+	storageFilesystems map[string][]names.FilesystemTag
 }
 
 // addApplicationUnitOps is just like addUnitOps but explicitly takes a
@@ -1115,6 +1119,8 @@ func (a *Application) addUnitOpsWithCons(args applicationAddUnitOpsArgs) (string
 		unitTag,
 		charm.Meta(),
 		args.storageCons,
+		args.storageVolumes,
+		args.storageFilesystems,
 		a.doc.Series,
 		machineAssignable,
 	)
@@ -1713,11 +1719,13 @@ var statusServerities = map[status.Status]int{
 }
 
 type addApplicationOpsArgs struct {
-	applicationDoc *applicationDoc
-	statusDoc      statusDoc
-	constraints    constraints.Value
-	storage        map[string]StorageConstraints
-	settings       map[string]interface{}
+	applicationDoc     *applicationDoc
+	statusDoc          statusDoc
+	constraints        constraints.Value
+	storage            map[string]StorageConstraints
+	storageVolumes     map[string][]names.VolumeTag
+	storageFilesystems map[string][]names.FilesystemTag
+	settings           map[string]interface{}
 	// These are nil when adding a new application, and most likely
 	// non-nil when migrating.
 	leadershipSettings map[string]interface{}

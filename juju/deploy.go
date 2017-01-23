@@ -9,6 +9,7 @@ import (
 	"github.com/juju/errors"
 	"gopkg.in/juju/charm.v6-unstable"
 	csparams "gopkg.in/juju/charmrepo.v2-unstable/csclient/params"
+	"gopkg.in/juju/names.v2"
 
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/instance"
@@ -28,9 +29,11 @@ type DeployApplicationParams struct {
 	NumUnits        int
 	// Placement is a list of placement directives which may be used
 	// instead of a machine spec.
-	Placement        []*instance.Placement
-	Storage          map[string]storage.Constraints
-	EndpointBindings map[string]string
+	Placement          []*instance.Placement
+	Storage            map[string]storage.Constraints
+	StorageVolumes     map[string][]names.VolumeTag
+	StorageFilesystems map[string][]names.FilesystemTag
+	EndpointBindings   map[string]string
 	// Resources is a map of resource name to IDs of pending resources.
 	Resources map[string]string
 }
@@ -68,16 +71,18 @@ func DeployApplication(st ApplicationDeployer, args DeployApplicationParams) (*s
 	effectiveBindings := getEffectiveBindingsForCharmMeta(args.Charm.Meta(), args.EndpointBindings)
 
 	asa := state.AddApplicationArgs{
-		Name:             args.ApplicationName,
-		Series:           args.Series,
-		Charm:            args.Charm,
-		Channel:          args.Channel,
-		Storage:          stateStorageConstraints(args.Storage),
-		Settings:         settings,
-		NumUnits:         args.NumUnits,
-		Placement:        args.Placement,
-		Resources:        args.Resources,
-		EndpointBindings: effectiveBindings,
+		Name:               args.ApplicationName,
+		Series:             args.Series,
+		Charm:              args.Charm,
+		Channel:            args.Channel,
+		Storage:            stateStorageConstraints(args.Storage),
+		StorageVolumes:     args.StorageVolumes,
+		StorageFilesystems: args.StorageFilesystems,
+		Settings:           settings,
+		NumUnits:           args.NumUnits,
+		Placement:          args.Placement,
+		Resources:          args.Resources,
+		EndpointBindings:   effectiveBindings,
 	}
 
 	if !args.Charm.Meta().Subordinate {

@@ -263,6 +263,10 @@ type DeployCommand struct {
 	// defined in charm storage metadata.
 	Storage map[string]storage.Constraints
 
+	// TODO(axw) StorageFilesystems
+	// TODO(axw) BundleStorageVolumes?
+	StorageVolumes map[string][]names.VolumeTag
+
 	// BundleStorage maps application names to maps of storage constraints keyed on
 	// the storage name defined in that application's charm storage metadata.
 	BundleStorage map[string]map[string]storage.Constraints
@@ -433,6 +437,7 @@ func (c *DeployCommand) SetFlags(f *gnuflag.FlagSet) {
 	f.StringVar(&c.Series, "series", "", "The series on which to deploy")
 	f.BoolVar(&c.Force, "force", false, "Allow a charm to be deployed to a machine running an unsupported series")
 	f.Var(storageFlag{&c.Storage, &c.BundleStorage}, "storage", "Charm storage constraints")
+	f.Var(storageVolumesFlag{&c.StorageVolumes}, "storage-volumes", "Volumes to assign to storage")
 	f.Var(stringMap{&c.Resources}, "resource", "Resource to be uploaded to the controller")
 	f.StringVar(&c.BindToSpaces, "bind", "", "Configure application endpoint bindings to spaces")
 
@@ -599,6 +604,7 @@ func (c *DeployCommand) deployCharm(
 		ConfigYAML:       string(configYAML),
 		Placement:        c.Placement,
 		Storage:          c.Storage,
+		StorageVolumes:   c.StorageVolumes,
 		Resources:        ids,
 		EndpointBindings: c.Bindings,
 	}))

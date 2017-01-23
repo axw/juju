@@ -214,21 +214,40 @@ func deployApplication(
 		return errors.Trace(err)
 	}
 
+	storageVolumes := make(map[string][]names.VolumeTag)
+	storageFilesystems := make(map[string][]names.FilesystemTag)
+	for name, arg := range args.StorageEntities {
+		for _, entity := range arg.Entities {
+			tag, err := names.ParseTag(entity.Tag)
+			if err != nil {
+				return errors.Annotate(err, "parsing storage entity tag")
+			}
+			switch tag := tag.(type) {
+			case names.VolumeTag:
+				storageVolumes[name] = append(storageVolumes[name], tag)
+			case names.FilesystemTag:
+				storageFilesystems[name] = append(storageFilesystems[name], tag)
+			}
+		}
+	}
+
 	channel := csparams.Channel(args.Channel)
 
 	_, err = jjj.DeployApplication(backend,
 		jjj.DeployApplicationParams{
-			ApplicationName:  args.ApplicationName,
-			Series:           args.Series,
-			Charm:            stateCharm(ch),
-			Channel:          channel,
-			NumUnits:         args.NumUnits,
-			ConfigSettings:   settings,
-			Constraints:      args.Constraints,
-			Placement:        args.Placement,
-			Storage:          args.Storage,
-			EndpointBindings: args.EndpointBindings,
-			Resources:        args.Resources,
+			ApplicationName:    args.ApplicationName,
+			Series:             args.Series,
+			Charm:              stateCharm(ch),
+			Channel:            channel,
+			NumUnits:           args.NumUnits,
+			ConfigSettings:     settings,
+			Constraints:        args.Constraints,
+			Placement:          args.Placement,
+			Storage:            args.Storage,
+			StorageVolumes:     storageVolumes,
+			StorageFilesystems: storageFilesystems,
+			EndpointBindings:   args.EndpointBindings,
+			Resources:          args.Resources,
 		})
 	return errors.Trace(err)
 }

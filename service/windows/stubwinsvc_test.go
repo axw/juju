@@ -7,9 +7,9 @@
 package windows
 
 import (
-	"github.com/gabriel-samfira/sys/windows"
-	"github.com/gabriel-samfira/sys/windows/svc"
-	"github.com/gabriel-samfira/sys/windows/svc/mgr"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 	"github.com/juju/testing"
 )
 

@@ -7,7 +7,6 @@ github.com/bmizerany/pat	git	c068ca2f0aacee5ac3681d68e4d0a003b7d1fd2c	2016-02-17
 github.com/coreos/go-systemd	git	7b2428fec40033549c68f54e26e89e7ca9a9ce31	2016-02-02T21:14:25Z
 github.com/dgrijalva/jwt-go	git	01aeca54ebda6e0fbfafd0a524d234159c05ec20	2016-07-05T20:30:06Z
 github.com/dustin/go-humanize	git	145fabdb1ab757076a70a886d092a3af27f66f4c	2014-12-28T07:11:48Z
-github.com/gabriel-samfira/sys	git	9ddc60d56b511544223adecea68da1e4f2153beb	2015-06-08T13:21:19Z
 github.com/godbus/dbus	git	32c6cc29c14570de4cf6d7e7737d68fb2d01ad15	2016-05-06T22:25:50Z
 github.com/golang/protobuf	git	34a5f244f1c01cdfee8e60324258cfbb97a42aec	2015-05-26T01:21:09Z
 github.com/google/go-querystring	git	9235644dd9e52eeae6fa48efd539fdc351a0af53	2016-04-01T23:30:42Z
@@ -74,6 +73,7 @@ github.com/rogpeppe/fastuuid	git	6724a57986aff9bff1a1770e9347036def7c89f6	2015-0
 golang.org/x/crypto	git	8e06e8ddd9629eb88639aba897641bff8031f1d3	2016-09-22T17:06:29Z
 golang.org/x/net	git	ea47fc708ee3e20177f3ca3716217c4ab75942cb	2015-08-29T23:03:18Z
 golang.org/x/oauth2	git	11c60b6f71a6ad48ed6f93c65fa4c6f9b1b5b46a	2015-03-25T02:00:22Z
+golang.org/x/sys	git	7a6e5648d140666db5d920909e082ca00a87ba2c	2017-02-01T05:12:45Z
 google.golang.org/api	git	0d3983fb069cb6651353fc44c5cb604e263f2a93	2014-12-10T23:51:26Z
 google.golang.org/cloud	git	f20d6dcccb44ed49de45ae3703312cb46e627db1	2015-03-19T22:36:35Z
 gopkg.in/amz.v3	git	18899065239e006cc73b0e66800c98c2ce4eee50	2016-10-06T07:29:34Z
@@ -98,3 +98,4 @@ gopkg.in/tomb.v1	git	dd632973f1e7218eb1089048e0798ec9ae7dceb8	2014-10-24T13:56:1
 gopkg.in/yaml.v1	git	9f9df34309c04878acc86042b16630b0f696e1de	2014-09-24T16:16:07Z
 gopkg.in/yaml.v2	git	a83829b6f1293c91addabc89d0571c246397bbf4	2016-03-01T20:40:22Z
 golang.org/x/text	git	2910a502d2bf9e43193af9d68ca516529614eed3	2016-07-26T16:48:57Z
+github.com/coreos/go-systemd	git	7b2428fec40033549c68f54e26e89e7ca9a9ce31	2016-02-02T21:14:25Z

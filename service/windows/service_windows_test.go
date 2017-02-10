@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"syscall"
 
-	win "github.com/gabriel-samfira/sys/windows"
-	"github.com/gabriel-samfira/sys/windows/svc"
+	win "golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
 	"github.com/juju/errors"
 	"github.com/juju/testing"
 	jc "github.com/juju/testing/checkers"

@@ -6,6 +6,7 @@ package model
 import (
 	"time"
 
+	"github.com/hashicorp/raft"
 	"github.com/juju/juju/api"
 	"github.com/juju/utils/clock"
 	"github.com/juju/utils/featureflag"
@@ -38,8 +39,9 @@ import (
 	"github.com/juju/juju/worker/migrationflag"
 	"github.com/juju/juju/worker/migrationmaster"
 	"github.com/juju/juju/worker/provisioner"
+	"github.com/juju/juju/worker/rafter"
+	"github.com/juju/juju/worker/raftflag"
 	"github.com/juju/juju/worker/remoterelations"
-	"github.com/juju/juju/worker/singular"
 	"github.com/juju/juju/worker/statushistorypruner"
 	"github.com/juju/juju/worker/storageprovisioner"
 	"github.com/juju/juju/worker/undertaker"
@@ -98,6 +100,15 @@ type ManifoldsConfig struct {
 	// NewMigrationMaster is called to create a new migrationmaster
 	// worker.
 	NewMigrationMaster func(migrationmaster.Config) (worker.Worker, error)
+
+	// XXX
+	RaftConfig        *raft.Config
+	RaftFSM           raft.FSM
+	RaftTransport     raft.Transport
+	RaftPeerStore     raft.PeerStore
+	RaftLogStore      raft.LogStore
+	RaftStableStore   raft.StableStore
+	RaftSnapshotStore raft.SnapshotStore
 }
 
 // Manifolds returns a set of interdependent dependency manifolds that will
@@ -121,6 +132,17 @@ func Manifolds(config ManifoldsConfig) dependency.Manifolds {
 			APIOpen:       api.Open,
 			NewConnection: apicaller.OnlyConnect,
 			Filter:        apiConnectFilter,
+		}),
+		raftName: rafter.Manifold(rafter.ManifoldConfig{
+			AgentName:          agentName,
+			AgentConfigChanged: config.AgentConfigChanged,
+			RaftConfig:         config.RaftConfig,
+			RaftFSM:            config.RaftFSM,
+			RaftTransport:      config.RaftTransport,
+			RaftPeerStore:      config.RaftPeerStore,
+			RaftLogStore:       config.RaftLogStore,
+			RaftStableStore:    config.RaftStableStore,
+			RaftSnapshotStore:  config.RaftSnapshotStore,
 		}),
 
 		// The spaces-imported gate will be unlocked when space
@@ -150,14 +172,9 @@ func Manifolds(config ManifoldsConfig) dependency.Manifolds {
 			NewFacade: lifeflag.NewFacade,
 			NewWorker: lifeflag.NewWorker,
 		}),
-		isResponsibleFlagName: singular.Manifold(singular.ManifoldConfig{
-			ClockName:     clockName,
-			AgentName:     agentName,
-			APICallerName: apiCallerName,
-			Duration:      config.RunFlagDuration,
-
-			NewFacade: singular.NewFacade,
-			NewWorker: singular.NewWorker,
+		isResponsibleFlagName: raftflag.Manifold(raftflag.ManifoldConfig{
+			RaftName:  raftName,
+			NewWorker: raftflag.NewWorker,
 		}),
 
 		// The migration workers collaborate to run migrations;
@@ -398,4 +415,5 @@ const (
 	statusHistoryPrunerName  = "status-history-pruner"
 	machineUndertakerName    = "machine-undertaker"
 	remoteRelationsName      = "remote-relations"
+	raftName                 = "raft"
 )

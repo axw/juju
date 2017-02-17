@@ -5,6 +5,7 @@ package agent
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/raft"
+	raftboldb "github.com/hashicorp/raft-boltdb"
 	"github.com/juju/cmd"
 	"github.com/juju/errors"
 	"github.com/juju/gnuflag"
@@ -1093,6 +1096,37 @@ func (a *MachineAgent) startModelWorkers(controllerUUID, modelUUID string) (work
 		return nil, errors.Trace(err)
 	}
 
+	raftConfig := raft.DefaultConfig()
+	// TODO(axw) setting EnableSingleNode should depend
+	// on whether we have any configured peers yet.
+	raftConfig.EnableSingleNode = true
+	raftConfig.StartAsLeader = true
+
+	// TODO(axw)
+	raftFSM := dummyRaftFSM{}
+
+	agentConfig := a.CurrentConfig()
+
+	raftModelDir := filepath.Join(agentConfig.DataDir(), "raft", modelUUID)
+	raftStore, err := raftboldb.NewBoltStore(filepath.Join(raftModelDir, "raft.db"))
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	raftPeerStore := &raft.StaticPeers{}
+	raftSnapshotStore, err := raft.NewFileSnapshotStore(
+		raftModelDir,
+		100, // retain 100 snapshots
+		nil, // TODO(axw) pass a logging io.Writer
+	)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	// TODO(axw) use an HTTP or websocket-based transport
+	// that reuses the apiserver.
+	_, raftTransport := raft.NewInmemTransport(agentConfig.Tag().String())
+
 	engine, err := dependency.NewEngine(dependency.EngineConfig{
 		IsFatal:     model.IsFatal,
 		WorstError:  model.WorstError,
@@ -1120,6 +1154,13 @@ func (a *MachineAgent) startModelWorkers(controllerUUID, modelUUID string) (work
 		SpacesImportedGate:                a.discoverSpacesComplete,
 		NewEnvironFunc:                    newEnvirons,
 		NewMigrationMaster:                migrationmaster.NewWorker,
+		RaftConfig:                        raftConfig,
+		RaftFSM:                           raftFSM,
+		RaftLogStore:                      raftStore,
+		RaftTransport:                     raftTransport,
+		RaftPeerStore:                     raftPeerStore,
+		RaftStableStore:                   raftStore,
+		RaftSnapshotStore:                 raftSnapshotStore,
 	})
 	if err := dependency.Install(engine, manifolds); err != nil {
 		if err := worker.Stop(engine); err != nil {
@@ -1695,4 +1736,22 @@ func newStateMetricsWorker(st *state.State, registry *prometheus.Registry) worke
 		<-stop
 		return nil
 	})
+}
+
+type dummyRaftFSM struct{}
+
+func (dummyRaftFSM) Apply(log *raft.Log) interface{} {
+	logger.Debugf("FSM.Apply: %s", log.Data)
+	return nil
+}
+
+func (dummyRaftFSM) Snapshot() (raft.FSMSnapshot, error) {
+	logger.Debugf("FSM.Snapshot")
+	return nil, errors.NotImplementedf("Snapshot")
+}
+
+func (dummyRaftFSM) Restore(rc io.ReadCloser) error {
+	logger.Debugf("FSM.Restore")
+	rc.Close()
+	return errors.NotImplementedf("Restore")
 }

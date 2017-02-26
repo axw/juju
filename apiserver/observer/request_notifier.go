@@ -18,9 +18,8 @@ import (
 // RequestObserver serves as a sink for API server requests and
 // responses.
 type RequestObserver struct {
-	clock              clock.Clock
-	logger             loggo.Logger
-	apiConnectionCount func() int64
+	clock  clock.Clock
+	logger loggo.Logger
 
 	// state represents information that's built up as methods on this
 	// type are called. We segregate this to ensure it's clear what

@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/juju/juju/apiserver/common"
-	"github.com/juju/juju/apiserver/observer"
 	"github.com/juju/juju/apiserver/params"
 )
 
@@ -15,12 +14,18 @@ type adminAPIV3 struct {
 	*admin
 }
 
-func newAdminAPIV3(srv *Server, root *apiHandler, apiObserver observer.Observer) interface{} {
+func newAdminAPIV3(args adminAPIParams) interface{} {
 	return &adminAPIV3{
 		&admin{
-			srv:         srv,
-			root:        root,
-			apiObserver: apiObserver,
+			state:            args.state,
+			statePool:        args.statePool,
+			root:             args.root,
+			apiObserver:      args.apiObserver,
+			pingClock:        args.pingClock,
+			allowModelAccess: args.allowModelAccess,
+			validator:        args.validator,
+			limiter:          args.limiter,
+			authCtxt:         args.authCtxt,
 		},
 	}
 }

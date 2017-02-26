@@ -543,6 +543,7 @@ func (a *MachineAgent) makeEngineCreator(previousAgentVersion version.Number) fu
 			ValidateMigration:    a.validateMigration,
 			PrometheusRegisterer: a.prometheusRegistry,
 			CentralHub:           a.centralHub,
+			ValidateLogin:        a.limitLogins,
 		})
 		if err := dependency.Install(engine, manifolds); err != nil {
 			if err := worker.Stop(engine); err != nil {

@@ -26,8 +26,14 @@ type httpContext struct {
 	strictValidation bool
 	// controllerModelOnly only validates the controller model.
 	controllerModelOnly bool
-	// srv holds the API server instance.
-	srv *Server
+	// st holds the state database connection.
+	st *state.State
+	// statePool holds the state pool.
+	statePool *state.StatePool
+	// authCtxt holds the auth context.
+	authCtxt *authContext
+	// stop will be signalled when the server is shutting down.
+	stop <-chan struct{}
 }
 
 // modelUUIDFromRequest returns the uuid of the model based on path elements
@@ -45,7 +51,7 @@ func (ctxt *httpContext) modelUUIDFromRequest(r *http.Request) (string, bool, er
 	if user == "" || model == "" {
 		return "", false, nil
 	}
-	models, err := ctxt.srv.state.ModelsForUser(names.NewUserTag(user))
+	models, err := ctxt.st.ModelsForUser(names.NewUserTag(user))
 	if err != nil {
 		return "", false, errors.Trace(err)
 	}
@@ -66,7 +72,7 @@ func (ctxt *httpContext) stateForRequestUnauthenticated(r *http.Request) (*state
 		return nil, nil, errors.Trace(err)
 	}
 	modelUUID, err = validateModelUUID(validateArgs{
-		statePool:           ctxt.srv.statePool,
+		statePool:           ctxt.statePool,
 		modelUUID:           modelUUID,
 		strict:              ctxt.strictValidation,
 		controllerModelOnly: ctxt.controllerModelOnly,
@@ -74,7 +80,7 @@ func (ctxt *httpContext) stateForRequestUnauthenticated(r *http.Request) (*state
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
-	st, releaser, err := ctxt.srv.statePool.Get(modelUUID)
+	st, releaser, err := ctxt.statePool.Get(modelUUID)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
@@ -102,7 +108,7 @@ func (ctxt *httpContext) stateForRequestAuthenticated(r *http.Request) (
 	if err != nil {
 		return nil, nil, nil, errors.NewUnauthorized(err, "")
 	}
-	authenticator := ctxt.srv.authCtxt.authenticator(r.Host)
+	authenticator := ctxt.authCtxt.authenticator(r.Host)
 	entity, _, err := checkCreds(st, req, true, authenticator)
 	if err != nil {
 		if common.IsDischargeRequiredError(err) {
@@ -112,7 +118,7 @@ func (ctxt *httpContext) stateForRequestAuthenticated(r *http.Request) (
 		// Handle the special case of a worker on a controller machine
 		// acting on behalf of a hosted model.
 		if isMachineTag(req.AuthTag) {
-			entity, err := checkControllerMachineCreds(ctxt.srv.state, req, authenticator)
+			entity, err := checkControllerMachineCreds(ctxt.st, req, authenticator)
 			if err != nil {
 				return nil, nil, nil, errors.NewUnauthorized(err, "")
 			}
@@ -168,14 +174,14 @@ func (ctxt *httpContext) stateForMigration(r *http.Request, requiredMode state.M
 	}
 
 	modelUUID, err := validateModelUUID(validateArgs{
-		statePool: ctxt.srv.statePool,
+		statePool: ctxt.statePool,
 		modelUUID: r.Header.Get(params.MigrationModelHTTPHeader),
 		strict:    true,
 	})
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
-	migrationSt, migrationReleaser, err := ctxt.srv.statePool.Get(modelUUID)
+	migrationSt, migrationReleaser, err := ctxt.statePool.Get(modelUUID)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
@@ -276,12 +282,6 @@ func (ctxt *httpContext) loginRequest(r *http.Request) (params.LoginRequest, err
 		Macaroons:   httpbakery.RequestMacaroons(r),
 		Nonce:       r.Header.Get(params.MachineNonceHeader),
 	}, nil
-}
-
-// stop returns a channel which will be closed when a handler should
-// exit.
-func (ctxt *httpContext) stop() <-chan struct{} {
-	return ctxt.srv.tomb.Dying()
 }
 
 // sendJSON writes a JSON-encoded response value

@@ -39,7 +39,7 @@ func newLogStreamEndpointHandler(ctxt httpContext) *logStreamEndpointHandler {
 		return &logStreamState{st}, releaser, nil
 	}
 	return &logStreamEndpointHandler{
-		stopCh:    ctxt.stop(),
+		stopCh:    ctxt.stop,
 		newSource: newSource,
 	}
 }

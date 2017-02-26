@@ -78,7 +78,7 @@ func (h *pubsubHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			messageCh := h.receiveMessages(socket)
 			for {
 				select {
-				case <-h.ctxt.stop():
+				case <-h.ctxt.stop:
 					return
 				case m := <-messageCh:
 					logger.Tracef("topic: %q, data: %v", m.Topic, m.Data)
@@ -111,7 +111,7 @@ func (h *pubsubHandler) receiveMessages(socket *websocket.Conn) <-chan params.Pu
 
 			// Send the log message.
 			select {
-			case <-h.ctxt.stop():
+			case <-h.ctxt.stop:
 				return
 			case messageCh <- m:
 			}

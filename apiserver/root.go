@@ -64,7 +64,15 @@ type apiHandler struct {
 var _ = (*apiHandler)(nil)
 
 // newAPIHandler returns a new apiHandler.
-func newAPIHandler(srv *Server, st *state.State, rpcConn *rpc.Conn, modelUUID string, serverHost string) (*apiHandler, error) {
+func newAPIHandler(
+	st *state.State,
+	rpcConn *rpc.Conn,
+	modelUUID string,
+	serverHost string,
+	agentTag names.Tag,
+	agentDataDir string,
+	agentLogDir string,
+) (*apiHandler, error) {
 	r := &apiHandler{
 		state:      st,
 		resources:  common.NewResources(),
@@ -72,16 +80,16 @@ func newAPIHandler(srv *Server, st *state.State, rpcConn *rpc.Conn, modelUUID st
 		modelUUID:  modelUUID,
 		serverHost: serverHost,
 	}
-	if err := r.resources.RegisterNamed("machineID", common.StringResource(srv.tag.Id())); err != nil {
+	if err := r.resources.RegisterNamed("machineID", common.StringResource(agentTag.Id())); err != nil {
 		return nil, errors.Trace(err)
 	}
-	if err := r.resources.RegisterNamed("dataDir", common.StringResource(srv.dataDir)); err != nil {
+	if err := r.resources.RegisterNamed("dataDir", common.StringResource(agentDataDir)); err != nil {
 		return nil, errors.Trace(err)
 	}
-	if err := r.resources.RegisterNamed("logDir", common.StringResource(srv.logDir)); err != nil {
+	if err := r.resources.RegisterNamed("logDir", common.StringResource(agentLogDir)); err != nil {
 		return nil, errors.Trace(err)
 	}
-	apiFactory := crossmodel.ApplicationOffersAPIFactoryResource(srv.state)
+	apiFactory := crossmodel.ApplicationOffersAPIFactoryResource(st)
 	if err := r.resources.RegisterNamed("applicationOffersApiFactory", apiFactory); err != nil {
 		return nil, errors.Trace(err)
 	}

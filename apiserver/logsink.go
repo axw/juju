@@ -175,7 +175,7 @@ func (h *logSinkHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			logCh := h.receiveLogs(socket)
 			for {
 				select {
-				case <-h.ctxt.stop():
+				case <-h.ctxt.stop:
 					return
 				case m, ok := <-logCh:
 					if !ok {
@@ -210,7 +210,7 @@ func (h *logSinkHandler) receiveLogs(socket *websocket.Conn) <-chan params.LogRe
 	go func() {
 		// Close the channel to signal ServeHTTP to finish. Otherwise
 		// we leak goroutines on client disconnect, because the server
-		// isn't shutting down so h.ctxt.stop() is never closed.
+		// isn't shutting down so h.ctxt.stop is never closed.
 		defer close(logCh)
 		var m params.LogRecord
 		for {
@@ -224,7 +224,7 @@ func (h *logSinkHandler) receiveLogs(socket *websocket.Conn) <-chan params.LogRe
 
 			// Send the log message.
 			select {
-			case <-h.ctxt.stop():
+			case <-h.ctxt.stop:
 				return
 			case logCh <- m:
 			}

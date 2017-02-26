@@ -135,7 +135,7 @@ func (gr *guiRouter) ensureFileHandler(h func(gh *guiHandler, w http.ResponseWri
 		// We need to know if the old GUI < 2.3.0 is running so that
 		// the correct GUI URL path can be set.
 		oldGUI := false
-		st, releaser, err := gr.ctxt.srv.statePool.Get(modelUUID)
+		st, releaser, err := gr.ctxt.statePool.Get(modelUUID)
 		if err == nil {
 			defer releaser()
 			vers, err := st.GUIVersion()

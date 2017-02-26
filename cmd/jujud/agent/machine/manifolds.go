@@ -17,6 +17,7 @@ import (
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/api/base"
 	apideployer "github.com/juju/juju/api/deployer"
+	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/cmd/jujud/agent/engine"
 	"github.com/juju/juju/container/lxd"
 	"github.com/juju/juju/environs"
@@ -27,14 +28,17 @@ import (
 	"github.com/juju/juju/worker/apiaddressupdater"
 	"github.com/juju/juju/worker/apicaller"
 	"github.com/juju/juju/worker/apiconfigwatcher"
+	"github.com/juju/juju/worker/apiserver"
 	"github.com/juju/juju/worker/authenticationworker"
 	"github.com/juju/juju/worker/centralhub"
+	"github.com/juju/juju/worker/certupdater"
 	"github.com/juju/juju/worker/dependency"
 	"github.com/juju/juju/worker/deployer"
 	"github.com/juju/juju/worker/diskmanager"
 	"github.com/juju/juju/worker/fortress"
 	"github.com/juju/juju/worker/gate"
 	"github.com/juju/juju/worker/hostkeyreporter"
+	"github.com/juju/juju/worker/httpserver"
 	"github.com/juju/juju/worker/identityfilewriter"
 	"github.com/juju/juju/worker/logforwarder"
 	"github.com/juju/juju/worker/logforwarder/sinks"
@@ -135,6 +139,9 @@ type ManifoldsConfig struct {
 	// migration process to check that the agent will be ok when
 	// connected to the new target controller.
 	ValidateMigration func(base.APICaller) error
+
+	// XXX
+	ValidateLogin func(params.LoginRequest) error
 
 	// PrometheusRegisterer is a prometheus.Registerer that may be used
 	// by workers to register Prometheus metric collectors.
@@ -343,6 +350,34 @@ func Manifolds(config ManifoldsConfig) dependency.Manifolds {
 			APICallerName: apiCallerName,
 		})),
 
+		// The cert-updater manifold watches for changes in state
+		// that require a controller certificate change (e.g. address
+		// changes), and updates the controller certificates.
+		//
+		// TODO(axw) should we merge this with servingInfoSetter? They
+		// both want to set state serving info.
+		certUpdaterName: certupdater.Manifold(certupdater.ManifoldConfig{
+			AgentName: agentName,
+			StateName: stateName,
+		}),
+
+		// The http-server manifold runs an HTTP server for controller
+		// agents.
+		httpServerName: httpserver.Manifold(httpserver.ManifoldConfig{
+			AgentName:       agentName,
+			StateName:       stateName,
+			CertChangedName: certUpdaterName,
+		}),
+
+		apiServerName: apiserver.Manifold(apiserver.ManifoldConfig{
+			AgentName:      agentName,
+			HTTPServerName: httpServerName,
+			CentralHubName: centralHubName,
+			Clock:          config.Clock,
+			OpenState:      config.OpenState,
+			ValidateLogin:  config.ValidateLogin,
+		}),
+
 		// The apiworkers manifold starts workers which rely on the
 		// machine agent's API connection but have not been converted
 		// to work directly under the dependency engine. It waits for
@@ -539,4 +574,7 @@ const (
 	machineActionName        = "machine-action-runner"
 	hostKeyReporterName      = "host-key-reporter"
 	logForwarderName         = "log-forwarder"
+	certUpdaterName          = "cert-updater"
+	httpServerName           = "http-server"
+	apiServerName            = "api-server"
 )

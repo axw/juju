@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/bmizerany/pat"
 	"github.com/juju/errors"
@@ -25,19 +24,16 @@ import (
 	"github.com/juju/utils/clock"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
-	"golang.org/x/net/websocket"
 	"gopkg.in/juju/names.v2"
 	"gopkg.in/macaroon-bakery.v1/httpbakery"
-	"gopkg.in/tomb.v1"
 
 	"github.com/juju/juju/apiserver/authentication"
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/common/apihttp"
 	"github.com/juju/juju/apiserver/observer"
 	"github.com/juju/juju/apiserver/params"
-	"github.com/juju/juju/rpc"
-	"github.com/juju/juju/rpc/jsoncodec"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/worker/catacomb"
 )
 
 var logger = loggo.GetLogger("juju.apiserver")
@@ -48,7 +44,7 @@ const loginRateLimit = 10
 
 // Server holds the server side of the API.
 type Server struct {
-	tomb              tomb.Tomb
+	catacomb          catacomb.Catacomb
 	clock             clock.Clock
 	pingClock         clock.Clock
 	wg                sync.WaitGroup
@@ -63,10 +59,8 @@ type Server struct {
 	adminAPIFactories map[int]adminAPIFactory
 	modelUUID         string
 	authCtxt          *authContext
-	lastConnectionID  uint64
 	centralHub        *pubsub.StructuredHub
 	newObserver       observer.ObserverFactory
-	connCount         int64
 	certChanged       <-chan params.StateServingInfo
 	tlsConfig         *tls.Config
 	allowModelAccess  bool
@@ -228,7 +222,12 @@ func newServer(s *state.State, lis net.Listener, cfg ServerConfig) (_ *Server, e
 	}
 	srv.logSinkWriter = logSinkWriter
 
-	go srv.run()
+	if err := catacomb.Invoke(catacomb.Plan{
+		Site: &srv.catacomb,
+		Work: srv.run,
+	}); err != nil {
+		return nil, errors.Trace(err)
+	}
 	return srv, nil
 }
 
@@ -271,30 +270,26 @@ func (srv *Server) newTLSConfig(cfg ServerConfig) *tls.Config {
 	return tlsConfig
 }
 
-func (srv *Server) ConnectionCount() int64 {
-	return atomic.LoadInt64(&srv.connCount)
-}
-
 // Dead returns a channel that signals when the server has exited.
 func (srv *Server) Dead() <-chan struct{} {
-	return srv.tomb.Dead()
+	return srv.catacomb.Dead()
 }
 
 // Stop stops the server and returns when all running requests
 // have completed.
 func (srv *Server) Stop() error {
-	srv.tomb.Kill(nil)
-	return srv.tomb.Wait()
+	srv.Kill()
+	return srv.Wait()
 }
 
 // Kill implements worker.Worker.Kill.
 func (srv *Server) Kill() {
-	srv.tomb.Kill(nil)
+	srv.catacomb.Kill(nil)
 }
 
 // Wait implements worker.Worker.Wait.
 func (srv *Server) Wait() error {
-	return srv.tomb.Wait()
+	return srv.catacomb.Wait()
 }
 
 // loggoWrapper is an io.Writer() that forwards the messages to a loggo.Logger.
@@ -312,7 +307,7 @@ func (w *loggoWrapper) Write(content []byte) (int, error) {
 	return len(content), nil
 }
 
-func (srv *Server) run() {
+func (srv *Server) run() error {
 	logger.Infof("listening on %q", srv.lis.Addr())
 
 	defer func() {
@@ -325,7 +320,6 @@ func (srv *Server) run() {
 		srv.state.KillWorkers()
 
 		srv.wg.Wait() // wait for any outstanding requests to complete.
-		srv.tomb.Done()
 		srv.statePool.Close()
 		srv.state.Close()
 		srv.logSinkWriter.Close()
@@ -334,25 +328,25 @@ func (srv *Server) run() {
 	srv.wg.Add(1)
 	go func() {
 		defer srv.wg.Done()
-		srv.tomb.Kill(srv.mongoPinger())
+		srv.catacomb.Kill(srv.mongoPinger())
 	}()
 
 	srv.wg.Add(1)
 	go func() {
 		defer srv.wg.Done()
-		srv.tomb.Kill(srv.expireLocalLoginInteractions())
+		srv.catacomb.Kill(srv.expireLocalLoginInteractions())
 	}()
 
 	srv.wg.Add(1)
 	go func() {
 		defer srv.wg.Done()
-		srv.tomb.Kill(srv.processCertChanges())
+		srv.catacomb.Kill(srv.processCertChanges())
 	}()
 
 	srv.wg.Add(1)
 	go func() {
 		defer srv.wg.Done()
-		srv.tomb.Kill(srv.processModelRemovals())
+		srv.catacomb.Kill(srv.processModelRemovals())
 	}()
 
 	// for pat based handlers, they are matched in-order of being
@@ -380,14 +374,11 @@ func (srv *Server) run() {
 		logger.Debugf("API http server exited, final error was: %v", err)
 	}()
 
-	<-srv.tomb.Dying()
+	<-srv.catacomb.Dying()
+	return srv.catacomb.ErrDying()
 }
 
 func (srv *Server) endpoints() []apihttp.Endpoint {
-	httpCtxt := httpContext{
-		srv: srv,
-	}
-
 	endpoints := common.ResolveAPIEndpoints(srv.newHandlerArgs)
 
 	// TODO(ericsnow) Add the following to the registry instead.
@@ -406,11 +397,28 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 		}
 	}
 
+	httpCtxt := httpContext{
+		st:        srv.state,
+		statePool: srv.statePool,
+		authCtxt:  srv.authCtxt,
+		stop:      srv.catacomb.Dying(),
+	}
 	strictCtxt := httpCtxt
 	strictCtxt.strictValidation = true
 	strictCtxt.controllerModelOnly = true
 
-	mainAPIHandler := srv.trackRequests(http.HandlerFunc(srv.apiHandler))
+	mainAPIHandler := srv.trackRequests(&apiHTTPHandler{
+		statePool:        srv.statePool,
+		newObserver:      srv.newObserver,
+		pingClock:        srv.pingClock,
+		allowModelAccess: srv.allowModelAccess,
+		validator:        srv.validator,
+		limiter:          srv.limiter,
+		authCtxt:         srv.authCtxt,
+		agentTag:         srv.tag,
+		agentDataDir:     srv.dataDir,
+		agentLogDir:      srv.logDir,
+	})
 	logStreamHandler := srv.trackRequests(newLogStreamEndpointHandler(strictCtxt))
 	debugLogHandler := srv.trackRequests(newDebugLogDBHandler(httpCtxt))
 	pubsubHandler := srv.trackRequests(newPubSubHandler(httpCtxt, srv.centralHub))
@@ -569,8 +577,8 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 func (srv *Server) expireLocalLoginInteractions() error {
 	for {
 		select {
-		case <-srv.tomb.Dying():
-			return tomb.ErrDying
+		case <-srv.catacomb.Dying():
+			return srv.catacomb.ErrDying()
 		case <-srv.clock.After(authentication.LocalLoginInteractionTimeout):
 			now := srv.authCtxt.clock.Now()
 			srv.authCtxt.localUserInteractions.Expire(now)
@@ -580,9 +588,12 @@ func (srv *Server) expireLocalLoginInteractions() error {
 
 func (srv *Server) newHandlerArgs(spec apihttp.HandlerConstraints) apihttp.NewHandlerArgs {
 	ctxt := httpContext{
-		srv:                 srv,
+		st:                  srv.state,
+		statePool:           srv.statePool,
+		authCtxt:            srv.authCtxt,
 		strictValidation:    spec.StrictValidation,
 		controllerModelOnly: spec.ControllerModelOnly,
+		stop:                srv.catacomb.Dying(),
 	}
 	return apihttp.NewHandlerArgs{
 		Connect: func(req *http.Request) (*state.State, func(), state.Entity, error) {
@@ -609,7 +620,7 @@ func (srv *Server) trackRequests(handler http.Handler) http.Handler {
 		// because the closure of the listener depends on the tomb being
 		// killed to trigger the defer block in srv.run.
 		select {
-		case <-srv.tomb.Dying():
+		case <-srv.catacomb.Dying():
 			// This request was accepted before the listener was closed
 			// but after the tomb was killed. As we're in the process of
 			// shutting down, do not consider this request as in progress,
@@ -633,75 +644,6 @@ func registerEndpoint(ep apihttp.Endpoint, mux *pat.PatternServeMux) {
 	}
 }
 
-func (srv *Server) apiHandler(w http.ResponseWriter, req *http.Request) {
-	addCount := func(delta int64) {
-		atomic.AddInt64(&srv.connCount, delta)
-	}
-
-	addCount(1)
-	defer addCount(-1)
-
-	connectionID := atomic.AddUint64(&srv.lastConnectionID, 1)
-
-	apiObserver := srv.newObserver()
-	apiObserver.Join(req, connectionID)
-	defer apiObserver.Leave()
-
-	wsServer := websocket.Server{
-		Handler: func(conn *websocket.Conn) {
-			modelUUID := req.URL.Query().Get(":modeluuid")
-			logger.Tracef("got a request for model %q", modelUUID)
-			if err := srv.serveConn(conn, modelUUID, apiObserver, req.Host); err != nil {
-				logger.Errorf("error serving RPCs: %v", err)
-			}
-		},
-	}
-	wsServer.ServeHTTP(w, req)
-}
-
-func (srv *Server) serveConn(wsConn *websocket.Conn, modelUUID string, apiObserver observer.Observer, host string) error {
-	codec := jsoncodec.NewWebsocket(wsConn)
-
-	conn := rpc.NewConn(codec, apiObserver)
-
-	// Note that we don't overwrite modelUUID here because
-	// newAPIHandler treats an empty modelUUID as signifying
-	// the API version used.
-	resolvedModelUUID, err := validateModelUUID(validateArgs{
-		statePool: srv.statePool,
-		modelUUID: modelUUID,
-	})
-	var (
-		st       *state.State
-		h        *apiHandler
-		releaser func()
-	)
-	if err == nil {
-		st, releaser, err = srv.statePool.Get(resolvedModelUUID)
-	}
-
-	if err == nil {
-		defer releaser()
-		h, err = newAPIHandler(srv, st, conn, modelUUID, host)
-	}
-
-	if err != nil {
-		conn.ServeRoot(&errRoot{errors.Trace(err)}, serverError)
-	} else {
-		adminAPIs := make(map[int]interface{})
-		for apiVersion, factory := range srv.adminAPIFactories {
-			adminAPIs[apiVersion] = factory(srv, h, apiObserver)
-		}
-		conn.ServeRoot(newAnonRoot(h, adminAPIs), serverError)
-	}
-	conn.Start()
-	select {
-	case <-conn.Dead():
-	case <-srv.tomb.Dying():
-	}
-	return conn.Close()
-}
-
 func (srv *Server) mongoPinger() error {
 	session := srv.state.MongoSession().Copy()
 	defer session.Close()
@@ -712,8 +654,8 @@ func (srv *Server) mongoPinger() error {
 		}
 		select {
 		case <-srv.clock.After(mongoPingInterval):
-		case <-srv.tomb.Dying():
-			return tomb.ErrDying
+		case <-srv.catacomb.Dying():
+			return srv.catacomb.ErrDying()
 		}
 	}
 }
@@ -757,8 +699,8 @@ func (srv *Server) processCertChanges() error {
 			if err := srv.updateCertificate(info.Cert, info.PrivateKey); err != nil {
 				logger.Errorf("cannot update certificate: %v", err)
 			}
-		case <-srv.tomb.Dying():
-			return tomb.ErrDying
+		case <-srv.catacomb.Dying():
+			return srv.catacomb.ErrDying()
 		}
 	}
 }
@@ -798,8 +740,8 @@ func (srv *Server) processModelRemovals() error {
 	defer w.Stop()
 	for {
 		select {
-		case <-srv.tomb.Dying():
-			return tomb.ErrDying
+		case <-srv.catacomb.Dying():
+			return srv.catacomb.ErrDying()
 		case modelUUIDs := <-w.Changes():
 			for _, modelUUID := range modelUUIDs {
 				model, err := srv.state.GetModel(names.NewModelTag(modelUUID))

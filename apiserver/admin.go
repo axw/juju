@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/juju/utils"
 	"github.com/juju/utils/clock"
 	"gopkg.in/juju/names.v2"
 
@@ -24,14 +25,32 @@ import (
 	jujuversion "github.com/juju/juju/version"
 )
 
-type adminAPIFactory func(*Server, *apiHandler, observer.Observer) interface{}
+type adminAPIParams struct {
+	state            *state.State
+	statePool        *state.StatePool
+	root             *apiHandler
+	apiObserver      observer.Observer
+	pingClock        clock.Clock
+	allowModelAccess bool
+	validator        LoginValidator
+	limiter          utils.Limiter
+	authCtxt         *authContext
+}
+
+type adminAPIFactory func(adminAPIParams) interface{}
 
 // admin is the only object that unlogged-in clients can access. It holds any
 // methods that are needed to log in.
 type admin struct {
-	srv         *Server
-	root        *apiHandler
-	apiObserver observer.Observer
+	state            *state.State
+	statePool        *state.StatePool
+	root             *apiHandler
+	apiObserver      observer.Observer
+	pingClock        clock.Clock
+	allowModelAccess bool
+	validator        LoginValidator
+	limiter          utils.Limiter
+	authCtxt         *authContext
 
 	mu       sync.Mutex
 	loggedIn bool
@@ -54,11 +73,11 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 	}
 
 	// apiRoot is the API root exposed to the client after authentication.
-	var apiRoot rpc.Root = newAPIRoot(a.root.state, a.srv.statePool, a.root.resources, a.root)
+	var apiRoot rpc.Root = newAPIRoot(a.root.state, a.statePool, a.root.resources, a.root)
 
 	// Use the login validation function, if one was specified.
-	if a.srv.validator != nil {
-		err := a.srv.validator(req)
+	if a.validator != nil {
+		err := a.validator(req)
 		switch err {
 		case params.UpgradeInProgressError:
 			apiRoot = restrictRoot(apiRoot, upgradeMethodsOnly)
@@ -81,11 +100,11 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 		if err != nil || kind != names.UserTagKind {
 			isUser = false
 			// Users are not rate limited, all other entities are.
-			if !a.srv.limiter.Acquire() {
+			if !a.limiter.Acquire() {
 				logger.Debugf("rate limiting for agent %s", req.AuthTag)
 				return fail, common.ErrTryAgain
 			}
-			defer a.srv.limiter.Release()
+			defer a.limiter.Release()
 		}
 	}
 
@@ -143,7 +162,7 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 	a.loggedIn = true
 
 	if !controllerMachineLogin {
-		if err := startPingerIfAgent(a.srv.pingClock, a.root, entity); err != nil {
+		if err := startPingerIfAgent(a.pingClock, a.root, entity); err != nil {
 			return fail, errors.Trace(err)
 		}
 	}
@@ -259,7 +278,7 @@ func (a *admin) checkUserPermissions(userTag names.UserTag, controllerOnlyLogin 
 	if everyoneGroupAccess.GreaterControllerAccessThan(controllerAccess) {
 		controllerAccess = everyoneGroupAccess
 	}
-	if controllerOnlyLogin || !a.srv.allowModelAccess {
+	if controllerOnlyLogin || !a.allowModelAccess {
 		// We're either explicitly logging into the controller or
 		// we must check that the user has access to the controller
 		// even though they're logging into a model.
@@ -296,15 +315,15 @@ func (a *admin) checkCreds(req params.LoginRequest, lookForModelUser bool) (stat
 }
 
 func (a *admin) checkControllerMachineCreds(req params.LoginRequest) (state.Entity, error) {
-	return checkControllerMachineCreds(a.srv.state, req, a.authenticator())
+	return checkControllerMachineCreds(a.state, req, a.authenticator())
 }
 
 func (a *admin) authenticator() authentication.EntityAuthenticator {
-	return a.srv.authCtxt.authenticator(a.root.serverHost)
+	return a.authCtxt.authenticator(a.root.serverHost)
 }
 
 func (a *admin) maintenanceInProgress() bool {
-	if a.srv.validator == nil {
+	if a.validator == nil {
 		return false
 	}
 	// jujud's login validator will return an error for any user tag
@@ -319,7 +338,7 @@ func (a *admin) maintenanceInProgress() bool {
 	req := params.LoginRequest{
 		AuthTag: names.NewUserTag("arbitrary").String(),
 	}
-	return a.srv.validator(req) != nil
+	return a.validator(req) != nil
 }
 
 var doCheckCreds = checkCreds

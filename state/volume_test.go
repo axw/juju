@@ -541,6 +541,14 @@ func (s *VolumeStateSuite) TestRemoveStorageInstanceUnassignsVolume(c *gc.C) {
 	s.volume(c, volumeTag)
 }
 
+func (s *VolumeStateSuite) TestRemoveStorageInstanceDestroyVolume(c *gc.C) {
+	// TODO(axw) when we have persistent volumes,
+	// show that DestroyStorageInstance(storage)
+	// will cause the volume to be destroyed via a
+	// cleanup.
+	c.Skip("cannot yet have volumes assigned, but not bound, to storage")
+}
+
 func (s *VolumeStateSuite) TestSetVolumeAttachmentInfoVolumeNotProvisioned(c *gc.C) {
 	_, u, storageTag := s.setupSingleStorage(c, "block", "loop-pool")
 	err := s.State.AssignUnit(u, state.AssignCleanEmpty)
@@ -570,6 +578,12 @@ func (s *VolumeStateSuite) TestDestroyVolume(c *gc.C) {
 	}
 	defer state.SetBeforeHooks(c, s.State, assertDestroy).Check()
 	assertDestroy()
+}
+
+func (s *VolumeStateSuite) TestDestroyVolumeNotFound(c *gc.C) {
+	err := s.State.DestroyVolume(names.NewVolumeTag("0"))
+	c.Assert(err, gc.ErrorMatches, `destroying volume 0: volume "0" not found`)
+	c.Assert(err, jc.Satisfies, errors.IsNotFound)
 }
 
 func (s *VolumeStateSuite) TestDestroyVolumeStorageAssigned(c *gc.C) {

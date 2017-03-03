@@ -1,7 +1,7 @@
 // Copyright 2015 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package apiserver
+package apihttphandler
 
 import (
 	"fmt"
@@ -25,7 +25,9 @@ func newAdminAPIV3(args adminAPIParams) interface{} {
 			allowModelAccess: args.allowModelAccess,
 			validator:        args.validator,
 			limiter:          args.limiter,
-			authCtxt:         args.authCtxt,
+			authenticator:    args.authenticator,
+			logger:           args.logger,
+			facades:          args.facades,
 		},
 	}
 }

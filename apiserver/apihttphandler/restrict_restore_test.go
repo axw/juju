@@ -1,7 +1,7 @@
 // Copyright 2016 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package apiserver_test
+package apihttphandler_test
 
 import (
 	_ "github.com/juju/testing/checkers"

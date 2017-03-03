@@ -11,21 +11,6 @@ import (
 	"github.com/juju/juju/state"
 )
 
-// isMachineWithJob returns whether the given entity is a machine that
-// is configured to run the given job.
-func isMachineWithJob(e state.Entity, j state.MachineJob) bool {
-	m, ok := e.(*state.Machine)
-	if !ok {
-		return false
-	}
-	for _, mj := range m.Jobs() {
-		if mj == j {
-			return true
-		}
-	}
-	return false
-}
-
 type validateArgs struct {
 	statePool *state.StatePool
 	modelUUID string

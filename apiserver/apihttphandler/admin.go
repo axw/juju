@@ -1,19 +1,21 @@
 // Copyright 2013, 2014 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package apiserver
+package apihttphandler
 
 import (
 	"sync"
 	"time"
 
 	"github.com/juju/errors"
+	"github.com/juju/loggo"
 	"github.com/juju/utils"
 	"github.com/juju/utils/clock"
 	"gopkg.in/juju/names.v2"
 
 	"github.com/juju/juju/apiserver/authentication"
 	"github.com/juju/juju/apiserver/common"
+	"github.com/juju/juju/apiserver/facade"
 	"github.com/juju/juju/apiserver/observer"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/apiserver/presence"
@@ -25,6 +27,14 @@ import (
 	jujuversion "github.com/juju/juju/version"
 )
 
+const (
+	// maxClientPingInterval defines the timeframe until the ping timeout
+	// closes the monitored connection. TODO(mue): Idea by Roger:
+	// Move to API (e.g. params) so that the pinging there may
+	// depend on the interval.
+	maxClientPingInterval = 3 * time.Minute
+)
+
 type adminAPIParams struct {
 	state            *state.State
 	statePool        *state.StatePool
@@ -34,7 +44,9 @@ type adminAPIParams struct {
 	allowModelAccess bool
 	validator        LoginValidator
 	limiter          utils.Limiter
-	authCtxt         *authContext
+	authenticator    authentication.EntityAuthenticator
+	logger           loggo.Logger
+	facades          FacadeRegistry
 }
 
 type adminAPIFactory func(adminAPIParams) interface{}
@@ -50,7 +62,9 @@ type admin struct {
 	allowModelAccess bool
 	validator        LoginValidator
 	limiter          utils.Limiter
-	authCtxt         *authContext
+	authenticator    authentication.EntityAuthenticator
+	logger           loggo.Logger
+	facades          FacadeRegistry
 
 	mu       sync.Mutex
 	loggedIn bool
@@ -73,7 +87,13 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 	}
 
 	// apiRoot is the API root exposed to the client after authentication.
-	var apiRoot rpc.Root = newAPIRoot(a.root.state, a.statePool, a.root.resources, a.root)
+	var apiRoot rpc.Root = newAPIRoot(
+		a.root.state,
+		a.statePool,
+		a.root.resources,
+		facade.Authorizer(a.root),
+		a.facades,
+	)
 
 	// Use the login validation function, if one was specified.
 	if a.validator != nil {
@@ -101,7 +121,7 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 			isUser = false
 			// Users are not rate limited, all other entities are.
 			if !a.limiter.Acquire() {
-				logger.Debugf("rate limiting for agent %s", req.AuthTag)
+				a.logger.Debugf("rate limiting for agent %s", req.AuthTag)
 				return fail, common.ErrTryAgain
 			}
 			defer a.limiter.Release()
@@ -118,7 +138,7 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 				DischargeRequired:       err.Macaroon,
 				DischargeRequiredReason: err.Error(),
 			}
-			logger.Infof("login failed with discharge-required error: %v", err)
+			a.logger.Infof("login failed with discharge-required error: %v", err)
 			return loginResult, nil
 		}
 		if a.maintenanceInProgress() {
@@ -162,7 +182,12 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 	a.loggedIn = true
 
 	if !controllerMachineLogin {
-		if err := startPingerIfAgent(a.pingClock, a.root, entity); err != nil {
+		if err := startPingerIfAgent(
+			a.pingClock,
+			a.root,
+			entity,
+			a.logger,
+		); err != nil {
 			return fail, errors.Trace(err)
 		}
 	}
@@ -178,9 +203,9 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 		maybeUserInfo.LastConnection = lastConnection
 	} else {
 		if controllerOnlyLogin {
-			logger.Debugf("controller login: %s", entity.Tag())
+			a.logger.Debugf("controller login: %s", entity.Tag())
 		} else {
-			logger.Debugf("model login: %s for %s", entity.Tag(), a.root.state.ModelTag().Id())
+			a.logger.Debugf("model login: %s for %s", entity.Tag(), a.root.state.ModelTag().Id())
 		}
 	}
 
@@ -287,9 +312,9 @@ func (a *admin) checkUserPermissions(userTag names.UserTag, controllerOnlyLogin 
 		}
 	}
 	if controllerOnlyLogin {
-		logger.Debugf("controller login: user %s has %q access", userTag.Id(), controllerAccess)
+		a.logger.Debugf("controller login: user %s has %q access", userTag.Id(), controllerAccess)
 	} else {
-		logger.Debugf("model login: user %s has %q for controller; %q for model %s",
+		a.logger.Debugf("model login: user %s has %q for controller; %q for model %s",
 			userTag.Id(), controllerAccess, modelAccess, a.root.state.ModelTag().Id())
 	}
 	return &params.AuthUserInfo{
@@ -311,15 +336,11 @@ func filterFacades(allowFacade func(name string) bool) []params.FacadeVersions {
 }
 
 func (a *admin) checkCreds(req params.LoginRequest, lookForModelUser bool) (state.Entity, *time.Time, error) {
-	return doCheckCreds(a.root.state, req, lookForModelUser, a.authenticator())
+	return authentication.Login(a.root.state, req, lookForModelUser, a.authenticator)
 }
 
 func (a *admin) checkControllerMachineCreds(req params.LoginRequest) (state.Entity, error) {
-	return checkControllerMachineCreds(a.state, req, a.authenticator())
-}
-
-func (a *admin) authenticator() authentication.EntityAuthenticator {
-	return a.authCtxt.authenticator(a.root.serverHost)
+	return authentication.LoginControllerMachine(a.state, req, a.authenticator)
 }
 
 func (a *admin) maintenanceInProgress() bool {
@@ -341,216 +362,6 @@ func (a *admin) maintenanceInProgress() bool {
 	return a.validator(req) != nil
 }
 
-var doCheckCreds = checkCreds
-
-// checkCreds validates the entities credentials in the current model.
-// If the entity is a user, and lookForModelUser is true, a model user must exist
-// for the model.  In the case of a user logging in to the controller, but
-// not a model, there is no env user needed.  While we have the env
-// user, if we do have it, update the last login time.
-//
-// Note that when logging in with lookForModelUser true, the returned
-// entity will be modelUserEntity, not *state.User (external users
-// don't have user entries) or *state.ModelUser (we
-// don't want to lose the local user information associated with that).
-func checkCreds(st *state.State, req params.LoginRequest, lookForModelUser bool, authenticator authentication.EntityAuthenticator) (state.Entity, *time.Time, error) {
-	var tag names.Tag
-	if req.AuthTag != "" {
-		var err error
-		tag, err = names.ParseTag(req.AuthTag)
-		if err != nil {
-			return nil, nil, errors.Trace(err)
-		}
-	}
-	var entityFinder authentication.EntityFinder = st
-	if lookForModelUser {
-		// When looking up model users, use a custom
-		// entity finder that looks up both the local user (if the user
-		// tag is in the local domain) and the model user.
-		entityFinder = modelUserEntityFinder{st}
-	}
-	entity, err := authenticator.Authenticate(entityFinder, tag, req)
-	if err != nil {
-		return nil, nil, errors.Trace(err)
-	}
-
-	// For user logins, update the last login time.
-	var lastLogin *time.Time
-	if entity, ok := entity.(loginEntity); ok {
-		userLastLogin, err := entity.LastLogin()
-		if err != nil && !state.IsNeverLoggedInError(err) {
-			return nil, nil, errors.Trace(err)
-		}
-		entity.UpdateLastLogin()
-		lastLogin = &userLastLogin
-	}
-	return entity, lastLogin, nil
-}
-
-// checkControllerMachineCreds checks the special case of a controller
-// machine creating an API connection for a different model so it can
-// run workers that act on behalf of a hosted model.
-func checkControllerMachineCreds(
-	controllerSt *state.State,
-	req params.LoginRequest,
-	authenticator authentication.EntityAuthenticator,
-) (state.Entity, error) {
-	entity, _, err := doCheckCreds(controllerSt, req, false, authenticator)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if machine, ok := entity.(*state.Machine); !ok {
-		return nil, errors.Errorf("entity should be a machine, but is %T", entity)
-	} else if !machine.IsManager() {
-		// The machine exists in the controller model, but it doesn't
-		// manage models, so reject it.
-		return nil, errors.Trace(common.ErrPerm)
-	}
-	return entity, nil
-}
-
-// loginEntity defines the interface needed to log in as a user.
-// Notable implementations are *state.User and *modelUserEntity.
-type loginEntity interface {
-	state.Entity
-	state.Authenticator
-	LastLogin() (time.Time, error)
-	UpdateLastLogin() error
-}
-
-// modelUserEntityFinder implements EntityFinder by returning a
-// loginEntity value for users, ensuring that the user exists in the
-// state's current model as well as retrieving more global
-// authentication details such as the password.
-type modelUserEntityFinder struct {
-	st *state.State
-}
-
-// FindEntity implements authentication.EntityFinder.FindEntity.
-func (f modelUserEntityFinder) FindEntity(tag names.Tag) (state.Entity, error) {
-	utag, ok := tag.(names.UserTag)
-	if !ok {
-		return f.st.FindEntity(tag)
-	}
-
-	modelUser, controllerUser, err := common.UserAccess(f.st, utag)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	u := &modelUserEntity{
-		st:             f.st,
-		modelUser:      modelUser,
-		controllerUser: controllerUser,
-	}
-	if utag.IsLocal() {
-		user, err := f.st.User(utag)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		u.user = user
-	}
-	return u, nil
-}
-
-var _ loginEntity = &modelUserEntity{}
-
-// modelUserEntity encapsulates an model user
-// and, if the user is local, the local state user
-// as well. This enables us to implement FindEntity
-// in such a way that the authentication mechanisms
-// can work without knowing these details.
-type modelUserEntity struct {
-	st *state.State
-
-	controllerUser permission.UserAccess
-	modelUser      permission.UserAccess
-	user           *state.User
-}
-
-// Refresh implements state.Authenticator.Refresh.
-func (u *modelUserEntity) Refresh() error {
-	if u.user == nil {
-		return nil
-	}
-	return u.user.Refresh()
-}
-
-// SetPassword implements state.Authenticator.SetPassword
-// by setting the password on the local user.
-func (u *modelUserEntity) SetPassword(pass string) error {
-	if u.user == nil {
-		return errors.New("cannot set password on external user")
-	}
-	return u.user.SetPassword(pass)
-}
-
-// PasswordValid implements state.Authenticator.PasswordValid.
-func (u *modelUserEntity) PasswordValid(pass string) bool {
-	if u.user == nil {
-		return false
-	}
-	return u.user.PasswordValid(pass)
-}
-
-// Tag implements state.Entity.Tag.
-func (u *modelUserEntity) Tag() names.Tag {
-	if u.user != nil {
-		return u.user.UserTag()
-	}
-	if !permission.IsEmptyUserAccess(u.modelUser) {
-		return u.modelUser.UserTag
-	}
-	return u.controllerUser.UserTag
-
-}
-
-// LastLogin implements loginEntity.LastLogin.
-func (u *modelUserEntity) LastLogin() (time.Time, error) {
-	// The last connection for the model takes precedence over
-	// the local user last login time.
-	var err error
-	var t time.Time
-	if !permission.IsEmptyUserAccess(u.modelUser) {
-		t, err = u.st.LastModelConnection(u.modelUser.UserTag)
-	} else {
-		err = state.NeverConnectedError("controller user")
-	}
-	if state.IsNeverConnectedError(err) || permission.IsEmptyUserAccess(u.modelUser) {
-		if u.user != nil {
-			// There's a global user, so use that login time instead.
-			return u.user.LastLogin()
-		}
-		// Since we're implementing LastLogin, we need
-		// to implement LastLogin error semantics too.
-		err = state.NeverLoggedInError(err.Error())
-	}
-	return t, errors.Trace(err)
-}
-
-// UpdateLastLogin implements loginEntity.UpdateLastLogin.
-func (u *modelUserEntity) UpdateLastLogin() error {
-	var err error
-
-	if !permission.IsEmptyUserAccess(u.modelUser) {
-		if u.modelUser.Object.Kind() != names.ModelTagKind {
-			return errors.NotValidf("%s as model user", u.modelUser.Object.Kind())
-		}
-
-		err = u.st.UpdateLastModelConnection(u.modelUser.UserTag)
-	}
-
-	if u.user != nil {
-		err1 := u.user.UpdateLastLogin()
-		if err == nil {
-			return err1
-		}
-	}
-	if err != nil {
-		return errors.Trace(err)
-	}
-	return nil
-}
-
 // presenceShim exists to represent a statepresence.Agent in a form
 // convenient to the apiserver/presence package, which exists to work
 // around the common.Resources infrastructure's lack of handling for
@@ -570,7 +381,12 @@ func (shim presenceShim) Start() (presence.Pinger, error) {
 	return pinger, nil
 }
 
-func startPingerIfAgent(clock clock.Clock, root *apiHandler, entity state.Entity) error {
+func startPingerIfAgent(
+	clock clock.Clock,
+	root *apiHandler,
+	entity state.Entity,
+	logger loggo.Logger,
+) error {
 	// worker runs presence.Pingers -- absence of which will cause
 	// embarrassing "agent is lost" messages to show up in status --
 	// until it's stopped. It's stored in resources purely for the
@@ -625,4 +441,11 @@ func (r *errRoot) FindMethod(rootName string, version int, methodName string) (r
 }
 
 func (r *errRoot) Kill() {
+}
+
+func serverError(err error) error {
+	if err := common.ServerError(err); err != nil {
+		return err
+	}
+	return nil
 }

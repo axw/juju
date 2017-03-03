@@ -88,6 +88,9 @@ func (p *StatePool) Get(modelUUID string) (*State, func(), error) {
 		return item.state, releaser, nil
 	}
 
+	if !names.IsValidModel(modelUUID) {
+		return nil, nil, errors.NotValidf("model UUID %v", modelUUID)
+	}
 	st, err := p.systemState.ForModel(names.NewModelTag(modelUUID))
 	if err != nil {
 		return nil, nil, errors.Annotatef(err, "failed to create state for model %v", modelUUID)

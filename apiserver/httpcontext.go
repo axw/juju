@@ -15,6 +15,7 @@ import (
 	"gopkg.in/juju/names.v2"
 	"gopkg.in/macaroon-bakery.v1/httpbakery"
 
+	"github.com/juju/juju/apiserver/authentication"
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/state"
@@ -31,7 +32,7 @@ type httpContext struct {
 	// statePool holds the state pool.
 	statePool *state.StatePool
 	// authCtxt holds the auth context.
-	authCtxt *authContext
+	authCtxt authentication.Context
 	// stop will be signalled when the server is shutting down.
 	stop <-chan struct{}
 }
@@ -108,8 +109,8 @@ func (ctxt *httpContext) stateForRequestAuthenticated(r *http.Request) (
 	if err != nil {
 		return nil, nil, nil, errors.NewUnauthorized(err, "")
 	}
-	authenticator := ctxt.authCtxt.authenticator(r.Host)
-	entity, _, err := checkCreds(st, req, true, authenticator)
+	authenticator := newEntityAuthenticator(ctxt.authCtxt, r.Host)
+	entity, _, err := authentication.Login(st, req, true, authenticator)
 	if err != nil {
 		if common.IsDischargeRequiredError(err) {
 			return nil, nil, nil, errors.Trace(err)
@@ -118,7 +119,7 @@ func (ctxt *httpContext) stateForRequestAuthenticated(r *http.Request) (
 		// Handle the special case of a worker on a controller machine
 		// acting on behalf of a hosted model.
 		if isMachineTag(req.AuthTag) {
-			entity, err := checkControllerMachineCreds(ctxt.st, req, authenticator)
+			entity, err := authentication.LoginControllerMachine(ctxt.st, req, authenticator)
 			if err != nil {
 				return nil, nil, nil, errors.NewUnauthorized(err, "")
 			}

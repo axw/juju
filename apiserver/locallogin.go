@@ -8,6 +8,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/httprequest"
+	"github.com/juju/utils/clock"
 	"github.com/julienschmidt/httprouter"
 	"gopkg.in/juju/names.v2"
 	"gopkg.in/macaroon-bakery.v1/bakery"
@@ -32,8 +33,9 @@ func makeHandler(h httprouter.Handle) http.Handler {
 }
 
 type localLoginHandlers struct {
-	authCtxt *authContext
+	authCtxt authentication.Context
 	state    *state.State
+	clock    clock.Clock
 }
 
 func (h *localLoginHandlers) serveLogin(p httprequest.Params) (interface{}, error) {
@@ -65,13 +67,13 @@ func (h *localLoginHandlers) serveLoginPost(p httprequest.Params) (interface{}, 
 		return nil, errors.NotValidf("non-local username %q", username)
 	}
 
-	authenticator := h.authCtxt.authenticator(p.Request.Host)
+	authenticator := newEntityAuthenticator(h.authCtxt, p.Request.Host)
 	if _, err := authenticator.Authenticate(h.state, userTag, params.LoginRequest{
 		Credentials: password,
 	}); err != nil {
 		// Mark the interaction as done (but failed),
 		// unblocking a pending "/auth/wait" request.
-		if err := h.authCtxt.localUserInteractions.Done(waitId, userTag, err); err != nil {
+		if err := h.authCtxt.LocalUserInteractions().Done(waitId, userTag, err); err != nil {
 			if !errors.IsNotFound(err) {
 				logger.Warningf(
 					"failed to record completion of interaction %q for %q",
@@ -97,7 +99,7 @@ func (h *localLoginHandlers) serveLoginPost(p httprequest.Params) (interface{}, 
 
 	// Mark the interaction as done, unblocking a pending
 	// "/auth/wait" request.
-	if err := h.authCtxt.localUserInteractions.Done(
+	if err := h.authCtxt.LocalUserInteractions().Done(
 		waitId, userTag, nil,
 	); err != nil {
 		if errors.IsNotFound(err) {
@@ -134,7 +136,7 @@ func (h *localLoginHandlers) serveWait(p httprequest.Params) (interface{}, error
 	if waitId == "" {
 		return nil, errors.NotValidf("missing waitid")
 	}
-	interaction, err := h.authCtxt.localUserInteractions.Wait(waitId, nil)
+	interaction, err := h.authCtxt.LocalUserInteractions().Wait(waitId, nil)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -142,10 +144,11 @@ func (h *localLoginHandlers) serveWait(p httprequest.Params) (interface{}, error
 		return nil, errors.Trace(err)
 	}
 	ctx := macaroonAuthContext{
-		authContext: h.authCtxt,
-		req:         p.Request,
+		Context: h.authCtxt,
+		clock:   h.clock,
+		req:     p.Request,
 	}
-	macaroon, err := h.authCtxt.localUserThirdPartyBakeryService.Discharge(
+	macaroon, err := h.authCtxt.LocalUserThirdPartyBakeryService().Discharge(
 		&ctx, interaction.CaveatId,
 	)
 	if err != nil {
@@ -155,13 +158,14 @@ func (h *localLoginHandlers) serveWait(p httprequest.Params) (interface{}, error
 }
 
 func (h *localLoginHandlers) checkThirdPartyCaveat(req *http.Request, cavId, cav string) ([]checkers.Caveat, error) {
-	ctx := &macaroonAuthContext{authContext: h.authCtxt, req: req}
+	ctx := &macaroonAuthContext{Context: h.authCtxt, clock: h.clock, req: req}
 	return ctx.CheckThirdPartyCaveat(cavId, cav)
 }
 
 type macaroonAuthContext struct {
-	*authContext
-	req *http.Request
+	authentication.Context
+	clock clock.Clock
+	req   *http.Request
 }
 
 // CheckThirdPartyCaveat is part of the bakery.ThirdPartyChecker interface.
@@ -173,7 +177,7 @@ func (ctx *macaroonAuthContext) CheckThirdPartyCaveat(cavId, cav string) ([]chec
 	firstPartyCaveats, err := ctx.CheckLocalLoginRequest(ctx.req, tag)
 	if err != nil {
 		if _, ok := errors.Cause(err).(*bakery.VerificationError); ok {
-			waitId, err := ctx.localUserInteractions.Start(
+			waitId, err := ctx.LocalUserInteractions().Start(
 				cavId,
 				ctx.clock.Now().Add(authentication.LocalLoginInteractionTimeout),
 			)

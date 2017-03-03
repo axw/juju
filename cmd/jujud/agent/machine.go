@@ -49,6 +49,7 @@ import (
 	"github.com/juju/juju/api/metricsmanager"
 	apiprovisioner "github.com/juju/juju/api/provisioner"
 	"github.com/juju/juju/apiserver"
+	"github.com/juju/juju/apiserver/apihttphandler"
 	"github.com/juju/juju/apiserver/observer"
 	"github.com/juju/juju/apiserver/observer/metricobserver"
 	"github.com/juju/juju/apiserver/params"
@@ -1109,6 +1110,9 @@ func (a *MachineAgent) startModelWorkers(controllerUUID, modelUUID string) (work
 	agentConfig := a.CurrentConfig()
 
 	raftModelDir := filepath.Join(agentConfig.DataDir(), "raft", modelUUID)
+	if err := os.MkdirAll(raftModelDir, 0755); err != nil {
+		return nil, errors.Trace(err)
+	}
 	raftStore, err := raftboldb.NewBoltStore(filepath.Join(raftModelDir, "raft.db"))
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -1387,9 +1391,9 @@ func (a *MachineAgent) limitLoginsDuringRestore(req params.LoginRequest) error {
 	var err error
 	switch {
 	case a.IsRestoreRunning():
-		err = apiserver.RestoreInProgressError
+		err = apihttphandler.RestoreInProgressError
 	case a.IsRestorePreparing():
-		err = apiserver.AboutToRestoreError
+		err = apihttphandler.AboutToRestoreError
 	}
 	if err != nil {
 		authTag, parseErr := names.ParseTag(req.AuthTag)

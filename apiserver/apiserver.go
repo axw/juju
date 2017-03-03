@@ -4,6 +4,7 @@
 package apiserver
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"io"
@@ -11,10 +12,12 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bmizerany/pat"
 	"github.com/juju/errors"
@@ -27,6 +30,7 @@ import (
 	"gopkg.in/juju/names.v2"
 	"gopkg.in/macaroon-bakery.v1/httpbakery"
 
+	"github.com/juju/juju/apiserver/apihttphandler"
 	"github.com/juju/juju/apiserver/authentication"
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/common/apihttp"
@@ -44,27 +48,26 @@ const loginRateLimit = 10
 
 // Server holds the server side of the API.
 type Server struct {
-	catacomb          catacomb.Catacomb
-	clock             clock.Clock
-	pingClock         clock.Clock
-	wg                sync.WaitGroup
-	state             *state.State
-	statePool         *state.StatePool
-	lis               net.Listener
-	tag               names.Tag
-	dataDir           string
-	logDir            string
-	limiter           utils.Limiter
-	validator         LoginValidator
-	adminAPIFactories map[int]adminAPIFactory
-	modelUUID         string
-	authCtxt          *authContext
-	centralHub        *pubsub.StructuredHub
-	newObserver       observer.ObserverFactory
-	certChanged       <-chan params.StateServingInfo
-	tlsConfig         *tls.Config
-	allowModelAccess  bool
-	logSinkWriter     io.WriteCloser
+	catacomb         catacomb.Catacomb
+	clock            clock.Clock
+	pingClock        clock.Clock
+	wg               sync.WaitGroup
+	state            *state.State
+	statePool        *state.StatePool
+	lis              net.Listener
+	tag              names.Tag
+	dataDir          string
+	logDir           string
+	limiter          utils.Limiter
+	validator        apihttphandler.LoginValidator
+	modelUUID        string
+	authCtxt         authentication.Context
+	centralHub       *pubsub.StructuredHub
+	newObserver      observer.ObserverFactory
+	certChanged      <-chan params.StateServingInfo
+	tlsConfig        *tls.Config
+	allowModelAccess bool
+	logSinkWriter    io.WriteCloser
 
 	// mu guards the fields below it.
 	mu sync.Mutex
@@ -82,11 +85,6 @@ type Server struct {
 	registerIntrospectionHandlers func(func(string, http.Handler))
 }
 
-// LoginValidator functions are used to decide whether login requests
-// are to be allowed. The validator is called before credentials are
-// checked.
-type LoginValidator func(params.LoginRequest) error
-
 // ServerConfig holds parameters required to set up an API server.
 type ServerConfig struct {
 	Clock       clock.Clock
@@ -96,7 +94,7 @@ type ServerConfig struct {
 	Tag         names.Tag
 	DataDir     string
 	LogDir      string
-	Validator   LoginValidator
+	Validator   apihttphandler.LoginValidator
 	Hub         *pubsub.StructuredHub
 	CertChanged <-chan params.StateServingInfo
 
@@ -185,20 +183,17 @@ func newServer(s *state.State, lis net.Listener, cfg ServerConfig) (_ *Server, e
 	}
 
 	srv := &Server{
-		clock:       cfg.Clock,
-		pingClock:   cfg.pingClock(),
-		lis:         lis,
-		newObserver: cfg.NewObserver,
-		state:       s,
-		statePool:   stPool,
-		tag:         cfg.Tag,
-		dataDir:     cfg.DataDir,
-		logDir:      cfg.LogDir,
-		limiter:     utils.NewLimiter(loginRateLimit),
-		validator:   cfg.Validator,
-		adminAPIFactories: map[int]adminAPIFactory{
-			3: newAdminAPIV3,
-		},
+		clock:                         cfg.Clock,
+		pingClock:                     cfg.pingClock(),
+		lis:                           lis,
+		newObserver:                   cfg.NewObserver,
+		state:                         s,
+		statePool:                     stPool,
+		tag:                           cfg.Tag,
+		dataDir:                       cfg.DataDir,
+		logDir:                        cfg.LogDir,
+		limiter:                       utils.NewLimiter(loginRateLimit),
+		validator:                     cfg.Validator,
 		centralHub:                    cfg.Hub,
 		certChanged:                   cfg.CertChanged,
 		allowModelAccess:              cfg.AllowModelAccess,
@@ -208,7 +203,7 @@ func newServer(s *state.State, lis net.Listener, cfg ServerConfig) (_ *Server, e
 	srv.tlsConfig = srv.newTLSConfig(cfg)
 	srv.lis = tls.NewListener(lis, srv.tlsConfig)
 
-	srv.authCtxt, err = newAuthContext(s)
+	srv.authCtxt, err = authentication.NewContext(s, cfg.Clock)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -356,11 +351,15 @@ func (srv *Server) run() error {
 	for _, endpoint := range srv.endpoints() {
 		registerEndpoint(endpoint, mux)
 	}
+	loggingHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger.Debugf("%s %s (from %s)", r.Method, r.URL, r.RemoteAddr)
+		mux.ServeHTTP(w, r)
+	})
 
 	go func() {
 		logger.Debugf("Starting API http server on address %q", srv.lis.Addr())
 		httpSrv := &http.Server{
-			Handler:   mux,
+			Handler:   loggingHandler,
 			TLSConfig: srv.tlsConfig,
 			ErrorLog: log.New(&loggoWrapper{
 				level:  loggo.WARNING,
@@ -407,18 +406,28 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 	strictCtxt.strictValidation = true
 	strictCtxt.controllerModelOnly = true
 
-	mainAPIHandler := srv.trackRequests(&apiHTTPHandler{
-		statePool:        srv.statePool,
-		newObserver:      srv.newObserver,
-		pingClock:        srv.pingClock,
-		allowModelAccess: srv.allowModelAccess,
-		validator:        srv.validator,
-		limiter:          srv.limiter,
-		authCtxt:         srv.authCtxt,
-		agentTag:         srv.tag,
-		agentDataDir:     srv.dataDir,
-		agentLogDir:      srv.logDir,
+	newAuthenticator := func(req *http.Request) authentication.EntityAuthenticator {
+		return newEntityAuthenticator(srv.authCtxt, req.Host)
+	}
+	baseAPIHandler, err := apihttphandler.New(apihttphandler.Config{
+		StatePool:        srv.statePool,
+		ObserverFactory:  srv.newObserver,
+		PingClock:        srv.pingClock,
+		AllowModelAccess: srv.allowModelAccess,
+		LoginValidator:   srv.validator,
+		Limiter:          srv.limiter,
+		NewAuthenticator: newAuthenticator,
+		AgentTag:         srv.tag,
+		AgentDataDir:     srv.dataDir,
+		AgentLogDir:      srv.logDir,
+		Logger:           logger,
+		FacadeRegistry:   common.Facades,
 	})
+	if err != nil {
+		// TODO(axw) propagate this up
+		panic(err)
+	}
+	mainAPIHandler := srv.trackRequests(baseAPIHandler)
 	logStreamHandler := srv.trackRequests(newLogStreamEndpointHandler(strictCtxt))
 	debugLogHandler := srv.trackRequests(newDebugLogDBHandler(httpCtxt))
 	pubsubHandler := srv.trackRequests(newPubSubHandler(httpCtxt, srv.centralHub))
@@ -530,6 +539,7 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 			ctxt: httpCtxt,
 		},
 	)
+
 	add("/api", mainAPIHandler)
 	// Serve the API at / (only) for backward compatiblity. Note that the
 	// pat muxer special-cases / so that it does not serve all
@@ -550,12 +560,12 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 	}
 
 	// Add HTTP handlers for local-user macaroon authentication.
-	localLoginHandlers := &localLoginHandlers{srv.authCtxt, srv.state}
+	localLoginHandlers := &localLoginHandlers{srv.authCtxt, srv.state, srv.clock}
 	dischargeMux := http.NewServeMux()
 	httpbakery.AddDischargeHandler(
 		dischargeMux,
 		localUserIdentityLocationPath,
-		localLoginHandlers.authCtxt.localUserThirdPartyBakeryService,
+		localLoginHandlers.authCtxt.LocalUserThirdPartyBakeryService(),
 		localLoginHandlers.checkThirdPartyCaveat,
 	)
 	dischargeMux.Handle(
@@ -580,8 +590,7 @@ func (srv *Server) expireLocalLoginInteractions() error {
 		case <-srv.catacomb.Dying():
 			return srv.catacomb.ErrDying()
 		case <-srv.clock.After(authentication.LocalLoginInteractionTimeout):
-			now := srv.authCtxt.clock.Now()
-			srv.authCtxt.localUserInteractions.Expire(now)
+			srv.authCtxt.ExpireLocalUserInteractions()
 		}
 	}
 }
@@ -632,6 +641,20 @@ func (srv *Server) trackRequests(handler http.Handler) http.Handler {
 			// wg counter as wg.Wait in srv.run has not yet been called.
 			srv.wg.Add(1)
 			defer srv.wg.Done()
+
+			// Cancel the request if the apiserver is shutting down.
+			ctx, cancel := context.WithCancel(r.Context())
+			r = r.WithContext(ctx)
+			go func() {
+				select {
+				case <-srv.catacomb.Dying():
+					cancel()
+					return
+				case <-ctx.Done():
+					break
+				}
+			}()
+
 			handler.ServeHTTP(w, r)
 		}
 	})
@@ -645,6 +668,12 @@ func registerEndpoint(ep apihttp.Endpoint, mux *pat.PatternServeMux) {
 }
 
 func (srv *Server) mongoPinger() error {
+	// mongoPingInterval defines the interval at which an API server
+	// will ping the mongo session to make sure that it's still
+	// alive. When the ping returns an error, the server will be
+	// terminated.
+	const mongoPingInterval = 10 * time.Second
+
 	session := srv.state.MongoSession().Copy()
 	defer session.Close()
 	for {
@@ -728,13 +757,6 @@ func (srv *Server) updateCertificate(cert, key string) error {
 	return nil
 }
 
-func serverError(err error) error {
-	if err := common.ServerError(err); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (srv *Server) processModelRemovals() error {
 	w := srv.state.WatchModelLives()
 	defer w.Stop()
@@ -765,4 +787,15 @@ func (srv *Server) processModelRemovals() error {
 			}
 		}
 	}
+}
+
+const localUserIdentityLocationPath = "/auth"
+
+func newEntityAuthenticator(authCtxt authentication.Context, serverHost string) authentication.EntityAuthenticator {
+	localUserIdentityLocation := url.URL{
+		Scheme: "https",
+		Host:   serverHost,
+		Path:   localUserIdentityLocationPath,
+	}
+	return authCtxt.NewEntityAuthenticator(localUserIdentityLocation.String())
 }

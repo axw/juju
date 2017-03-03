@@ -1,12 +1,11 @@
 // Copyright 2013 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package apiserver
+package apihttphandler
 
 import (
 	"reflect"
 	"sync"
-	"time"
 
 	"github.com/juju/errors"
 	"gopkg.in/juju/names.v2"
@@ -21,19 +20,10 @@ import (
 	"github.com/juju/juju/state"
 )
 
-var (
-	// maxClientPingInterval defines the timeframe until the ping timeout
-	// closes the monitored connection. TODO(mue): Idea by Roger:
-	// Move to API (e.g. params) so that the pinging there may
-	// depend on the interval.
-	maxClientPingInterval = 3 * time.Minute
-
-	// mongoPingInterval defines the interval at which an API server
-	// will ping the mongo session to make sure that it's still
-	// alive. When the ping returns an error, the server will be
-	// terminated.
-	mongoPingInterval = 10 * time.Second
-)
+type FacadeRegistry interface {
+	GetFactory(name string, version int) (facade.Factory, error)
+	GetType(name string, version int) (reflect.Type, error)
+}
 
 type objectKey struct {
 	name    string
@@ -49,16 +39,13 @@ type apiHandler struct {
 	rpcConn   *rpc.Conn
 	resources *common.Resources
 	entity    state.Entity
+	facades   FacadeRegistry
 
 	// An empty modelUUID means that the user has logged in through the
 	// root of the API server rather than the /model/:model-uuid/api
 	// path, logins processed with v2 or later will only offer the
 	// user manager and model manager api endpoints from here.
 	modelUUID string
-
-	// serverHost is the host:port of the API server that the client
-	// connected to.
-	serverHost string
 }
 
 var _ = (*apiHandler)(nil)
@@ -68,17 +55,17 @@ func newAPIHandler(
 	st *state.State,
 	rpcConn *rpc.Conn,
 	modelUUID string,
-	serverHost string,
 	agentTag names.Tag,
 	agentDataDir string,
 	agentLogDir string,
+	facades FacadeRegistry,
 ) (*apiHandler, error) {
 	r := &apiHandler{
-		state:      st,
-		resources:  common.NewResources(),
-		rpcConn:    rpcConn,
-		modelUUID:  modelUUID,
-		serverHost: serverHost,
+		state:     st,
+		resources: common.NewResources(),
+		rpcConn:   rpcConn,
+		modelUUID: modelUUID,
+		facades:   facades,
 	}
 	if err := r.resources.RegisterNamed("machineID", common.StringResource(agentTag.Id())); err != nil {
 		return nil, errors.Trace(err)
@@ -144,21 +131,30 @@ func (s *srvCaller) Call(objId string, arg reflect.Value) (reflect.Value, error)
 
 // apiRoot implements basic method dispatching to the facade registry.
 type apiRoot struct {
-	state       *state.State
-	pool        *state.StatePool
-	resources   *common.Resources
-	authorizer  facade.Authorizer
+	state      *state.State
+	pool       *state.StatePool
+	resources  *common.Resources
+	authorizer facade.Authorizer
+	facades    FacadeRegistry
+
 	objectMutex sync.RWMutex
 	objectCache map[objectKey]reflect.Value
 }
 
 // newAPIRoot returns a new apiRoot.
-func newAPIRoot(st *state.State, pool *state.StatePool, resources *common.Resources, authorizer facade.Authorizer) *apiRoot {
+func newAPIRoot(
+	st *state.State,
+	pool *state.StatePool,
+	resources *common.Resources,
+	authorizer facade.Authorizer,
+	facades FacadeRegistry,
+) *apiRoot {
 	r := &apiRoot{
 		state:       st,
 		pool:        pool,
 		resources:   resources,
 		authorizer:  authorizer,
+		facades:     facades,
 		objectCache: make(map[objectKey]reflect.Value),
 	}
 	return r
@@ -176,7 +172,7 @@ func (r *apiRoot) Kill() {
 // For more information about how FindMethod should work, see rpc/server.go and
 // rpc/rpcreflect/value.go
 func (r *apiRoot) FindMethod(rootName string, version int, methodName string) (rpcreflect.MethodCaller, error) {
-	goType, objMethod, err := lookupMethod(rootName, version, methodName)
+	goType, objMethod, err := lookupMethod(r.facades, rootName, version, methodName)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +192,7 @@ func (r *apiRoot) FindMethod(rootName string, version int, methodName string) (r
 		}
 		// Now that we have the write lock, check one more time in case
 		// someone got the write lock before us.
-		factory, err := common.Facades.GetFactory(rootName, version)
+		factory, err := r.facades.GetFactory(rootName, version)
 		if err != nil {
 			// We don't check for IsNotFound here, because it
 			// should have already been handled in the GetType
@@ -286,9 +282,14 @@ func (ctx *facadeContext) ID() string {
 	return ctx.key.objId
 }
 
-func lookupMethod(rootName string, version int, methodName string) (reflect.Type, rpcreflect.ObjMethod, error) {
+func lookupMethod(
+	facades FacadeRegistry,
+	rootName string,
+	version int,
+	methodName string,
+) (reflect.Type, rpcreflect.ObjMethod, error) {
 	noMethod := rpcreflect.ObjMethod{}
-	goType, err := common.Facades.GetType(rootName, version)
+	goType, err := facades.GetType(rootName, version)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return nil, noMethod, &rpcreflect.CallNotImplementedError{
@@ -366,7 +367,10 @@ func (r *apiHandler) AuthOwner(tag names.Tag) bool {
 // AuthController returns whether the authenticated user is a
 // machine with running the ManageEnviron job.
 func (r *apiHandler) AuthController() bool {
-	return isMachineWithJob(r.entity, state.JobManageModel)
+	if m, ok := r.entity.(*state.Machine); ok {
+		return m.IsManager()
+	}
+	return false
 }
 
 // AuthClient returns whether the authenticated entity is a client

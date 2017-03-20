@@ -301,7 +301,7 @@ func (s *FilesystemStateSuite) TestVolumeBackedFilesystemScope(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 
 	filesystem := s.storageInstanceFilesystem(c, storageTag)
-	c.Assert(filesystem.Tag(), gc.Equals, names.NewFilesystemTag("0/0"))
+	c.Assert(filesystem.Tag(), gc.Equals, names.NewFilesystemTag("0"))
 	volumeTag, err := filesystem.Volume()
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(volumeTag, gc.Equals, names.NewVolumeTag("0"))
@@ -526,7 +526,7 @@ func (s *FilesystemStateSuite) TestSetFilesystemInfoVolumeAttachmentNotProvision
 		filesystemAttachment.Filesystem(),
 		state.FilesystemInfo{Size: 123, FilesystemId: "fs-id"},
 	)
-	c.Assert(err, gc.ErrorMatches, `cannot set info for filesystem "0/0": volume attachment "0" on "0" not provisioned`)
+	c.Assert(err, gc.ErrorMatches, `cannot set info for filesystem "0": backing volume "0" is not attached`)
 }
 
 func (s *FilesystemStateSuite) TestDestroyFilesystem(c *gc.C) {

@@ -489,12 +489,6 @@ func isDetachableFilesystemPool(st *State, pool string) (bool, error) {
 		// to the machine.
 		return false, nil
 	}
-	if !provider.Supports(storage.StorageKindFilesystem) {
-		// TODO(axw) remove this when volume-backed filesystems
-		// inherit the scope of the volume. For now, volume-backed
-		// filesystems are always machine-scoped.
-		return false, nil
-	}
 	return true, nil
 }
 
@@ -932,18 +926,25 @@ func (st *State) SetFilesystemInfo(tag names.FilesystemTag, info FilesystemInfo)
 		return errors.Trace(err)
 	}
 	// If the filesystem is volume-backed, the volume must be provisioned
-	// and attachment first.
+	// and attached first.
 	if volumeTag, err := fs.Volume(); err == nil {
-		machineTag, ok := names.FilesystemMachine(tag)
-		if !ok {
-			return errors.Errorf("filesystem %s is not machine-scoped, but volume-backed", tag.Id())
-		}
-		volumeAttachment, err := st.VolumeAttachment(machineTag, volumeTag)
+		volumeAttachments, err := st.VolumeAttachments(volumeTag)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if _, err := volumeAttachment.Info(); err != nil {
-			return errors.Trace(err)
+		var anyAttached bool
+		for _, a := range volumeAttachments {
+			if _, err := a.Info(); err == nil {
+				anyAttached = true
+			} else if !errors.IsNotProvisioned(err) {
+				return err
+			}
+		}
+		if !anyAttached {
+			return errors.Errorf(
+				"backing volume %q is not attached",
+				volumeTag.Id(),
+			)
 		}
 	} else if errors.Cause(err) != ErrNoBackingVolume {
 		return errors.Trace(err)

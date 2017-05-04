@@ -10,7 +10,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/juju/gnuflag"
 
-	jujucmd "github.com/juju/juju/cmd"
+	"github.com/juju/juju/cmd/juju/interact"
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/jujuclient"
 )
@@ -20,7 +20,10 @@ func NewUnregisterCommand(store jujuclient.ClientStore) cmd.Command {
 	if store == nil {
 		panic("valid store must be specified")
 	}
-	cmd := &unregisterCommand{store: store}
+	cmd := &unregisterCommand{
+		store:       store,
+		newTerminal: interact.NewTerminal,
+	}
 	return modelcmd.WrapBase(cmd)
 }
 
@@ -30,6 +33,7 @@ type unregisterCommand struct {
 	controllerName string
 	assumeYes      bool
 	store          jujuclient.ClientStore
+	newTerminal    func() (interact.ReadLineWriteCloser, error)
 }
 
 var usageUnregisterDetails = `
@@ -86,7 +90,7 @@ This command will remove connection information for controller %q.
 Doing so will prevent you from accessing this controller until
 you register it again.
 
-Continue [y/N]?`[1:]
+Continue [y/N]? `[1:]
 
 func (c *unregisterCommand) Run(ctx *cmd.Context) error {
 
@@ -96,12 +100,19 @@ func (c *unregisterCommand) Run(ctx *cmd.Context) error {
 	}
 
 	if !c.assumeYes {
-		fmt.Fprintf(ctx.Stdout, unregisterMsg, c.controllerName)
-
-		if err := jujucmd.UserConfirmYes(ctx); err != nil {
-			return errors.Annotate(err, "unregistering controller")
+		term, err := c.newTerminal()
+		if err == interact.ErrNoTerminal {
+			return errors.Annotate(err, "cannot prompt for confirmation, controller deregistration aborted")
+		} else if err != nil {
+			return errors.Annotate(err, "controller deregistration aborted")
+		} else {
+			defer term.Close()
+		}
+		fmt.Fprintf(term, unregisterMsg, c.controllerName)
+		if err := interact.Confirm(term); err != nil {
+			return errors.Annotate(err, "controller deregistration aborted")
 		}
 	}
 
-	return (c.store.RemoveController(c.controllerName))
+	return c.store.RemoveController(c.controllerName)
 }

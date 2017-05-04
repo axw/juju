@@ -19,8 +19,8 @@ import (
 	"github.com/juju/juju/api/modelconfig"
 	"github.com/juju/juju/api/modelmanager"
 	"github.com/juju/juju/apiserver/params"
-	jujucmd "github.com/juju/juju/cmd"
 	"github.com/juju/juju/cmd/juju/block"
+	"github.com/juju/juju/cmd/juju/interact"
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/jujuclient"
 )
@@ -181,10 +181,8 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 	}
 
 	if !c.assumeYes {
-		fmt.Fprintf(ctx.Stdout, destroyEnvMsg, modelName)
-
-		if err := jujucmd.UserConfirmYes(ctx); err != nil {
-			return errors.Annotate(err, "model destruction")
+		if err := confirmDestruction(modelName); err != nil {
+			return errors.Trace(err)
 		}
 	}
 
@@ -311,6 +309,19 @@ func (c *destroyCommand) handleError(err error, modelName string) error {
 	}
 	logger.Errorf(`failed to destroy model %q`, modelName)
 	return err
+}
+
+func confirmDestruction(modelName string) error {
+	term, err := interact.NewTerminal()
+	if err == interact.ErrNoTerminal {
+		return errors.Annotate(err, "cannot prompt for confirmation, model destruction aborted")
+	} else if err != nil {
+		return errors.Annotate(err, "model destruction aborted")
+	} else {
+		defer term.Close()
+	}
+	fmt.Fprintf(term, destroyEnvMsg, modelName)
+	return errors.Annotate(interact.Confirm(term), "model destruction aborted")
 }
 
 var getBudgetAPIClient = getBudgetAPIClientImpl

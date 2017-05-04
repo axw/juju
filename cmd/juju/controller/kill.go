@@ -13,6 +13,7 @@ import (
 	"github.com/juju/utils/clock"
 
 	"github.com/juju/juju/apiserver/common"
+	"github.com/juju/juju/cmd/juju/interact"
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
@@ -43,6 +44,9 @@ See also:
 // forceful destroy.
 func NewKillCommand() modelcmd.Command {
 	return wrapKillCommand(&killCommand{
+		destroyCommandBase: destroyCommandBase{
+			newTerminal: interact.NewTerminal,
+		},
 		clock: clock.WallClock,
 	})
 }
@@ -97,7 +101,7 @@ func (c *killCommand) Run(ctx *cmd.Context) error {
 	}
 	store := c.ClientStore()
 	if !c.assumeYes {
-		if err := confirmDestruction(ctx, controllerName); err != nil {
+		if err := c.confirmDestruction(controllerName); err != nil {
 			return err
 		}
 	}

@@ -4,11 +4,8 @@
 package controller
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
-	"io"
-	"strings"
 	"time"
 
 	"github.com/juju/cmd"
@@ -21,6 +18,7 @@ import (
 	"github.com/juju/juju/api/controller"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/cmd/juju/block"
+	"github.com/juju/juju/cmd/juju/interact"
 	"github.com/juju/juju/cmd/modelcmd"
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
@@ -35,7 +33,11 @@ func NewDestroyCommand() cmd.Command {
 	// user trying to take down the controller will need to have access to the
 	// controller environment anyway.
 	return modelcmd.WrapController(
-		&destroyCommand{},
+		&destroyCommand{
+			destroyCommandBase: destroyCommandBase{
+				newTerminal: interact.NewTerminal,
+			},
+		},
 		modelcmd.WrapControllerSkipControllerFlags,
 		modelcmd.WrapControllerSkipDefaultController,
 	)
@@ -69,7 +71,7 @@ var destroySysMsg = `
 WARNING! This command will destroy the %q controller.
 This includes all machines, applications, data and other resources.
 
-Continue? (y/N):`[1:]
+Continue? (y/N): `[1:]
 
 // destroyControllerAPI defines the methods on the controller API endpoint
 // that the destroy command calls.
@@ -116,7 +118,7 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 	}
 	store := c.ClientStore()
 	if !c.assumeYes {
-		if err := confirmDestruction(ctx, controllerName); err != nil {
+		if err := c.confirmDestruction(controllerName); err != nil {
 			return err
 		}
 	}
@@ -155,6 +157,10 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 		envStatus := updateStatus(0)
 		if !c.destroyModels {
 			if err := c.checkNoAliveHostedModels(ctx, envStatus.models); err != nil {
+				if err == errDestroyModels {
+					c.destroyModels = true
+					continue
+				}
 				return errors.Trace(err)
 			}
 			if hasHostedModels && !hasUnDeadModels(envStatus.models) {
@@ -182,9 +188,15 @@ func (c *destroyCommand) Run(ctx *cmd.Context) error {
 	}
 }
 
+var errDestroyModels = errors.New("destroy hosted models")
+
 // checkNoAliveHostedModels ensures that the given set of hosted models
-// contains none that are Alive. If there are, an message is printed
-// out to
+// contains none that are Alive. If there are, then: if the running from
+// a terminal, the user is prompted to ask if they want to destroy all
+// hosted models; otherwise, an error is returned.
+//
+// If the user confirms that they want to destroy all models via the
+// interactive prompt, then errDestroyModels will be returned.
 func (c *destroyCommand) checkNoAliveHostedModels(ctx *cmd.Context, models []modelData) error {
 	if !hasAliveModels(models) {
 		return nil
@@ -203,6 +215,28 @@ func (c *destroyCommand) checkNoAliveHostedModels(ctx *cmd.Context, models []mod
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	term, err := c.newTerminal()
+	if err == nil {
+		defer term.Close()
+		// The command is running in a terminal. Prompt the user, asking
+		// if they want to destroy the hosted models.
+		fmt.Fprintf(term, `
+Controller %q has live hosted models:
+%s
+If you continue on, these models and their resources will be destroyed.
+
+Continue? (y/N): `[1:], controllerName, buf.String())
+
+		if err := interact.Confirm(term); err != nil {
+			return errors.Annotate(err, "controller destruction aborted")
+		}
+		fmt.Fprintln(term)
+		return errDestroyModels
+	} else if err != interact.ErrNoTerminal {
+		return errors.Trace(err)
+	}
+
 	return errors.Errorf(`cannot destroy controller %q
 
 The controller has live hosted models. If you want
@@ -282,9 +316,10 @@ type destroyCommandBase struct {
 
 	// The following fields are for mocking out
 	// api behavior for testing.
-	api       destroyControllerAPI
-	apierr    error
-	clientapi destroyClientAPI
+	api         destroyControllerAPI
+	apierr      error
+	clientapi   destroyClientAPI
+	newTerminal func() (interact.ReadLineWriteCloser, error)
 }
 
 func (c *destroyCommandBase) getControllerAPI() (destroyControllerAPI, error) {
@@ -394,20 +429,19 @@ func (c *destroyCommandBase) getControllerEnvironFromAPI(
 	})
 }
 
-func confirmDestruction(ctx *cmd.Context, controllerName string) error {
-	// Get confirmation from the user that they want to continue
-	fmt.Fprintf(ctx.Stdout, destroySysMsg, controllerName)
-
-	scanner := bufio.NewScanner(ctx.Stdin)
-	scanner.Scan()
-	err := scanner.Err()
-	if err != nil && err != io.EOF {
+func (c *destroyCommandBase) confirmDestruction(controllerName string) error {
+	term, err := c.newTerminal()
+	if err == interact.ErrNoTerminal {
+		return errors.Annotate(err, "cannot prompt for confirmation, controller destruction aborted")
+	} else if err != nil {
+		return errors.Annotate(err, "controller destruction aborted")
+	} else {
+		defer term.Close()
+	}
+	fmt.Fprintf(term, destroySysMsg, controllerName)
+	if err := interact.Confirm(term); err != nil {
 		return errors.Annotate(err, "controller destruction aborted")
 	}
-	answer := strings.ToLower(scanner.Text())
-	if answer != "y" && answer != "yes" {
-		return errors.New("controller destruction aborted")
-	}
-
+	fmt.Fprintln(term)
 	return nil
 }

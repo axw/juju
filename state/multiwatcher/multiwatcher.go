@@ -105,6 +105,10 @@ func (d *Delta) UnmarshalJSON(data []byte) error {
 		d.Entity = new(BlockInfo)
 	case "action":
 		d.Entity = new(ActionInfo)
+	case "filesystem":
+		d.Entity = new(FilesystemInfo)
+	case "volume":
+		d.Entity = new(VolumeInfo)
 	default:
 		return errors.Errorf("Unexpected entity name %q", entityKind)
 	}
@@ -451,5 +455,47 @@ func (i *ModelInfo) EntityId() EntityId {
 		Kind:      "model",
 		ModelUUID: i.ModelUUID,
 		Id:        i.ModelUUID,
+	}
+}
+
+type FilesystemInfo struct {
+	ModelUUID string     `json:"model-uuid"`
+	Id        string     `json:"id"`
+	Life      Life       `json:"life"`
+	VolumeId  string     `json:"volume-id,omitempty"`
+	StorageId string     `json:"storage-id,omitempty"`
+	Status    StatusInfo `json:"status"`
+
+	ProviderId string `json:"provider-id,omitempty"`
+	Pool       string `json:"pool,omitempty"`
+	Size       uint64 `json:"size"`
+}
+
+func (i *FilesystemInfo) EntityId() EntityId {
+	return EntityId{
+		Kind:      "filesystem",
+		ModelUUID: i.ModelUUID,
+		Id:        i.Id,
+	}
+}
+
+type VolumeInfo struct {
+	ModelUUID string     `json:"model-uuid"`
+	Id        string     `json:"id"`
+	Life      Life       `json:"life"`
+	StorageId string     `json:"storage-id,omitempty"`
+	Status    StatusInfo `json:"status"`
+
+	ProviderId string `json:"provider-id,omitempty"`
+	HardwareId string `json:"hardware-id,omitempty"`
+	Pool       string `json:"pool,omitempty"`
+	Size       uint64 `json:"size"`
+}
+
+func (i *VolumeInfo) EntityId() EntityId {
+	return EntityId{
+		Kind:      "volume",
+		ModelUUID: i.ModelUUID,
+		Id:        i.Id,
 	}
 }

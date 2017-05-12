@@ -96,6 +96,10 @@ func makeAllWatcherCollectionInfo(collNames ...string) map[string]allWatcherStat
 			collection.docType = reflect.TypeOf(backingRemoteApplication{})
 		case applicationOffersC:
 			collection.docType = reflect.TypeOf(backingApplicationOffer{})
+		case filesystemsC:
+			collection.docType = reflect.TypeOf(backingFilesystem{})
+		case volumesC:
+			collection.docType = reflect.TypeOf(backingVolume{})
 		default:
 			panic(errors.Errorf("unknown collection %q", collName))
 		}
@@ -816,6 +820,14 @@ func (s *backingStatus) updated(st *State, store *multiwatcherStore, id string) 
 			newInfo.AgentStatus = s.toStatusInfo()
 		}
 		info0 = &newInfo
+	case *multiwatcher.FilesystemInfo:
+		newInfo := *info
+		newInfo.Status = s.toStatusInfo()
+		info0 = &newInfo
+	case *multiwatcher.VolumeInfo:
+		newInfo := *info
+		newInfo.Status = s.toStatusInfo()
+		info0 = &newInfo
 	default:
 		return errors.Errorf("status for unexpected entity with id %q; type %T", id, info)
 	}
@@ -1125,6 +1137,102 @@ func backingEntityIdForOpenedPortsKey(modelUUID, key string) (multiwatcher.Entit
 	return backingEntityIdForGlobalKey(modelUUID, machineGlobalKey(parts[1]))
 }
 
+type backingFilesystem filesystemDoc
+
+func (f *backingFilesystem) updated(st *State, store *multiwatcherStore, id string) error {
+	info := &multiwatcher.FilesystemInfo{
+		ModelUUID: st.ModelUUID(),
+		Id:        f.FilesystemId,
+		Life:      multiwatcher.Life(f.Life.String()),
+		VolumeId:  f.VolumeId,
+		StorageId: f.StorageId,
+	}
+	if f.Info != nil {
+		info.ProviderId = f.Info.FilesystemId
+		info.Pool = f.Info.Pool
+		info.Size = f.Info.Size
+	}
+
+	oldInfo := store.Get(info.EntityId())
+	if oldInfo == nil {
+		// We're adding the entry for the first time,
+		// so fetch the associated filesystem status.
+		status, err := st.FilesystemStatus(names.NewFilesystemTag(f.FilesystemId))
+		if err != nil {
+			return errors.Annotatef(err, "retrieving status for filesystem %s", id)
+		}
+		info.Status = multiwatcher.NewStatusInfo(status, nil)
+	} else {
+		// The entry already exists, so preserve the current status and
+		// instance data.
+		oldInfo := oldInfo.(*multiwatcher.FilesystemInfo)
+		info.Status = oldInfo.Status
+	}
+	store.Update(info)
+	return nil
+}
+
+func (*backingFilesystem) removed(store *multiwatcherStore, modelUUID, id string, _ *State) error {
+	store.Remove(multiwatcher.EntityId{
+		Kind:      "filesystem",
+		ModelUUID: modelUUID,
+		Id:        id,
+	})
+	return nil
+}
+
+func (f *backingFilesystem) mongoId() string {
+	return f.DocID
+}
+
+type backingVolume volumeDoc
+
+func (v *backingVolume) updated(st *State, store *multiwatcherStore, id string) error {
+	info := &multiwatcher.VolumeInfo{
+		ModelUUID: st.ModelUUID(),
+		Id:        v.Name,
+		Life:      multiwatcher.Life(v.Life.String()),
+		StorageId: v.StorageId,
+	}
+	if v.Info != nil {
+		info.ProviderId = v.Info.VolumeId
+		info.HardwareId = v.Info.HardwareId
+		info.Pool = v.Info.Pool
+		info.Size = v.Info.Size
+	}
+
+	oldInfo := store.Get(info.EntityId())
+	if oldInfo == nil {
+		// We're adding the entry for the first time,
+		// so fetch the associated volume status.
+		status, err := st.VolumeStatus(names.NewVolumeTag(v.Name))
+		if err != nil {
+			return errors.Annotatef(err, "retrieving status for volume %s", id)
+		}
+		info.Status = multiwatcher.NewStatusInfo(status, nil)
+	} else {
+		// The entry already exists, so preserve the current status and
+		// instance data.
+		oldInfo := oldInfo.(*multiwatcher.VolumeInfo)
+		info.Status = oldInfo.Status
+	}
+	store.Update(info)
+	return nil
+}
+
+func (*backingVolume) removed(store *multiwatcherStore, modelUUID, id string, _ *State) error {
+	store.Remove(multiwatcher.EntityId{
+		Kind:      "volume",
+		ModelUUID: modelUUID,
+		Id:        id,
+	})
+	return nil
+}
+
+func (v *backingVolume) mongoId() string {
+	return v.DocID
+}
+
 // backingEntityIdForGlobalKey returns the entity id for the given global key.
 // It returns false if the key is not recognized.
 func backingEntityIdForGlobalKey(modelUUID, key string) (multiwatcher.EntityId, bool) {
@@ -1157,6 +1265,16 @@ func backingEntityIdForGlobalKey(modelUUID, key string) (multiwatcher.EntityId, 
 		return (&multiwatcher.RemoteApplicationInfo{
 			ModelUUID: modelUUID,
 			Name:      id,
+		}).EntityId(), true
+	case 'f':
+		return (&multiwatcher.FilesystemInfo{
+			ModelUUID: modelUUID,
+			Id:        id,
+		}).EntityId(), true
+	case 'v':
+		return (&multiwatcher.VolumeInfo{
+			ModelUUID: modelUUID,
+			Id:        id,
 		}).EntityId(), true
 	default:
 		return multiwatcher.EntityId{}, false
@@ -1197,6 +1315,8 @@ func newAllWatcherStateBacking(st *State, params WatchParams) Backing {
 		openedPortsC,
 		actionsC,
 		blocksC,
+		filesystemsC,
+		volumesC,
 	)
 	if featureflag.Enabled(feature.CrossModelRelations) {
 		cmrCollections := []string{remoteApplicationsC}
@@ -1286,6 +1406,8 @@ func NewAllModelWatcherStateBacking(st *State, pool *StatePool) Backing {
 		constraintsC,
 		settingsC,
 		openedPortsC,
+		filesystemsC,
+		volumesC,
 	)
 	if featureflag.Enabled(feature.CrossModelRelations) {
 		crossModelCollections := makeAllWatcherCollectionInfo(remoteApplicationsC)

@@ -21,13 +21,9 @@ var (
 // the Auth's data and returns it. This includes building the
 // OAuth-wrapping network transport.
 func newConnection(creds *Credentials) (*compute.Service, error) {
-	jsonKey := creds.JSONKey
-	if jsonKey == nil {
-		built, err := creds.buildJSONKey()
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		jsonKey = built
+	jsonKey, err := JSONKeyFromCredentials(creds)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
 	cfg, err := goauth2.JWTConfigFromJSON(jsonKey, driverScopes...)
 	if err != nil {

@@ -11,21 +11,18 @@ import (
 	"github.com/juju/juju/api/base"
 	"github.com/juju/juju/api/logstream"
 	"github.com/juju/juju/apiserver/params"
+	"github.com/juju/juju/environs"
 	"github.com/juju/juju/worker/dependency"
 )
 
-// ManifoldConfig defines the names of the manifolds on which a
-// Manifold will depend.
-type ManifoldConfig struct {
+// EnvironManifoldConfig defines the names of the manifolds on which a
+// EnvironManifold will depend.
+type EnvironManifoldConfig struct {
 	// These are the dependency resource names.
-	StateName     string
+	EnvironName   string
 	APICallerName string
 
-	// Sinks are the named functions that opens the underlying log sinks
-	// to which log records will be forwarded.
-	Sinks []LogSinkSpec
-
-	// OpenLogStream is the function that will be used to for the
+	// OpenLogStream is the function that will be used to open the
 	// log stream.
 	OpenLogStream LogStreamFn
 
@@ -33,9 +30,10 @@ type ManifoldConfig struct {
 	OpenLogForwarder func(OpenLogForwarderArgs) (*LogForwarder, error)
 }
 
-// Manifold returns a dependency manifold that runs a log forwarding
-// worker, using the resource names defined in the supplied config.
-func Manifold(config ManifoldConfig) dependency.Manifold {
+// EnvironManifold returns a dependency manifold that runs a log forwarding
+// worker using the Environ's LogSink, if any, and using the resource names
+// defined in the supplied config.
+func EnvironManifold(config ManifoldConfig) dependency.Manifold {
 	openLogStream := config.OpenLogStream
 	if openLogStream == nil {
 		openLogStream = func(caller base.APICaller, cfg params.LogStreamConfig, controllerUUID string) (LogStream, error) {
@@ -50,10 +48,16 @@ func Manifold(config ManifoldConfig) dependency.Manifold {
 
 	return dependency.Manifold{
 		Inputs: []string{
-			config.StateName, // ...just to force it to run only on the controller.
+			config.EnvironName,
 			config.APICallerName,
 		},
 		Start: func(context dependency.Context) (worker.Worker, error) {
+			var environ environs.Environ
+			if err := context.Get(cfg.EnvironName, &environ); err != nil {
+				return nil, errors.Trace(err)
+			}
+			// TODO(axw) get Sender from environ.
+
 			var apiCaller base.APICaller
 			if err := context.Get(config.APICallerName, &apiCaller); err != nil {
 				return nil, errors.Trace(err)

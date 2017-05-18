@@ -135,6 +135,15 @@ func parseJSONKey(jsonKey []byte) (map[string]string, error) {
 	}
 }
 
+// JSONKeyFromCredentials returns the JSON key file contents for
+// the given credentials.
+func JSONKeyFromCredentials(creds *Credentials) ([]byte, error) {
+	if creds.JSONKey != nil {
+		return creds.JSONKey, nil
+	}
+	return creds.buildJSONKey()
+}
+
 // buildJSONKey returns the content of the JSON key file for the
 // credential values.
 func (gc Credentials) buildJSONKey() ([]byte, error) {

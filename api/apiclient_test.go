@@ -536,6 +536,10 @@ func (s *apiclientSuite) TestPublicDNSName(c *gc.C) {
 		AutocertDNSName: "somewhere.example.com",
 		NewObserver:     func() observer.Observer { return &fakeobserver.Instance{} },
 		AutocertURL:     "https://0.1.2.3/no-autocert-here",
+		LogSink: apiserver.LogSinkConfig{
+			RateLimitBurst:  apiserver.DefaultLogSinkRateLimitBurst,
+			RateLimitRefill: apiserver.DefaultLogSinkRateLimitRefill,
+		},
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	defer worker.Stop(srv)

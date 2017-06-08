@@ -167,6 +167,9 @@ const (
 	AgentServiceName  = "AGENT_SERVICE_NAME"
 	MongoOplogSize    = "MONGO_OPLOG_SIZE"
 	NUMACtlPreference = "NUMA_CTL_PREFERENCE"
+
+	AttrLogSinkRateLimitBurst  = "LOGSINK_RATELIMIT_BURST"
+	AttrLogSinkRateLimitRefill = "LOGSINK_RATELIMIT_REFILL"
 )
 
 // The Config interface is the sole way that the agent gets access to the

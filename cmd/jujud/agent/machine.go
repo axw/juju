@@ -1230,6 +1230,11 @@ func (a *MachineAgent) newAPIserverWorker(
 			}, f)
 	}
 
+	logSinkConfig, err := getLogSinkConfig(agentConfig)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting logsink config")
+	}
+
 	server, err := apiserver.NewServer(st, listener, apiserver.ServerConfig{
 		Clock:                         clock.WallClock,
 		Cert:                          cert,
@@ -1246,6 +1251,7 @@ func (a *MachineAgent) newAPIserverWorker(
 		NewObserver:                   newObserver,
 		StatePool:                     statePool,
 		RegisterIntrospectionHandlers: registerIntrospectionHandlers,
+		LogSink: logSinkConfig,
 	})
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot start api server worker")
@@ -1708,4 +1714,30 @@ func newStateMetricsWorker(st *state.State, registry *prometheus.Registry) worke
 		<-stop
 		return nil
 	})
+}
+
+func getLogSinkConfig(cfg agent.Config) (apiserver.LogSinkConfig, error) {
+	result := apiserver.LogSinkConfig{
+		RateLimitBurst:  apiserver.DefaultLogSinkRateLimitBurst,
+		RateLimitRefill: apiserver.DefaultLogSinkRateLimitRefill,
+	}
+	if v := cfg.Value(agent.AttrLogSinkRateLimitBurst); v != "" {
+		burst, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return apiserver.LogSinkConfig{}, errors.Annotatef(
+				err, "parsing %s", agent.AttrLogSinkRateLimitBurst,
+			)
+		}
+		result.RateLimitBurst = burst
+	}
+	if v := cfg.Value(agent.AttrLogSinkRateLimitRefill); v != "" {
+		refill, err := time.ParseDuration(v)
+		if err != nil {
+			return apiserver.LogSinkConfig{}, errors.Annotatef(
+				err, "parsing %s", agent.AttrLogSinkRateLimitRefill,
+			)
+		}
+		result.RateLimitRefill = refill
+	}
+	return result, nil
 }

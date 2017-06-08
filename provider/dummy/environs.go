@@ -834,6 +834,10 @@ func (e *environ) Bootstrap(ctx environs.BootstrapContext, args environs.Bootstr
 						io.WriteString(w, "gazing")
 					}))
 				},
+				LogSink: apiserver.LogSinkConfig{
+					RateLimitBurst:  apiserver.DefaultLogSinkRateLimitBurst,
+					RateLimitRefill: apiserver.DefaultLogSinkRateLimitRefill,
+				},
 			})
 			if err != nil {
 				panic(err)

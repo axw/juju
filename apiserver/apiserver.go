@@ -16,12 +16,14 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/bmizerany/pat"
 	"github.com/gorilla/websocket"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
 	"github.com/juju/pubsub"
+	"github.com/juju/ratelimit"
 	"github.com/juju/utils"
 	"github.com/juju/utils/clock"
 	"golang.org/x/crypto/acme"
@@ -47,9 +49,20 @@ var logger = loggo.GetLogger("juju.apiserver")
 
 var defaultHTTPMethods = []string{"GET", "POST", "HEAD", "PUT", "DELETE", "OPTIONS"}
 
-// loginRateLimit defines how many concurrent Login requests we will
-// accept
-const loginRateLimit = 10
+const (
+	// loginRateLimit defines how many concurrent Login requests we will
+	// accept.
+	loginRateLimit = 10
+
+	// DefaultLogSinkRateLimitBurst defines the default number of log
+	// messages that will be let through before we start rate limiting.
+	DefaultLogSinkRateLimitBurst = 1000
+
+	// DefaultLogSinkRateLimitRefill defines the default rate at which
+	// log messages will be let through once the initial burst amount
+	// has been depleted.
+	DefaultLogSinkRateLimitRefill = time.Millisecond
+)
 
 // Server holds the server side of the API.
 type Server struct {
@@ -76,6 +89,7 @@ type Server struct {
 	tlsConfig        *tls.Config
 	allowModelAccess bool
 	logSinkWriter    io.WriteCloser
+	logSinkConfig    LogSinkConfig
 
 	// mu guards the fields below it.
 	mu sync.Mutex
@@ -146,9 +160,14 @@ type ServerConfig struct {
 	// is to support registering the handlers underneath the
 	// "/introspection" prefix.
 	RegisterIntrospectionHandlers func(func(string, http.Handler))
+
+	// LogSink holds configuration for the API server's log
+	// sink endpoint.
+	LogSink LogSinkConfig
 }
 
-func (c *ServerConfig) Validate() error {
+// Validate validates the API server configuration.
+func (c ServerConfig) Validate() error {
 	if c.Hub == nil {
 		return errors.NotValidf("missing Hub")
 	}
@@ -161,15 +180,31 @@ func (c *ServerConfig) Validate() error {
 	if c.StatePool == nil {
 		return errors.NotValidf("missing StatePool")
 	}
-
-	return nil
+	return errors.Annotate(c.LogSink.Validate(), "validating logsink configuration")
 }
 
-func (c *ServerConfig) pingClock() clock.Clock {
+func (c ServerConfig) pingClock() clock.Clock {
 	if c.PingClock == nil {
 		return c.Clock
 	}
 	return c.PingClock
+}
+
+// LogSinkConfig holds configuration for the API server's log sink endpoint.
+type LogSinkConfig struct {
+	RateLimitBurst  int64
+	RateLimitRefill time.Duration
+}
+
+// Validate validates the log sink endpoint configuration.
+func (c LogSinkConfig) Validate() error {
+	if c.RateLimitBurst <= 0 {
+		return errors.NotValidf("rate-limit burst %d <= 0", c.RateLimitBurst)
+	}
+	if c.RateLimitRefill <= 0 {
+		return errors.NotValidf("rate-limit refill %d <= 0", c.RateLimitRefill)
+	}
+	return nil
 }
 
 // NewServer serves the given state by accepting requests on the given
@@ -220,6 +255,7 @@ func newServer(s *state.State, lis net.Listener, cfg ServerConfig) (_ *Server, e
 		allowModelAccess:              cfg.AllowModelAccess,
 		publicDNSName_:                cfg.AutocertDNSName,
 		registerIntrospectionHandlers: cfg.RegisterIntrospectionHandlers,
+		logSinkConfig:                 cfg.LogSink,
 	}
 
 	srv.tlsConfig = srv.newTLSConfig(cfg)
@@ -432,11 +468,27 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 	add("/model/:modeluuid/logstream", logStreamHandler)
 	add("/model/:modeluuid/log", debugLogHandler)
 
-	logSinkHandler := newLogSinkHandler(httpCtxt, srv.logSinkWriter, newAgentLoggingStrategy)
+	logSinkHandler := newLogSinkHandler(
+		httpCtxt,
+		srv.logSinkWriter,
+		newAgentLoggingStrategy,
+		srv.clock,
+		ratelimit.NewBucketWithClock(
+			srv.logSinkConfig.RateLimitRefill,
+			srv.logSinkConfig.RateLimitBurst,
+			ratelimitClock{srv.clock},
+		),
+	)
 	add("/model/:modeluuid/logsink", srv.trackRequests(logSinkHandler))
 
 	// We don't need to save the migrated logs to a logfile as well as to the DB.
-	logTransferHandler := newLogSinkHandler(httpCtxt, ioutil.Discard, newMigrationLoggingStrategy)
+	logTransferHandler := newLogSinkHandler(
+		httpCtxt,
+		ioutil.Discard,
+		newMigrationLoggingStrategy,
+		srv.clock,
+		nil, // do not rate-limit log migration
+	)
 	add("/migrate/logtransfer", srv.trackRequests(logTransferHandler))
 
 	modelRestHandler := &modelRestHandler{
@@ -854,4 +906,14 @@ func (srv *Server) processModelRemovals() error {
 			}
 		}
 	}
+}
+
+// ratelimitClock adapts clock.Clock to ratelimit.Clock.
+type ratelimitClock struct {
+	clock.Clock
+}
+
+// Sleep is defined by the ratelimit.Clock interface.
+func (c ratelimitClock) Sleep(d time.Duration) {
+	<-c.Clock.After(d)
 }

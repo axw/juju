@@ -235,6 +235,10 @@ func newServerWithHub(c *gc.C, st *state.State, hub *pubsub.StructuredHub) (*api
 		Hub:         hub,
 		NewObserver: func() observer.Observer { return &fakeobserver.Instance{} },
 		StatePool:   state.NewStatePool(st),
+		LogSink: apiserver.LogSinkConfig{
+			RateLimitBurst:  apiserver.DefaultLogSinkRateLimitBurst,
+			RateLimitRefill: apiserver.DefaultLogSinkRateLimitRefill,
+		},
 	})
 	c.Assert(err, jc.ErrorIsNil)
 	port := listener.Addr().(*net.TCPAddr).Port

@@ -13,7 +13,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
+	"github.com/juju/ratelimit"
 	"github.com/juju/utils"
+	"github.com/juju/utils/clock"
 	"github.com/juju/utils/featureflag"
 	"github.com/juju/version"
 	"gopkg.in/juju/names.v2"
@@ -119,8 +121,20 @@ func (s *agentLoggingStrategy) Stop() {
 	// Should we clear out s.st, s.releaser, s.entity here?
 }
 
-func newLogSinkHandler(h httpContext, w io.Writer, newStrategy func(httpContext, io.Writer) LoggingStrategy) http.Handler {
-	return &logSinkHandler{ctxt: h, fileLogger: w, newStrategy: newStrategy}
+func newLogSinkHandler(
+	h httpContext,
+	w io.Writer,
+	newStrategy func(httpContext, io.Writer) LoggingStrategy,
+	clock clock.Clock,
+	tokenBucket *ratelimit.Bucket,
+) http.Handler {
+	return &logSinkHandler{
+		ctxt:        h,
+		fileLogger:  w,
+		newStrategy: newStrategy,
+		clock:       clock,
+		tokenBucket: tokenBucket,
+	}
 }
 
 func newLogSinkWriter(logPath string) (io.WriteCloser, error) {
@@ -153,6 +167,8 @@ type logSinkHandler struct {
 	ctxt        httpContext
 	newStrategy func(httpContext, io.Writer) LoggingStrategy
 	fileLogger  io.Writer
+	tokenBucket *ratelimit.Bucket
+	clock       clock.Clock
 }
 
 // Since the logsink only receives messages, it is possible for the other end
@@ -297,6 +313,15 @@ func (h *logSinkHandler) receiveLogs(socket *websocket.Conn, endpointVersion int
 		defer close(logCh)
 		var m params.LogRecord
 		for {
+			// Rate-limit receipt of log messages across all connections
+			// if a token bucket is configured.
+			if h.tokenBucket != nil {
+				select {
+				case <-h.clock.After(h.tokenBucket.Take(1)):
+				case <-h.ctxt.stop():
+					return
+				}
+			}
 			// Receive() blocks until data arrives but will also be
 			// unblocked when the API handler calls socket.Close as it
 			// finishes.

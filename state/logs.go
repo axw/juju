@@ -139,7 +139,7 @@ type LastSentLogTracker struct {
 // the timestamps of the most recent log records forwarded to the
 // identified log sink for the current model.
 func NewLastSentLogTracker(st ModelSessioner, modelUUID, sink string) *LastSentLogTracker {
-	session := st.MongoSession().Copy()
+	session := st.MongoSession().Clone()
 	return &LastSentLogTracker{
 		id:      fmt.Sprintf("%s#%s", modelUUID, sink),
 		model:   modelUUID,
@@ -209,7 +209,7 @@ type DbLogger struct {
 }
 
 func NewDbLogger(st ModelSessioner) *DbLogger {
-	_, logsColl := initLogsSession(st)
+	_, logsColl := initLogsClonedSession(st)
 	return &DbLogger{
 		logsColl:  logsColl,
 		modelUUID: st.ModelUUID(),
@@ -723,7 +723,7 @@ func PruneLogs(st ControllerSessioner, minLogTime time.Time, maxLogsMB int) erro
 	if !st.IsController() {
 		return errors.Errorf("pruning logs requires a controller state")
 	}
-	session, logsDB := initLogsSessionDB(st)
+	session, logsDB := initLogsSessionDB(st, false)
 	defer session.Close()
 
 	logColls, err := getLogCollections(logsDB)
@@ -799,22 +799,27 @@ func PruneLogs(st ControllerSessioner, minLogTime time.Time, maxLogsMB int) erro
 	return nil
 }
 
-func initLogsSessionDB(st MongoSessioner) (*mgo.Session, *mgo.Database) {
+func initLogsSessionDB(st MongoSessioner, clone bool) (*mgo.Session, *mgo.Database) {
 	// To improve throughput, only wait for the logs to be written to
 	// the primary. For some reason, this makes a huge difference even
 	// when the replicaset only has one member (i.e. a single primary).
-	session := st.MongoSession().Copy()
+	session := st.MongoSession()
+	if clone {
+		session = session.Clone()
+	} else {
+		session = session.Copy()
+	}
 	session.SetSafe(&mgo.Safe{
 		W: 1,
 	})
 	return session, session.DB(logsDB)
 }
 
-// initLogsSession creates a new session suitable for logging updates,
+// initLogsClonedSession creates a new session suitable for logging updates,
 // returning the session and a logs mgo.Collection connected to that
 // session.
-func initLogsSession(st ModelSessioner) (*mgo.Session, *mgo.Collection) {
-	session, db := initLogsSessionDB(st)
+func initLogsClonedSession(st ModelSessioner) (*mgo.Session, *mgo.Collection) {
+	session, db := initLogsSessionDB(st, true)
 	return session, db.C(logCollectionName(st.ModelUUID()))
 }
 

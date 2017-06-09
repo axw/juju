@@ -315,6 +315,10 @@ func NewMachineAgent(
 		preUpgradeSteps:             preUpgradeSteps,
 		statePool:                   &statePoolHolder{},
 	}
+	mgo.SetStats(true) // XXX
+	if err := a.prometheusRegistry.Register(mgoCollector{}); err != nil {
+		return nil, errors.Trace(err)
+	}
 	if err := a.prometheusRegistry.Register(
 		logsendermetrics.BufferedLogWriterMetrics{bufferedLogger},
 	); err != nil {
@@ -1798,4 +1802,89 @@ func newStateMetricsWorker(st *state.State, registry *prometheus.Registry) worke
 		<-stop
 		return nil
 	})
+}
+
+var (
+	clustersGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "clusters",
+		Help:      "Current number of clusters",
+	})
+	masterConnsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "master_conns",
+		Help:      "Current number of master conns",
+	})
+	slaveConnsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "slave_conns",
+		Help:      "Current number of slave conns",
+	})
+	sentOpsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "sent_ops",
+		Help:      "Current number of sent ops",
+	})
+	receivedOpsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "received_ops",
+		Help:      "Current number of received ops",
+	})
+	receivedDocsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "received_docs",
+		Help:      "Current number of received docs",
+	})
+	socketsAliveGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "sockets_alive",
+		Help:      "Current number of sockets alive",
+	})
+	socketsInuseGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "sockets_inuse",
+		Help:      "Current number of sockets in use",
+	})
+	socketRefsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "mgo",
+		Name:      "socket_refs",
+		Help:      "Current number of sockets referenced",
+	})
+)
+
+type mgoCollector struct{}
+
+func (mgoCollector) Describe(ch chan<- *prometheus.Desc) {
+	clustersGauge.Describe(ch)
+	masterConnsGauge.Describe(ch)
+	slaveConnsGauge.Describe(ch)
+	sentOpsGauge.Describe(ch)
+	receivedOpsGauge.Describe(ch)
+	receivedDocsGauge.Describe(ch)
+	socketsAliveGauge.Describe(ch)
+	socketsInuseGauge.Describe(ch)
+	socketRefsGauge.Describe(ch)
+}
+
+func (mgoCollector) Collect(ch chan<- prometheus.Metric) {
+	stats := mgo.GetStats()
+	clustersGauge.Set(float64(stats.Clusters))
+	masterConnsGauge.Set(float64(stats.MasterConns))
+	slaveConnsGauge.Set(float64(stats.SlaveConns))
+	sentOpsGauge.Set(float64(stats.SentOps))
+	receivedOpsGauge.Set(float64(stats.ReceivedOps))
+	receivedDocsGauge.Set(float64(stats.ReceivedDocs))
+	socketsAliveGauge.Set(float64(stats.SocketsAlive))
+	socketsInuseGauge.Set(float64(stats.SocketsInUse))
+	socketRefsGauge.Set(float64(stats.SocketRefs))
+
+	clustersGauge.Collect(ch)
+	masterConnsGauge.Collect(ch)
+	slaveConnsGauge.Collect(ch)
+	sentOpsGauge.Collect(ch)
+	receivedOpsGauge.Collect(ch)
+	receivedDocsGauge.Collect(ch)
+	socketsAliveGauge.Collect(ch)
+	socketsInuseGauge.Collect(ch)
+	socketRefsGauge.Collect(ch)
 }

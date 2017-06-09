@@ -1964,8 +1964,6 @@ const (
 // ControllerInfo returns information about
 // the currently configured controller machines.
 func (st *State) ControllerInfo() (*ControllerInfo, error) {
-	session := st.session.Copy()
-	defer session.Close()
 	return readRawControllerInfo(st.session)
 }
 

@@ -246,7 +246,7 @@ type database struct {
 type RunTransactionObserverFunc func(dbName, modelUUID string, ops []txn.Op, err error)
 
 func (db *database) copySession(modelUUID string) (*database, SessionCloser) {
-	session := db.raw.Session.Copy()
+	session := db.raw.Session.Clone()
 	return &database{
 		raw:        db.raw.With(session),
 		schema:     db.schema,

@@ -13,7 +13,7 @@ import (
 // initialised with a new session. Also returned is a close function which
 // must be called when the collection is no longer required.
 func CollectionFromName(db *mgo.Database, coll string) (Collection, func()) {
-	session := db.Session.Copy()
+	session := db.Session.Clone()
 	newColl := db.C(coll).With(session)
 	return WrapCollection(newColl), session.Close
 }

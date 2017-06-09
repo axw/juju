@@ -217,10 +217,13 @@ func (s *PresenceSuite) TestScale(c *gc.C) {
 		}
 	}()
 
+	// Ping the session so that sessions cloned will use the socket.
+	c.Assert(s.Session.Ping(), jc.ErrorIsNil)
+
 	c.Logf("Starting %d pingers...", N)
 	for i := 0; i < N; i++ {
 		p := presence.NewPinger(s.presence, s.modelTag, strconv.Itoa(i))
-		c.Assert(p.Start(), gc.IsNil)
+		c.Assert(p.Start(), gc.IsNil, gc.Commentf("%d", i))
 		ps = append(ps, p)
 	}
 

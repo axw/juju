@@ -162,6 +162,8 @@ func NewDeadWatcher(err error) *Watcher {
 
 // NewWatcher returns a new Watcher.
 func NewWatcher(base *mgo.Collection, modelTag names.ModelTag) *Watcher {
+	session := base.Database.Session.Clone()
+	base = base.With(session)
 	w := &Watcher{
 		modelUUID: modelTag.Id(),
 		base:      base,
@@ -173,6 +175,7 @@ func NewWatcher(base *mgo.Collection, modelTag names.ModelTag) *Watcher {
 		request:   make(chan interface{}),
 	}
 	go func() {
+		defer session.Close()
 		err := w.loop()
 		cause := errors.Cause(err)
 		// tomb expects ErrDying or ErrStillAlive as
@@ -419,9 +422,8 @@ type pingInfo struct {
 	Dead  map[string]int64 `bson:",omitempty"`
 }
 
-func (w *Watcher) lookupPings(session *mgo.Session) ([]pingInfo, error) {
-	pings := w.pings.With(session)
-	return lookupPings(pings, w.modelUUID, time.Now(), w.delta)
+func (w *Watcher) lookupPings() ([]pingInfo, error) {
+	return lookupPings(w.pings, w.modelUUID, time.Now(), w.delta)
 }
 
 func lookupPings(pings *mgo.Collection, modelUUID string, ts time.Time, delta time.Duration) ([]pingInfo, error) {
@@ -533,7 +535,7 @@ func (w *Watcher) handleAlive(pings []pingInfo) (map[int64]bool, []int64, error)
 
 // lookupUnknownSeqs handles finding new sequences that we weren't already tracking.
 // Keys that we find are now alive will have a 'found alive' event queued.
-func (w *Watcher) lookupUnknownSeqs(unknownSeqs []int64, dead map[int64]bool, session *mgo.Session) error {
+func (w *Watcher) lookupUnknownSeqs(unknownSeqs []int64, dead map[int64]bool) error {
 	if len(unknownSeqs) == 0 {
 		// Nothing to do, with nothing unknown.
 		return nil
@@ -541,7 +543,7 @@ func (w *Watcher) lookupUnknownSeqs(unknownSeqs []int64, dead map[int64]bool, se
 	// We do cache *all* beingInfos, but they're reasonably small
 	seqToBeing := make(map[int64]beingInfo, len(unknownSeqs))
 	startTime := time.Now()
-	beingsC := w.beings.With(session)
+	beingsC := w.beings
 	remaining := unknownSeqs
 	for len(remaining) > 0 {
 		// batch this into reasonable lengths
@@ -622,9 +624,7 @@ func (w *Watcher) lookupUnknownSeqs(unknownSeqs []int64, dead map[int64]bool, se
 // queues events to observing channels. It fetches the last two time
 // slots and compares the union of both to the in-memory state.
 func (w *Watcher) sync() error {
-	session := w.pings.Database.Session.Copy()
-	defer session.Close()
-	pings, err := w.lookupPings(session)
+	pings, err := w.lookupPings()
 	if err != nil {
 		return err
 	}
@@ -636,7 +636,7 @@ func (w *Watcher) sync() error {
 	if err != nil {
 		return err
 	}
-	err = w.lookupUnknownSeqs(unknownSeqs, dead, session)
+	err = w.lookupUnknownSeqs(unknownSeqs, dead)
 	if err != nil {
 		return err
 	}
@@ -664,7 +664,6 @@ type Pinger struct {
 	mu        sync.Mutex
 	tomb      tomb.Tomb
 	base      *mgo.Collection
-	pings     *mgo.Collection
 	started   bool
 	beingKey  string
 	beingSeq  int64
@@ -679,7 +678,6 @@ type Pinger struct {
 func NewPinger(base *mgo.Collection, modelTag names.ModelTag, key string) *Pinger {
 	return &Pinger{
 		base:      base,
-		pings:     pingsC(base),
 		beingKey:  key,
 		modelUUID: modelTag.Id(),
 	}
@@ -693,16 +691,25 @@ func (p *Pinger) Start() error {
 		return errors.Errorf("pinger already started")
 	}
 	p.tomb = tomb.Tomb{}
-	if err := p.prepare(); err != nil {
-		return errors.Trace(err)
+
+	// Create a new session for the pinger.
+	session := p.base.Database.Session.Clone()
+	base := p.base.With(session)
+	pings := pingsC(base)
+
+	if err := p.prepare(base); err != nil {
+		session.Close()
+		return errors.Annotate(err, "preparing pinger")
 	}
 	logger.Tracef("[%s] starting pinger for %q with seq=%d", p.modelUUID[:6], p.beingKey, p.beingSeq)
-	if err := p.ping(); err != nil {
-		return errors.Trace(err)
+	if err := p.ping(base, pings); err != nil {
+		session.Close()
+		return errors.Annotate(err, "pinging")
 	}
 	p.started = true
 	go func() {
-		err := p.loop()
+		defer session.Close()
+		err := p.loop(base, pings)
 		cause := errors.Cause(err)
 		// tomb expects ErrDying or ErrStillAlive as
 		// exact values, so we need to log and unwrap
@@ -741,7 +748,6 @@ func (p *Pinger) Stop() error {
 	// TODO ping one more time to guarantee a late timeout.
 	p.started = false
 	return errors.Trace(err)
-
 }
 
 // KillForTesting stops p's periodical ping and immediately reports that it is dead.
@@ -769,9 +775,9 @@ func (p *Pinger) killStarted() error {
 	udoc := bson.D{
 		{"$set", bson.D{{"slot", slot}}},
 		{"$inc", bson.D{{"dead." + p.fieldKey, p.fieldBit}}}}
-	session := p.pings.Database.Session.Copy()
+	session := p.base.Database.Session.Clone()
 	defer session.Close()
-	pings := p.pings.With(session)
+	pings := pingsC(p.base.With(session))
 	if _, err := pings.UpsertId(docIDInt64(p.modelUUID, slot), udoc); err != nil {
 		return errors.Trace(err)
 	}
@@ -782,7 +788,10 @@ func (p *Pinger) killStarted() error {
 // first allocating a new sequence, and then atomically recording
 // the new sequence both as alive and dead at once.
 func (p *Pinger) killStopped() error {
-	if err := p.prepare(); err != nil {
+	session := p.base.Database.Session.Clone()
+	defer session.Close()
+	base := p.base.With(session)
+	if err := p.prepare(base); err != nil {
 		return err
 	}
 	// TODO(perrito666) 2016-05-02 lp:1558657
@@ -793,22 +802,20 @@ func (p *Pinger) killStopped() error {
 			{"dead." + p.fieldKey, p.fieldBit},
 			{"alive." + p.fieldKey, p.fieldBit},
 		}}}
-	session := p.pings.Database.Session.Copy()
-	defer session.Close()
-	pings := p.pings.With(session)
+	pings := pingsC(base)
 	_, err := pings.UpsertId(docIDInt64(p.modelUUID, slot), udoc)
 	return errors.Trace(err)
 }
 
 // loop is the main pinger loop that runs while it is
 // in started state.
-func (p *Pinger) loop() error {
+func (p *Pinger) loop(base, pings *mgo.Collection) error {
 	for {
 		select {
 		case <-p.tomb.Dying():
 			return errors.Trace(tomb.ErrDying)
 		case <-time.After(time.Duration(float64(period+1)*0.75) * time.Second):
-			if err := p.ping(); err != nil {
+			if err := p.ping(base, pings); err != nil {
 				return errors.Trace(err)
 			}
 		}
@@ -817,38 +824,35 @@ func (p *Pinger) loop() error {
 
 // prepare allocates a new unique sequence for the
 // pinger key and prepares the pinger to use it.
-func (p *Pinger) prepare() error {
+func (p *Pinger) prepare(base *mgo.Collection) error {
 	change := mgo.Change{
 		Update:    bson.D{{"$inc", bson.D{{"seq", int64(1)}}}},
 		Upsert:    true,
 		ReturnNew: true,
 	}
-	session := p.base.Database.Session.Copy()
-	defer session.Close()
-	base := p.base.With(session)
 	seqs := seqsC(base)
 	var seq struct{ Seq int64 }
 	seqID := docIDStr(p.modelUUID, "beings")
 	if _, err := seqs.FindId(seqID).Apply(change, &seq); err != nil {
-		return errors.Trace(err)
+		return errors.Annotate(err, "finding seq")
 	}
 	p.beingSeq = seq.Seq
 	p.fieldKey = fmt.Sprintf("%x", p.beingSeq/63)
 	p.fieldBit = 1 << uint64(p.beingSeq%63)
 	p.lastSlot = 0
 	beings := beingsC(base)
-	return errors.Trace(beings.Insert(
+	return errors.Annotate(beings.Insert(
 		beingInfo{
 			DocID: docIDInt64(p.modelUUID, p.beingSeq),
 			Seq:   p.beingSeq,
 			Key:   p.beingKey,
 		},
-	))
+	), "inserting being")
 }
 
 // ping records updates the current time slot with the
 // sequence in use by the pinger.
-func (p *Pinger) ping() (err error) {
+func (p *Pinger) ping(base, pings *mgo.Collection) (err error) {
 	logger.Tracef("[%s] pinging %q with seq=%d", p.modelUUID[:6], p.beingKey, p.beingSeq)
 	defer func() {
 		// If the session is killed from underneath us, it panics when we
@@ -857,10 +861,7 @@ func (p *Pinger) ping() (err error) {
 			err = fmt.Errorf("%v", v)
 		}
 	}()
-	session := p.pings.Database.Session.Copy()
-	defer session.Close()
 	if p.delta == 0 {
-		base := p.base.With(session)
 		delta, err := clockDelta(base)
 		if err != nil {
 			return errors.Trace(err)
@@ -875,7 +876,6 @@ func (p *Pinger) ping() (err error) {
 		return nil
 	}
 	p.lastSlot = slot
-	pings := p.pings.With(session)
 	_, err = pings.UpsertId(
 		docIDInt64(p.modelUUID, slot),
 		bson.D{
@@ -905,9 +905,7 @@ func clockDelta(c *mgo.Collection) (time.Duration, error) {
 	var before time.Time
 	var serverDelay time.Duration
 	supportsMasterLocalTime := true
-	session := c.Database.Session.Copy()
-	defer session.Close()
-	db := c.Database.With(session)
+	db := c.Database
 	for i := 0; i < 10; i++ {
 		if supportsMasterLocalTime {
 			// Try isMaster.localTime, which is present since MongoDB 2.2

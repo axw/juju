@@ -93,8 +93,8 @@ func (s *prunerSuite) TestPrunesOldPingsAndBeings(c *gc.C) {
 			// Create a new being sequence, and force a ping in this
 			// time slot. We don't Start()/Stop() them so we don't
 			// have to worry about things being async.
-			p.prepare()
-			p.ping()
+			p.prepare(s.presence)
+			p.ping(s.presence, pingsC(s.presence))
 			sequences[j][i] = p.beingSeq
 		}
 	}

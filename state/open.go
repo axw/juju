@@ -141,7 +141,16 @@ func open(
 	}
 	logger.Debugf("mongodb login successful")
 
-	st, err := newState(controllerModelTag, controllerModelTag, session, info, newPolicy, clock, runTransactionObserver)
+	st, err := newState(
+		nil, // no parent
+		controllerModelTag,
+		controllerModelTag,
+		session,
+		info,
+		newPolicy,
+		clock,
+		runTransactionObserver,
+	)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -555,6 +564,7 @@ func isUnauthorized(err error) bool {
 // newState takes responsibility for the supplied *mgo.Session, and will
 // close it if it cannot be returned under the aegis of a *State.
 func newState(
+	parent *State,
 	modelTag, controllerModelTag names.ModelTag,
 	session *mgo.Session, mongoInfo *mongo.MongoInfo,
 	newPolicy NewPolicyFunc,
@@ -585,6 +595,7 @@ func newState(
 		database:               db,
 		newPolicy:              newPolicy,
 		runTransactionObserver: runTransactionObserver,
+		parent:                 parent,
 	}
 	if newPolicy != nil {
 		st.policy = newPolicy(st)

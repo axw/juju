@@ -1210,7 +1210,7 @@ func newAllWatcherStateBacking(st *State, params WatchParams) Backing {
 	}
 	return &allWatcherStateBacking{
 		st:               st,
-		watcher:          st.workers.txnLogWatcher(),
+		watcher:          st.txnLogWatcher(),
 		collectionByName: collections,
 	}
 }
@@ -1295,7 +1295,7 @@ func NewAllModelWatcherStateBacking(st *State, pool *StatePool) Backing {
 	}
 	return &allModelWatcherStateBacking{
 		st:               st,
-		watcher:          st.workers.txnLogWatcher(),
+		watcher:          st.txnLogWatcher(),
 		stPool:           pool,
 		collectionByName: collections,
 	}

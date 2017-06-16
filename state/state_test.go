@@ -4671,3 +4671,30 @@ func (s *SetAdminMongoPasswordSuite) TestSetAdminMongoPassword(c *gc.C) {
 	err = tryOpenState(st.ModelTag(), st.ControllerTag(), &passwordOnlyInfo)
 	c.Assert(err, jc.ErrorIsNil)
 }
+
+func (s *StateSuite) TestForModelWatcherClosedWithParentState(c *gc.C) {
+	st, err := s.State.ForModel(s.State.ModelTag())
+	c.Assert(err, jc.ErrorIsNil)
+	defer st.Close()
+
+	w := st.WatchModelMachines()
+	defer w.Stop()
+	wc := statetesting.NewStringsWatcherC(c, s.State, w)
+	wc.AssertChange()
+	wc.AssertNoChange()
+
+	_, err = s.State.AddMachine("quantal", state.JobHostUnits)
+	c.Assert(err, jc.ErrorIsNil)
+	wc.AssertChange("0")
+	wc.AssertNoChange()
+
+	err = s.State.Close()
+	c.Assert(err, jc.ErrorIsNil)
+	wc.AssertClosed()
+	err = w.Stop()
+	c.Assert(errors.Cause(err), gc.Equals, state.ErrStateClosed)
+
+	w = st.WatchModelMachines()
+	defer w.Stop()
+	wc.AssertClosed()
+}

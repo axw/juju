@@ -89,6 +89,15 @@ type State struct {
 	newPolicy              NewPolicyFunc
 	runTransactionObserver RunTransactionObserverFunc
 
+	// parent is a pointer to the State that created this one,
+	// using ForModel or NewModel. This will not be set for
+	// State objects created using Open or Initialize.
+	//
+	// NOTE(axw) this is used only to share a transaction
+	// log watcher. Do not use it anywhere else without
+	// discussion.
+	parent *State
+
 	// cloudName is the name of the cloud on which the model
 	// represented by this state runs.
 	cloudName string
@@ -304,7 +313,13 @@ func (st *State) removeInCollectionOps(name string, sel interface{}) ([]txn.Op, 
 func (st *State) ForModel(modelTag names.ModelTag) (*State, error) {
 	session := st.session.Copy()
 	newSt, err := newState(
-		modelTag, st.controllerModelTag, session, st.mongoInfo, st.newPolicy, st.clock,
+		st, // parent
+		modelTag,
+		st.controllerModelTag,
+		session,
+		st.mongoInfo,
+		st.newPolicy,
+		st.clock,
 		st.runTransactionObserver,
 	)
 	if err != nil {
@@ -517,6 +532,9 @@ func (st *State) db() Database {
 // txnLogWatcher returns the TxnLogWatcher for the State. It is part
 // of the modelBackend interface.
 func (st *State) txnLogWatcher() *watcher.Watcher {
+	if st.parent != nil {
+		return st.parent.txnLogWatcher()
+	}
 	return st.workers.txnLogWatcher()
 }
 
@@ -1897,7 +1915,7 @@ func (st *State) AssignUnit(u *Unit, policy AssignmentPolicy) (err error) {
 // StartSync forces watchers to resynchronize their state with the
 // database immediately. This will happen periodically automatically.
 func (st *State) StartSync() {
-	st.workers.txnLogWatcher().StartSync()
+	st.txnLogWatcher().StartSync()
 	st.workers.presenceWatcher().Sync()
 }
 

@@ -323,6 +323,7 @@ func (st *State) NewModel(args ModelArgs) (_ *Model, _ *State, err error) {
 	uuid := args.Config.UUID()
 	session := st.session.Copy()
 	newSt, err := newState(
+		st, // parent
 		names.NewModelTag(uuid),
 		controllerInfo.ModelTag,
 		session,

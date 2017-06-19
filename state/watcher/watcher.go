@@ -30,13 +30,7 @@ type Watcher struct {
 	iteratorFunc func() mongo.Iterator
 	log          *mgo.Collection
 
-	// watches holds the observers managed by Watch/Unwatch.
-	watches map[watchKey][]watchInfo
-
-	// current holds the current txn-revno values for all the observed
-	// documents known to exist. Documents not observed or deleted are
-	// omitted from this map and are considered to have revno -1.
-	current map[watchKey]int64
+	collections []*collectionInfo
 
 	// needSync is set when a synchronization should take
 	// place.
@@ -55,6 +49,21 @@ type Watcher struct {
 
 	// lastId is the most recent transaction id observed by a sync.
 	lastId interface{}
+}
+
+type collectionInfo struct {
+	name      string
+	watches   []collWatchInfo
+	documents map[interface{}]*documentInfo
+}
+
+type documentInfo struct {
+	watches []docWatchInfo
+
+	// current holds the current txn-revno values for all the observed
+	// documents known to exist. Documents not observed or deleted are
+	// omitted from this map and are considered to have revno -1.
+	current int64
 }
 
 // A Change holds information about a document change.
@@ -96,10 +105,14 @@ func (k watchKey) match(k1 watchKey) bool {
 	return k.id == k1.id
 }
 
-type watchInfo struct {
+type collWatchInfo struct {
 	ch     chan<- Change
-	revno  int64
 	filter func(interface{}) bool
+}
+
+type docWatchInfo struct {
+	ch    chan<- Change
+	revno int64
 }
 
 type event struct {
@@ -122,8 +135,6 @@ func newWatcher(changelog *mgo.Collection, iteratorFunc func() mongo.Iterator) *
 	w := &Watcher{
 		log:          changelog,
 		iteratorFunc: iteratorFunc,
-		watches:      make(map[watchKey][]watchInfo),
-		current:      make(map[watchKey]int64),
 		request:      make(chan interface{}),
 	}
 	if w.iteratorFunc == nil {
@@ -181,12 +192,22 @@ func (w *Watcher) Err() error {
 	return w.tomb.Err()
 }
 
-type reqWatch struct {
+type reqWatchColl struct {
 	key  watchKey
-	info watchInfo
+	info collWatchInfo
 }
 
-type reqUnwatch struct {
+type reqUnwatchColl struct {
+	key watchKey
+	ch  chan<- Change
+}
+
+type reqWatchDoc struct {
+	key  watchKey
+	info docWatchInfo
+}
+
+type reqUnwatchDoc struct {
 	key watchKey
 	ch  chan<- Change
 }
@@ -209,7 +230,7 @@ func (w *Watcher) Watch(collection string, id interface{}, revno int64, ch chan<
 	if id == nil {
 		panic("watcher: cannot watch a document with nil id")
 	}
-	w.sendReq(reqWatch{watchKey{collection, id}, watchInfo{ch, revno, nil}})
+	w.sendReq(reqWatchDoc{watchKey{collection, id}, docWatchInfo{ch, revno}})
 }
 
 // WatchCollection starts watching the given collection.
@@ -224,7 +245,7 @@ func (w *Watcher) WatchCollection(collection string, ch chan<- Change) {
 // to change after a transaction is applied for any document in the collection, so long as the
 // specified filter function returns true when called with the document id value.
 func (w *Watcher) WatchCollectionWithFilter(collection string, ch chan<- Change, filter func(interface{}) bool) {
-	w.sendReq(reqWatch{watchKey{collection, nil}, watchInfo{ch, 0, filter}})
+	w.sendReq(reqWatchColl{watchKey{collection, nil}, collWatchInfo{ch, filter}})
 }
 
 // Unwatch stops watching the given collection and document id via ch.
@@ -232,12 +253,12 @@ func (w *Watcher) Unwatch(collection string, id interface{}, ch chan<- Change) {
 	if id == nil {
 		panic("watcher: cannot unwatch a document with nil id")
 	}
-	w.sendReq(reqUnwatch{watchKey{collection, id}, ch})
+	w.sendReq(reqUnwatchDoc{watchKey{collection, id}, ch})
 }
 
 // UnwatchCollection stops watching the given collection via ch.
 func (w *Watcher) UnwatchCollection(collection string, ch chan<- Change) {
-	w.sendReq(reqUnwatch{watchKey{collection, nil}, ch})
+	w.sendReq(reqUnwatchColl{watchKey{collection, nil}, ch})
 }
 
 // StartSync forces the watcher to load new events from the database.
@@ -326,24 +347,21 @@ func (w *Watcher) handle(req interface{}) {
 	switch r := req.(type) {
 	case reqSync:
 		w.needSync = true
-	case reqWatch:
-		for _, info := range w.watches[r.key] {
+	case reqWatchColl:
+		collInfo := w.collection(r.key.c)
+		for _, info := range collInfo.watches {
 			if info.ch == r.info.ch {
 				panic(fmt.Errorf("tried to re-add channel %v for %s", info.ch, r.key))
 			}
 		}
-		if revno, ok := w.current[r.key]; ok && (revno > r.info.revno || revno == -1 && r.info.revno >= 0) {
-			r.info.revno = revno
-			w.requestEvents = append(w.requestEvents, event{r.info.ch, r.key, revno})
-		}
-		w.watches[r.key] = append(w.watches[r.key], r.info)
-	case reqUnwatch:
-		watches := w.watches[r.key]
+		collInfo.watches = append(collInfo.watches, r.info)
+	case reqUnwatchColl:
+		collInfo := w.collection(r.key.c)
 		removed := false
-		for i, info := range watches {
+		for i, info := range collInfo.watches {
 			if info.ch == r.ch {
-				watches[i] = watches[len(watches)-1]
-				w.watches[r.key] = watches[:len(watches)-1]
+				collInfo.watches[i] = collInfo.watches[len(collInfo.watches)-1]
+				collInfo.watches = collInfo.watches[:len(collInfo.watches)-1]
 				removed = true
 				break
 			}
@@ -363,9 +381,76 @@ func (w *Watcher) handle(req interface{}) {
 				e.ch = nil
 			}
 		}
+	case reqWatchDoc:
+		_, docInfo := w.document(r.key.c, r.key.id)
+		for _, info := range docInfo.watches {
+			if info.ch == r.info.ch {
+				panic(fmt.Errorf("tried to re-add channel %v for %s", info.ch, r.key))
+			}
+		}
+		revno := docInfo.current
+		if revno > r.info.revno || revno == -1 && r.info.revno >= 0 {
+			r.info.revno = revno
+			w.requestEvents = append(w.requestEvents, event{r.info.ch, r.key, revno})
+		}
+		docInfo.watches = append(docInfo.watches, r.info)
+	case reqUnwatchDoc:
+		_, docInfo := w.document(r.key.c, r.key.id)
+		removed := false
+		for i, info := range docInfo.watches {
+			if info.ch == r.ch {
+				docInfo.watches[i] = docInfo.watches[len(docInfo.watches)-1]
+				docInfo.watches = docInfo.watches[:len(docInfo.watches)-1]
+				removed = true
+				break
+			}
+		}
+		if !removed {
+			panic(fmt.Errorf("tried to remove missing channel %v for document %v in %s", r.ch, r.key))
+		}
+		for i := range w.requestEvents {
+			e := &w.requestEvents[i]
+			if r.key.match(e.key) && e.ch == r.ch {
+				e.ch = nil
+			}
+		}
+		for i := range w.syncEvents {
+			e := &w.syncEvents[i]
+			if r.key.match(e.key) && e.ch == r.ch {
+				e.ch = nil
+			}
+		}
 	default:
 		panic(fmt.Errorf("unknown request: %T", req))
 	}
+}
+
+func (w *Watcher) collection(name string) *collectionInfo {
+	// TODO(axw) compare this vs. map vs.
+	// binary search for Juju's collections.
+	for _, c := range w.collections {
+		if c.name == name {
+			return c
+		}
+	}
+	c := &collectionInfo{
+		name:      name,
+		documents: make(map[interface{}]*documentInfo),
+	}
+	w.collections = append(w.collections, c)
+	return c
+}
+
+func (w *Watcher) document(collection string, id interface{}) (*collectionInfo, *documentInfo) {
+	coll := w.collection(collection)
+	if d, ok := coll.documents[id]; ok {
+		return coll, d
+	}
+	d := &documentInfo{
+		current: -2, // -2 means never observed
+	}
+	coll.documents[id] = d
+	return coll, d
 }
 
 // initLastId reads the most recent changelog document and initializes
@@ -445,23 +530,25 @@ func (w *Watcher) sync() error {
 				if revno < 0 {
 					revno = -1
 				}
-				if w.current[key] == revno {
+				collInfo, docInfo := w.document(c.Name, d[i])
+				if docInfo.current == revno {
 					continue
 				}
-				w.current[key] = revno
+				docInfo.current = revno
 				// Queue notifications for per-collection watches.
-				for _, info := range w.watches[watchKey{c.Name, nil}] {
+				for _, info := range collInfo.watches {
 					if info.filter != nil && !info.filter(d[i]) {
 						continue
 					}
 					w.syncEvents = append(w.syncEvents, event{info.ch, key, revno})
 				}
 				// Queue notifications for per-document watches.
-				infos := w.watches[key]
-				for i, info := range infos {
+				for i, info := range docInfo.watches {
 					if revno > info.revno || revno < 0 && info.revno >= 0 {
-						infos[i].revno = revno
-						w.syncEvents = append(w.syncEvents, event{info.ch, key, revno})
+						docInfo.watches[i].revno = revno
+						w.syncEvents = append(w.syncEvents, event{
+							info.ch, key, revno,
+						})
 					}
 				}
 			}

@@ -10,6 +10,7 @@ import (
 	gitjujutesting "github.com/juju/testing"
 	jc "github.com/juju/testing/checkers"
 	gc "gopkg.in/check.v1"
+	worker "gopkg.in/juju/worker.v1"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/txn"
 	"gopkg.in/tomb.v1"
@@ -68,26 +69,24 @@ type FastPeriodSuite struct {
 
 func (s *FastPeriodSuite) SetUpSuite(c *gc.C) {
 	s.watcherSuite.SetUpSuite(c)
-	watcher.Period = fastPeriod
+	s.PatchValue(&watcher.Period, fastPeriod)
 }
 
 var _ = gc.Suite(&FastPeriodSuite{})
 
 func (s *watcherSuite) SetUpSuite(c *gc.C) {
-	s.BaseSuite.SetUpSuite(c)
 	s.MgoSuite.SetUpSuite(c)
-	s.oldPeriod = watcher.Period
+	s.BaseSuite.SetUpSuite(c)
 }
 
 func (s *watcherSuite) TearDownSuite(c *gc.C) {
-	s.MgoSuite.TearDownSuite(c)
 	s.BaseSuite.TearDownSuite(c)
-	watcher.Period = s.oldPeriod
+	s.MgoSuite.TearDownSuite(c)
 }
 
 func (s *watcherSuite) SetUpTest(c *gc.C) {
-	s.BaseSuite.SetUpTest(c)
 	s.MgoSuite.SetUpTest(c)
+	s.BaseSuite.SetUpTest(c)
 
 	db := s.MgoSuite.Session.DB("juju")
 	s.log = db.C("txnlog")
@@ -96,17 +95,23 @@ func (s *watcherSuite) SetUpTest(c *gc.C) {
 		MaxBytes: 1000000,
 	})
 	s.stash = db.C("txn.stash")
-	s.runner = txn.NewRunner(db.C("txn"))
+
+	runnerSession := s.MgoSuite.Session.Copy()
+	s.AddCleanup(func(*gc.C) { runnerSession.Close() })
+	s.runner = txn.NewRunner(db.C("txn").With(runnerSession))
 	s.runner.ChangeLog(s.log)
-	s.w = watcher.NewTestWatcher(s.log, s.iteratorFunc)
+
+	watcherSession := s.MgoSuite.Session.Copy()
+	s.AddCleanup(func(*gc.C) { watcherSession.Close() })
+	s.w = watcher.NewTestWatcher(s.log.With(watcherSession), s.iteratorFunc)
 	s.ch = make(chan watcher.Change)
 }
 
 func (s *watcherSuite) TearDownTest(c *gc.C) {
 	c.Assert(s.w.Stop(), gc.IsNil)
 
-	s.MgoSuite.TearDownTest(c)
 	s.BaseSuite.TearDownTest(c)
+	s.MgoSuite.TearDownTest(c)
 }
 
 type M map[string]interface{}
@@ -283,14 +288,17 @@ func (s *FastPeriodSuite) TestWatchMultipleChannels(c *gc.C) {
 	ch1 := make(chan watcher.Change)
 	ch2 := make(chan watcher.Change)
 	ch3 := make(chan watcher.Change)
-	s.w.Watch("test1", 1, -1, ch1)
-	s.w.Watch("test2", 2, -1, ch2)
-	s.w.Watch("test3", 3, -1, ch3)
+	w1 := s.w.Watch("test1", 1, -1, ch1)
+	defer worker.Stop(w1)
+	w2 := s.w.Watch("test2", 2, -1, ch2)
+	defer worker.Stop(w2)
+	w3 := s.w.Watch("test3", 3, -1, ch3)
+	defer worker.Stop(w3)
 	revno1 := s.insert(c, "test1", 1)
 	revno2 := s.insert(c, "test2", 2)
 	revno3 := s.insert(c, "test3", 3)
 	s.w.StartSync()
-	s.w.Unwatch("test2", 2, ch2)
+	worker.Stop(w2)
 	assertChange(c, ch1, watcher.Change{"test1", 1, revno1})
 	_ = revno2
 	assertChange(c, ch3, watcher.Change{"test3", 3, revno3})
@@ -407,11 +415,12 @@ func (s *FastPeriodSuite) TestWatchUnwatchOnQueue(c *gc.C) {
 		s.insert(c, "test", i)
 	}
 	s.w.StartSync()
+	ws := make([]worker.Worker, N)
 	for i := 0; i < N; i++ {
-		s.w.Watch("test", i, -1, s.ch)
+		ws[i] = s.w.Watch("test", i, -1, s.ch)
 	}
 	for i := 1; i < N; i += 2 {
-		s.w.Unwatch("test", i, s.ch)
+		worker.Stop(ws[i])
 	}
 	s.w.StartSync()
 	seen := make(map[interface{}]bool)
@@ -456,9 +465,9 @@ func (s *FastPeriodSuite) TestWatchCollection(c *gc.C) {
 	chB := make(chan watcher.Change)
 
 	s.w.Watch("testA", 1, -1, chA1)
-	s.w.Watch("testB", 1, -1, chB1)
+	wb1 := s.w.Watch("testB", 1, -1, chB1)
 	s.w.WatchCollection("testA", chA)
-	s.w.WatchCollection("testB", chB)
+	wb := s.w.WatchCollection("testB", chB)
 
 	revno1 := s.insert(c, "testA", 1)
 	revno2 := s.insert(c, "testA", 2)
@@ -495,8 +504,8 @@ Loop1:
 		return
 	}
 
-	s.w.UnwatchCollection("testB", chB)
-	s.w.Unwatch("testB", 1, chB1)
+	worker.Stop(wb)
+	worker.Stop(wb1)
 
 	revno1 = s.update(c, "testA", 1)
 
@@ -568,7 +577,7 @@ func (s *FastPeriodSuite) TestUnwatchCollectionWithFilter(c *gc.C) {
 
 func (s *FastPeriodSuite) TestUnwatchCollectionWithOutstandingRequest(c *gc.C) {
 	chA := make(chan watcher.Change)
-	s.w.WatchCollection("testA", chA)
+	wA := s.w.WatchCollection("testA", chA)
 	chB := make(chan watcher.Change)
 	s.w.Watch("testB", 1, -1, chB)
 	revnoA := s.insert(c, "testA", 1)
@@ -585,7 +594,7 @@ func (s *FastPeriodSuite) TestUnwatchCollectionWithOutstandingRequest(c *gc.C) {
 	// the watcher is trying to send changes on all the
 	// watcher channels (2 changes on chA and 1 change on chB).
 	assertChange(c, chA, watcher.Change{"testA", 1, revnoA})
-	s.w.UnwatchCollection("testA", chA)
+	worker.Stop(wA)
 	assertChange(c, chB, watcher.Change{"testB", 1, revnoB})
 }
 
@@ -619,7 +628,7 @@ type SlowPeriodSuite struct {
 
 func (s *SlowPeriodSuite) SetUpSuite(c *gc.C) {
 	s.watcherSuite.SetUpSuite(c)
-	watcher.Period = slowPeriod
+	s.PatchValue(&watcher.Period, slowPeriod)
 }
 
 var _ = gc.Suite(&SlowPeriodSuite{})
@@ -707,26 +716,19 @@ func (s *SlowPeriodSuite) TestStartSyncStartsImmediately(c *gc.C) {
 }
 
 type badIter struct {
-	*mgo.Iter
+	mongo.Iterator
+}
 
-	errorAfter int
+func (b *badIter) Next(interface{}) bool {
+	return false
+}
+
+func (b *badIter) Err() error {
+	return &mgo.QueryError{Code: 136}
 }
 
 func (b *badIter) Close() (err error) {
-	defer func() {
-		err2 := b.Iter.Close()
-		if err == nil {
-			err = err2
-		}
-	}()
-
-	b.errorAfter--
-	if b.errorAfter < 0 {
-		return &mgo.QueryError{
-			Code: 136,
-		}
-	}
-	return nil
+	return b.Err()
 }
 
 type WatcherErrorSuite struct {
@@ -735,19 +737,10 @@ type WatcherErrorSuite struct {
 
 func (s *WatcherErrorSuite) SetUpSuite(c *gc.C) {
 	s.watcherSuite.SetUpSuite(c)
-	iter := &badIter{
-		errorAfter: 2,
-	}
 	s.iteratorFunc = func() mongo.Iterator {
-		iter.Iter = s.log.Find(nil).Batch(10).Sort("-$natural").Iter()
-		return iter
+		return &badIter{}
 	}
-	watcher.Period = fastPeriod
-}
-
-func (s *WatcherErrorSuite) TearDownTest(c *gc.C) {
-	s.MgoSuite.TearDownTest(c)
-	s.BaseSuite.TearDownTest(c)
+	s.PatchValue(&watcher.Period, fastPeriod)
 }
 
 var _ = gc.Suite(&WatcherErrorSuite{})
@@ -771,4 +764,6 @@ func (s *WatcherErrorSuite) TestCappedCollectionError(c *gc.C) {
 	err := s.w.Stop()
 	c.Assert(err, gc.NotNil)
 	c.Assert(err, gc.ErrorMatches, "agent should be restarted")
+
+	s.w = watcher.NewTestWatcher(s.log, nil)
 }

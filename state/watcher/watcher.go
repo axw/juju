@@ -7,6 +7,7 @@
 package watcher
 
 import (
+	"container/list"
 	"fmt"
 	"strings"
 	"time"
@@ -32,38 +33,27 @@ type Watcher struct {
 
 	collections []*collectionInfo
 
-	// needSync is set when a synchronization should take
-	// place.
-	needSync bool
-
-	// syncEvents and requestEvents contain the events to be
-	// dispatched to the watcher channels. They're queued during
-	// processing and flushed at the end to simplify the algorithm.
-	// The two queues are separated because events from sync are
-	// handled in reverse order due to the way the algorithm works.
-	syncEvents, requestEvents []event
-
 	// request is used to deliver requests from the public API into
 	// the the goroutine loop.
 	request chan interface{}
-
-	// lastId is the most recent transaction id observed by a sync.
-	lastId interface{}
 }
 
 type collectionInfo struct {
-	name      string
-	watches   []collWatchInfo
-	documents map[interface{}]*documentInfo
+	name       string
+	version    int64
+	documentsL *list.List
+	documentsM map[interface{}]*documentInfo
+	watches    []*collWatchInfo
 }
 
 type documentInfo struct {
+	e       *list.Element
+	id      interface{}
+	version int64
+	// revno holds the current txn-revno values for the document.
+	// Documents that have been deleted will have revno -1.
+	revno   int64
 	watches []docWatchInfo
-
-	// current holds the current txn-revno values for all the observed
-	// documents known to exist. Documents not observed or deleted are
-	// omitted from this map and are considered to have revno -1.
-	current int64
 }
 
 // A Change holds information about a document change.
@@ -105,20 +95,16 @@ func (k watchKey) match(k1 watchKey) bool {
 	return k.id == k1.id
 }
 
-type collWatchInfo struct {
-	ch     chan<- Change
-	filter func(interface{}) bool
-}
-
 type docWatchInfo struct {
-	ch    chan<- Change
+	ch    chan<- int64
 	revno int64
 }
 
-type event struct {
-	ch    chan<- Change
-	key   watchKey
-	revno int64
+type collWatchInfo struct {
+	ch      chan<- Change
+	next    *list.Element
+	version int64
+	waiting bool
 }
 
 // Period is the delay between each sync.
@@ -141,7 +127,7 @@ func newWatcher(changelog *mgo.Collection, iteratorFunc func() mongo.Iterator) *
 		w.iteratorFunc = w.iter
 	}
 	go func() {
-		err := w.loop(Period)
+		err := w.loop()
 		cause := errors.Cause(err)
 		// tomb expects ErrDying or ErrStillAlive as
 		// exact values, so we need to log and unwrap
@@ -193,13 +179,18 @@ func (w *Watcher) Err() error {
 }
 
 type reqWatchColl struct {
-	key  watchKey
-	info collWatchInfo
+	c    string
+	info *collWatchInfo
+}
+
+type reqWatchCollNext struct {
+	c    string
+	info *collWatchInfo
 }
 
 type reqUnwatchColl struct {
-	key watchKey
-	ch  chan<- Change
+	c    string
+	info *collWatchInfo
 }
 
 type reqWatchDoc struct {
@@ -207,137 +198,240 @@ type reqWatchDoc struct {
 	info docWatchInfo
 }
 
-type reqUnwatchDoc struct {
-	key watchKey
-	ch  chan<- Change
-}
-
-type reqSync struct{}
-
-func (w *Watcher) sendReq(req interface{}) {
-	select {
-	case w.request <- req:
-	case <-w.tomb.Dying():
-	}
-}
-
 // Watch starts watching the given collection and document id.
 // An event will be sent onto ch whenever a matching document's txn-revno
 // field is observed to change after a transaction is applied. The revno
 // parameter holds the currently known revision number for the document.
 // Non-existent documents are represented by a -1 revno.
-func (w *Watcher) Watch(collection string, id interface{}, revno int64, ch chan<- Change) {
+func (w *Watcher) Watch(collection string, id interface{}, revno int64, ch chan<- Change) worker.Worker {
 	if id == nil {
 		panic("watcher: cannot watch a document with nil id")
 	}
-	w.sendReq(reqWatchDoc{watchKey{collection, id}, docWatchInfo{ch, revno}})
+	dcw := &docChangeWorker{w: w, key: watchKey{collection, id}, out: ch}
+	go func() {
+		defer dcw.tomb.Done()
+		dcw.tomb.Kill(dcw.loop(revno))
+	}()
+	return dcw
+}
+
+type docChangeWorker struct {
+	tomb tomb.Tomb
+	w    *Watcher
+	key  watchKey
+	out  chan<- Change
+}
+
+func (w *docChangeWorker) loop(initRevno int64) error {
+	resp := make(chan int64, 1)
+	req := reqWatchDoc{w.key, docWatchInfo{resp, initRevno}}
+	reqch := w.w.request
+	change := Change{C: w.key.c, Id: w.key.id}
+	var out chan<- Change
+	for {
+		select {
+		case <-w.tomb.Dying():
+			return tomb.ErrDying
+		case <-w.w.tomb.Dying():
+			return errors.New("Watcher was stopped")
+		case reqch <- req:
+			reqch = nil
+		case revno := <-resp:
+			req.info.revno = revno
+			change.Revno = revno
+			out = w.out
+		case out <- change:
+			out = nil
+			reqch = w.w.request
+		}
+	}
+}
+
+// Kill is part of the worker.Worker interface.
+func (w *docChangeWorker) Kill() {
+	w.tomb.Kill(nil)
+}
+
+// Wait is part of the worker.Worker interface.
+func (w *docChangeWorker) Wait() error {
+	return w.tomb.Wait()
 }
 
 // WatchCollection starts watching the given collection.
 // An event will be sent onto ch whenever the txn-revno field is observed
 // to change after a transaction is applied for any document in the collection.
-func (w *Watcher) WatchCollection(collection string, ch chan<- Change) {
-	w.WatchCollectionWithFilter(collection, ch, nil)
+func (w *Watcher) WatchCollection(collection string, ch chan<- Change) worker.Worker {
+	return w.WatchCollectionWithFilter(collection, ch, nil)
 }
 
 // WatchCollectionWithFilter starts watching the given collection.
 // An event will be sent onto ch whenever the txn-revno field is observed
 // to change after a transaction is applied for any document in the collection, so long as the
 // specified filter function returns true when called with the document id value.
-func (w *Watcher) WatchCollectionWithFilter(collection string, ch chan<- Change, filter func(interface{}) bool) {
-	w.sendReq(reqWatchColl{watchKey{collection, nil}, collWatchInfo{ch, filter}})
+func (w *Watcher) WatchCollectionWithFilter(collection string, ch chan<- Change, filter func(interface{}) bool) worker.Worker {
+	ccw := &collChangeWorker{w: w, c: collection, filter: filter, out: ch}
+	go func() {
+		defer ccw.tomb.Done()
+		ccw.tomb.Kill(ccw.loop())
+	}()
+	return ccw
 }
 
-// Unwatch stops watching the given collection and document id via ch.
-func (w *Watcher) Unwatch(collection string, id interface{}, ch chan<- Change) {
-	if id == nil {
-		panic("watcher: cannot unwatch a document with nil id")
+type collChangeWorker struct {
+	tomb   tomb.Tomb
+	w      *Watcher
+	c      string
+	filter func(interface{}) bool
+	out    chan<- Change
+}
+
+func (w *collChangeWorker) loop() error {
+	// Algorithm:
+	//  1. register collection watcher
+	//  2. until dying, request changes
+	//  3. unregister collection watcher
+
+	// Register the watcher.
+	respch := make(chan Change, 1)
+	defer close(respch)
+	info := &collWatchInfo{ch: respch, version: -1}
+	select {
+	case <-w.tomb.Dying():
+		return tomb.ErrDying
+	case <-w.w.tomb.Dying():
+		return errors.New("Watcher was stopped")
+	case w.w.request <- reqWatchColl{w.c, info}:
 	}
-	w.sendReq(reqUnwatchDoc{watchKey{collection, id}, ch})
+
+	filter := w.filter
+	if filter == nil {
+		filter = func(interface{}) bool {
+			return true
+		}
+	}
+
+	// Request changes until this worker or the watcher is stopped.
+	reqch := w.w.request
+	var change Change
+	var out chan<- Change
+	for {
+		select {
+		case <-w.tomb.Dying():
+			// Unregister the watcher.
+			select {
+			case w.w.request <- reqUnwatchColl{w.c, info}:
+			case <-w.w.tomb.Dying():
+				return errors.New("Watcher was stopped")
+			}
+			return tomb.ErrDying
+		case <-w.w.tomb.Dying():
+			return errors.New("Watcher was stopped")
+		case reqch <- reqWatchCollNext{w.c, info}:
+			reqch = nil
+		case change = <-respch:
+			if !filter(change.Id) {
+				reqch = w.w.request
+				continue
+			}
+			out = w.out
+		case out <- change:
+			out = nil
+			reqch = w.w.request
+		}
+	}
 }
 
-// UnwatchCollection stops watching the given collection via ch.
-func (w *Watcher) UnwatchCollection(collection string, ch chan<- Change) {
-	w.sendReq(reqUnwatchColl{watchKey{collection, nil}, ch})
+// Kill is part of the worker.Worker interface.
+func (w *collChangeWorker) Kill() {
+	w.tomb.Kill(nil)
+}
+
+// Wait is part of the worker.Worker interface.
+func (w *collChangeWorker) Wait() error {
+	return w.tomb.Wait()
 }
 
 // StartSync forces the watcher to load new events from the database.
 func (w *Watcher) StartSync() {
-	w.sendReq(reqSync{})
+	// TODO(axw) get rid of this
 }
 
 // loop implements the main watcher loop.
-// period is the delay between each sync.
-func (w *Watcher) loop(period time.Duration) error {
-	next := time.After(period)
-	w.needSync = true
-	if err := w.initLastId(); err != nil {
-		return errors.Trace(err)
-	}
+func (w *Watcher) loop() error {
+	changes := make(chan Change)
+	syncDone := make(chan struct{})
+	syncAbort := make(chan struct{})
+	syncErr := make(chan error, 1)
+	go func() {
+		defer close(syncDone)
+		syncErr <- w.syncLoop(changes, syncAbort)
+	}()
+	defer func() {
+		close(syncAbort)
+		<-syncDone
+	}()
+
 	for {
-		if w.needSync {
-			if err := w.sync(); err != nil {
-				// If the txn log collection overflows from underneath us,
-				// the easiest cause of action to recover is to cause the
-				// agen tto restart.
-				if errors.Cause(err) == cappedPositionLostError {
-					// Ideally we'd not import the worker package but that's
-					// where all the errors are defined.
-					return jworker.ErrRestartAgent
-				}
-				return errors.Trace(err)
-			}
-			w.flush()
-			next = time.After(period)
-		}
 		select {
 		case <-w.tomb.Dying():
 			return errors.Trace(tomb.ErrDying)
-		case <-next:
-			next = time.After(period)
-			w.needSync = true
 		case req := <-w.request:
 			w.handle(req)
-			w.flush()
+		case change := <-changes:
+			w.handleChange(change)
+		case err := <-syncErr:
+			// If the txn log collection overflows from underneath us,
+			// the easiest cause of action to recover is to cause the
+			// agen tto restart.
+			if errors.Cause(err) == cappedPositionLostError {
+				// Ideally we'd not import the worker package but that's
+				// where all the errors are defined.
+				return jworker.ErrRestartAgent
+			}
+			return errors.Trace(err)
 		}
 	}
 }
 
-// flush sends all pending events to their respective channels.
-func (w *Watcher) flush() {
-	// refreshEvents are stored newest first.
-	for i := len(w.syncEvents) - 1; i >= 0; i-- {
-		e := &w.syncEvents[i]
-		for e.ch != nil {
-			select {
-			case <-w.tomb.Dying():
-				return
-			case req := <-w.request:
-				w.handle(req)
-				continue
-			case e.ch <- Change{e.key.c, e.key.id, e.revno}:
+func (w *Watcher) handleChange(change Change) {
+	collInfo, docInfo := w.document(change.C, change.Id)
+	if docInfo.revno == change.Revno {
+		// Non-mutating txns do not increment revno.
+		return
+	}
+	collInfo.version++
+	docInfo.version = collInfo.version
+	docInfo.revno = change.Revno
+	if docInfo.e == nil {
+		docInfo.e = collInfo.documentsL.PushBack(docInfo)
+	} else if next := docInfo.e.Next(); next != nil {
+		// The document has been updated, so
+		// move it to the back and redirect
+		// any collection watchers that were
+		// going to report it next.
+		for _, info := range collInfo.watches {
+			if info.next == docInfo.e {
+				info.next = next
 			}
-			break
+		}
+		collInfo.documentsL.MoveToBack(docInfo.e)
+	}
+	for _, info := range collInfo.watches {
+		if info.waiting {
+			info.waiting = false
+			info.version = docInfo.version
+			info.ch <- change
 		}
 	}
-	// requestEvents are stored oldest first, and
-	// may grow during the loop.
-	for i := 0; i < len(w.requestEvents); i++ {
-		e := &w.requestEvents[i]
-		for e.ch != nil {
-			select {
-			case <-w.tomb.Dying():
-				return
-			case req := <-w.request:
-				w.handle(req)
-				continue
-			case e.ch <- Change{e.key.c, e.key.id, e.revno}:
-			}
-			break
+	for i := 0; i < len(docInfo.watches); i++ {
+		dw := docInfo.watches[i]
+		if change.Revno > dw.revno || change.Revno == -1 && dw.revno >= 0 {
+			fmt.Println("~~~", docInfo.id, change.Id)
+			docInfo.watches[i].ch <- change.Revno
+			docInfo.watches[i] = docInfo.watches[len(docInfo.watches)-1]
+			docInfo.watches = docInfo.watches[:len(docInfo.watches)-1]
 		}
 	}
-	w.syncEvents = w.syncEvents[:0]
-	w.requestEvents = w.requestEvents[:0]
 }
 
 // handle deals with requests delivered by the public API
@@ -345,80 +439,46 @@ func (w *Watcher) flush() {
 func (w *Watcher) handle(req interface{}) {
 	logger.Tracef("got request: %#v", req)
 	switch r := req.(type) {
-	case reqSync:
-		w.needSync = true
 	case reqWatchColl:
-		collInfo := w.collection(r.key.c)
-		for _, info := range collInfo.watches {
-			if info.ch == r.info.ch {
-				panic(fmt.Errorf("tried to re-add channel %v for %s", info.ch, r.key))
+		collInfo := w.collection(r.c)
+		r.info.version = collInfo.version
+		collInfo.watches = append(collInfo.watches, r.info)
+	case reqWatchCollNext:
+		collInfo := w.collection(r.c)
+		next := r.info.next
+		if next == nil {
+			next = collInfo.documentsL.Back()
+			if next == nil || next.Value.(*documentInfo).version <= r.info.version {
+				r.info.waiting = true
+				return
+			}
+			prev := next.Prev()
+			for prev != nil && prev.Value.(*documentInfo).version > r.info.version {
+				next = prev
+				prev = prev.Prev()
 			}
 		}
-		collInfo.watches = append(collInfo.watches, r.info)
+		docInfo := next.Value.(*documentInfo)
+		r.info.next = next.Next()
+		r.info.version = docInfo.version
+		r.info.waiting = false
+		r.info.ch <- Change{C: r.c, Id: docInfo.id, Revno: docInfo.revno}
 	case reqUnwatchColl:
-		collInfo := w.collection(r.key.c)
-		removed := false
+		collInfo := w.collection(r.c)
 		for i, info := range collInfo.watches {
-			if info.ch == r.ch {
+			if info == r.info {
 				collInfo.watches[i] = collInfo.watches[len(collInfo.watches)-1]
 				collInfo.watches = collInfo.watches[:len(collInfo.watches)-1]
-				removed = true
 				break
-			}
-		}
-		if !removed {
-			panic(fmt.Errorf("tried to remove missing channel %v for %s", r.ch, r.key))
-		}
-		for i := range w.requestEvents {
-			e := &w.requestEvents[i]
-			if r.key.match(e.key) && e.ch == r.ch {
-				e.ch = nil
-			}
-		}
-		for i := range w.syncEvents {
-			e := &w.syncEvents[i]
-			if r.key.match(e.key) && e.ch == r.ch {
-				e.ch = nil
 			}
 		}
 	case reqWatchDoc:
 		_, docInfo := w.document(r.key.c, r.key.id)
-		for _, info := range docInfo.watches {
-			if info.ch == r.info.ch {
-				panic(fmt.Errorf("tried to re-add channel %v for %s", info.ch, r.key))
-			}
-		}
-		revno := docInfo.current
+		revno := docInfo.revno
 		if revno > r.info.revno || revno == -1 && r.info.revno >= 0 {
-			r.info.revno = revno
-			w.requestEvents = append(w.requestEvents, event{r.info.ch, r.key, revno})
-		}
-		docInfo.watches = append(docInfo.watches, r.info)
-	case reqUnwatchDoc:
-		_, docInfo := w.document(r.key.c, r.key.id)
-		removed := false
-		for i, info := range docInfo.watches {
-			if info.ch == r.ch {
-				docInfo.watches[i] = docInfo.watches[len(docInfo.watches)-1]
-				docInfo.watches = docInfo.watches[:len(docInfo.watches)-1]
-				removed = true
-				break
-			}
-		}
-		if !removed {
-			panic(fmt.Errorf("tried to remove missing channel %v for document %v in %s", r.ch, r.key))
-		}
-		for i := range w.requestEvents {
-			e := &w.requestEvents[i]
-			if r.key.match(e.key) && e.ch == r.ch {
-				e.ch = nil
-			}
-		}
-		for i := range w.syncEvents {
-			e := &w.syncEvents[i]
-			if r.key.match(e.key) && e.ch == r.ch {
-				e.ch = nil
-			}
+			r.info.ch <- revno
+		} else {
+			docInfo.watches = append(docInfo.watches, r.info)
 		}
 	default:
 		panic(fmt.Errorf("unknown request: %T", req))
@@ -426,16 +486,15 @@ func (w *Watcher) handle(req interface{}) {
 }
 
 func (w *Watcher) collection(name string) *collectionInfo {
-	// TODO(axw) compare this vs. map vs.
-	// binary search for Juju's collections.
 	for _, c := range w.collections {
 		if c.name == name {
 			return c
 		}
 	}
 	c := &collectionInfo{
-		name:      name,
-		documents: make(map[interface{}]*documentInfo),
+		name:       name,
+		documentsL: list.New(),
+		documentsM: make(map[interface{}]*documentInfo),
 	}
 	w.collections = append(w.collections, c)
 	return c
@@ -443,61 +502,60 @@ func (w *Watcher) collection(name string) *collectionInfo {
 
 func (w *Watcher) document(collection string, id interface{}) (*collectionInfo, *documentInfo) {
 	coll := w.collection(collection)
-	if d, ok := coll.documents[id]; ok {
+	if d, ok := coll.documentsM[id]; ok {
 		return coll, d
 	}
 	d := &documentInfo{
-		current: -2, // -2 means never observed
+		id:    id,
+		revno: -2, // -2 means never observed
 	}
-	coll.documents[id] = d
+	coll.documentsM[id] = d
 	return coll, d
 }
 
-// initLastId reads the most recent changelog document and initializes
-// lastId with it. This causes all history that precedes the creation
-// of the watcher to be ignored.
-func (w *Watcher) initLastId() error {
-	var entry struct {
-		Id interface{} `bson:"_id"`
-	}
-	err := w.log.Find(nil).Sort("-$natural").One(&entry)
-	if err != nil && err != mgo.ErrNotFound {
-		return errors.Trace(err)
-	}
-	w.lastId = entry.Id
-	return nil
-}
-
 func (w *Watcher) iter() mongo.Iterator {
-	return w.log.Find(nil).Batch(10).Sort("-$natural").Iter()
+	return w.log.Find(nil).Tail(-1)
 }
 
 var cappedPositionLostError = errors.New("capped position lost")
 
 // sync updates the watcher knowledge from the database, and
 // queues events to observing channels.
-func (w *Watcher) sync() error {
-	w.needSync = false
-	// Iterate through log events in reverse insertion order (newest first).
-	iter := w.iteratorFunc()
-	seen := make(map[watchKey]bool)
-	first := true
-	lastId := w.lastId
+func (w *Watcher) syncLoop(changes chan<- Change, abort <-chan struct{}) error {
+	newIter := func() mongo.Iterator {
+		iter := w.iteratorFunc()
+		go func() {
+			<-abort
+			iter.Close()
+		}()
+		return iter
+	}
+	iter := newIter()
 	var entry bson.D
-	for iter.Next(&entry) {
+mainloop:
+	for {
+		if !iter.Next(&entry) {
+			if iter.Err() == nil {
+				// This happens when the collection is empty to
+				// begin with, even though we tail with no
+				// timeout. The only solution is to sleep and
+				// restart the iterator until the collection is
+				// non-empty.
+				iter.Close()
+				select {
+				case <-abort:
+					return errors.New("aborted")
+				case <-time.After(10 * time.Millisecond):
+				}
+				iter = newIter()
+				continue
+			}
+			// An error occurred.
+			break
+		}
 		if len(entry) == 0 {
 			logger.Tracef("got empty changelog document")
-		}
-		id := entry[0]
-		if id.Name != "_id" {
-			panic("watcher: _id field isn't first entry")
-		}
-		if first {
-			w.lastId = id.Value
-			first = false
-		}
-		if id.Value == lastId {
-			break
+			continue
 		}
 		logger.Tracef("got changelog document: %#v", entry)
 		for _, c := range entry[1:] {
@@ -516,12 +574,7 @@ func (w *Watcher) sync() error {
 				logger.Warningf("changelog has invalid collection document: %#v", c)
 				continue
 			}
-			for i := len(d) - 1; i >= 0; i-- {
-				key := watchKey{c.Name, d[i]}
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
+			for i, id := range d {
 				revno, ok := r[i].(int64)
 				if !ok {
 					logger.Warningf("changelog has revno with type %T: %#v", r[i], r[i])
@@ -530,26 +583,10 @@ func (w *Watcher) sync() error {
 				if revno < 0 {
 					revno = -1
 				}
-				collInfo, docInfo := w.document(c.Name, d[i])
-				if docInfo.current == revno {
-					continue
-				}
-				docInfo.current = revno
-				// Queue notifications for per-collection watches.
-				for _, info := range collInfo.watches {
-					if info.filter != nil && !info.filter(d[i]) {
-						continue
-					}
-					w.syncEvents = append(w.syncEvents, event{info.ch, key, revno})
-				}
-				// Queue notifications for per-document watches.
-				for i, info := range docInfo.watches {
-					if revno > info.revno || revno < 0 && info.revno >= 0 {
-						docInfo.watches[i].revno = revno
-						w.syncEvents = append(w.syncEvents, event{
-							info.ch, key, revno,
-						})
-					}
+				select {
+				case <-abort:
+					break mainloop
+				case changes <- Change{C: c.Name, Id: id, Revno: revno}:
 				}
 			}
 		}

@@ -11,6 +11,7 @@ import (
 	jc "github.com/juju/testing/checkers"
 	"github.com/juju/utils"
 	"github.com/juju/utils/clock"
+	"github.com/juju/version"
 	gc "gopkg.in/check.v1"
 	"gopkg.in/juju/names.v2"
 
@@ -968,6 +969,61 @@ func (s *ModelSuite) TestHostedModelCount(c *gc.C) {
 	c.Assert(env2.Destroy(), jc.ErrorIsNil)
 	c.Assert(st2.RemoveAllModelDocs(), jc.ErrorIsNil)
 	c.Assert(state.HostedModelCount(c, s.State), gc.Equals, 0)
+}
+
+func (s *ModelSuite) TestNewModelEnvironVersion(c *gc.C) {
+	v := version.MustParse("1.2.3")
+	st := s.Factory.MakeModel(c, &factory.ModelParams{
+		EnvironVersion: v,
+	})
+	defer st.Close()
+
+	m, err := st.Model()
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(m.EnvironVersion(), jc.DeepEquals, v)
+}
+
+func (s *ModelSuite) TestSetEnvironVersion(c *gc.C) {
+	v := version.MustParse("1.2.3")
+	m, err := s.State.Model()
+	c.Assert(err, jc.ErrorIsNil)
+
+	defer state.SetBeforeHooks(c, s.State, func() {
+		m, err := s.State.Model()
+		c.Assert(err, jc.ErrorIsNil)
+		c.Assert(m.EnvironVersion(), jc.DeepEquals, version.Zero)
+		err = m.SetEnvironVersion(v)
+		c.Assert(err, jc.ErrorIsNil)
+		c.Assert(m.EnvironVersion(), jc.DeepEquals, v)
+	}).Check()
+
+	err = m.SetEnvironVersion(v)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(m.EnvironVersion(), jc.DeepEquals, v)
+}
+
+func (s *ModelSuite) TestSetEnvironVersionCannotDecrease(c *gc.C) {
+	v1 := version.MustParse("1.0.0")
+	v2 := version.MustParse("2.0.0")
+	m, err := s.State.Model()
+	c.Assert(err, jc.ErrorIsNil)
+
+	defer state.SetBeforeHooks(c, s.State, func() {
+		m, err := s.State.Model()
+		c.Assert(err, jc.ErrorIsNil)
+		err = m.SetEnvironVersion(v2)
+		c.Assert(err, jc.ErrorIsNil)
+		c.Assert(m.EnvironVersion(), jc.DeepEquals, v2)
+	}).Check()
+
+	err = m.SetEnvironVersion(v1)
+	c.Assert(err, gc.ErrorMatches, `cannot set environ version to 1.0.0, which is less than the current version 2.0.0`)
+	// m's cached version is only updated on success
+	c.Assert(m.EnvironVersion(), jc.DeepEquals, version.Zero)
+
+	err = m.Refresh()
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(m.EnvironVersion(), jc.DeepEquals, v2)
 }
 
 type ModelCloudValidationSuite struct {

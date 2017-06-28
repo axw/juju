@@ -16,9 +16,9 @@ import (
 )
 
 // UpgradeOperations is part of the upgrades.OperationSource interface.
-func (env *azureEnviron) UpgradeOperations(environs.UpgradeOperationsParams) []environs.UpgradeOperation {
+func (env *azureEnviron) UpgradeOperations() []environs.UpgradeOperation {
 	return []environs.UpgradeOperation{{
-		version.MustParse("2.2-alpha1"),
+		version.MustParse("1.0.0"),
 		[]environs.UpgradeStep{
 			commonDeploymentUpgradeStep{env},
 		},
@@ -37,7 +37,7 @@ func (commonDeploymentUpgradeStep) Description() string {
 }
 
 // Run is part of the environs.UpgradeStep interface.
-func (step commonDeploymentUpgradeStep) Run() error {
+func (step commonDeploymentUpgradeStep) Run(environs.UpgradeStepParams) error {
 	env := step.env
 	isControllerEnviron, err := isControllerEnviron(env)
 	if err != nil {

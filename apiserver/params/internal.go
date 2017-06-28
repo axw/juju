@@ -432,6 +432,24 @@ type VersionResults struct {
 	Results []VersionResult `json:"results"`
 }
 
+// EntityVersionNumber holds the tag of an entity and an associated
+// version number.
+type EntityVersionNumber struct {
+	// Tag is the string representation of an entity tag, which
+	// should be parseable using names.ParseTag.
+	Tag string `json:"tag,omitempty"`
+
+	// Version is the string representation of a version number,
+	// which should be parseable using version.Number.
+	Version string `json:"version,omitempty"`
+}
+
+// EntityVersionNumbers holds a list of entities and associated
+// version numbers.
+type EntityVersionNumbers struct {
+	Entities []EntityVersionNumber `json:"entities"`
+}
+
 // ToolsResult holds the tools and possibly error for a given
 // Tools() API call.
 type ToolsResult struct {

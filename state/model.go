@@ -66,6 +66,11 @@ type modelDoc struct {
 	ControllerUUID string        `bson:"controller-uuid"`
 	MigrationMode  MigrationMode `bson:"migration-mode"`
 
+	// EnvironVersion is the version of the Environ. As providers
+	// evolve, cloud resource representations may change; the environ
+	// version tracks the current version of that.
+	EnvironVersion version.Number `bson:"environ-version"`
+
 	// Cloud is the name of the cloud to which the model is deployed.
 	Cloud string `bson:"cloud"`
 
@@ -244,6 +249,9 @@ type ModelArgs struct {
 
 	// MigrationMode is the initial migration mode of the model.
 	MigrationMode MigrationMode
+
+	// EnvironVersion is the initial version of the Environ for the model.
+	EnvironVersion version.Number
 }
 
 // Validate validates the ModelArgs.
@@ -721,6 +729,53 @@ func (m *Model) MeterStatus() MeterStatus {
 	}
 }
 
+// EnvironVersion is the version of the model's environ -- the related
+// cloud provider resources. The environ version is used by the controller
+// to identify environ/provider upgrade steps to run for a model's environ
+// after the controller is upgraded, or the model is migrated to another
+// controller.
+func (m *Model) EnvironVersion() version.Number {
+	return m.doc.EnvironVersion
+}
+
+// SetEnvironVersion sets the model's current environ version. The value
+// must be monotonically increasing.
+func (m *Model) SetEnvironVersion(v version.Number) error {
+	mOrig := m
+	buildTxn := func(attempt int) ([]txn.Op, error) {
+		if attempt > 0 {
+			if attempt == 1 {
+				mCopy := *m
+				m = &mCopy
+			}
+			if err := m.Refresh(); err != nil {
+				return nil, errors.Trace(err)
+			}
+		}
+		d := v.Compare(m.doc.EnvironVersion)
+		if d < 0 {
+			return nil, errors.Errorf(
+				"cannot set environ version to %s, which is less than the current version %s",
+				v, m.doc.EnvironVersion,
+			)
+		}
+		if d == 0 {
+			return nil, jujutxn.ErrNoOperations
+		}
+		return []txn.Op{{
+			C:      modelsC,
+			Id:     m.doc.UUID,
+			Assert: bson.D{{"environ-version", m.doc.EnvironVersion}},
+			Update: bson.D{{"$set", bson.D{{"environ-version", v}}}},
+		}}, nil
+	}
+	if err := m.globalState.db().Run(buildTxn); err != nil {
+		return errors.Trace(err)
+	}
+	mOrig.doc.EnvironVersion = v
+	return nil
+}
+
 // globalKey returns the global database key for the model.
 func (m *Model) globalKey() string {
 	return modelGlobalKey
@@ -1085,6 +1140,7 @@ func createModelOp(
 	name, uuid, controllerUUID, cloudName, cloudRegion string,
 	cloudCredential names.CloudCredentialTag,
 	migrationMode MigrationMode,
+	environVersion version.Number,
 ) txn.Op {
 	doc := &modelDoc{
 		UUID:            uuid,
@@ -1093,6 +1149,7 @@ func createModelOp(
 		Owner:           owner.Id(),
 		ControllerUUID:  controllerUUID,
 		MigrationMode:   migrationMode,
+		EnvironVersion:  environVersion,
 		Cloud:           cloudName,
 		CloudRegion:     cloudRegion,
 		CloudCredential: cloudCredential.Id(),

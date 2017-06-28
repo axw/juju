@@ -8,6 +8,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/utils"
+	"github.com/juju/version"
 	"gopkg.in/juju/names.v2"
 
 	"github.com/juju/juju/api"
@@ -95,4 +96,22 @@ func CheckProviderAPI(env Environ) error {
 		return nil
 	}
 	return errors.Annotate(err, "cannot make API call to provider")
+}
+
+// GreatestEnvironVersion returns the version that the Environ would
+// be if it were fully upgraded. The value is computed by taking the
+// greatest "TargetVersion" from the Environ's UpgradeOperations if
+// it implements environs.Upgrader, else version.Zero.
+func GreatestEnvironVersion(env Environ) version.Number {
+	greatest := version.Zero
+	upgrader, ok := env.(Upgrader)
+	if !ok {
+		return greatest
+	}
+	for _, op := range upgrader.UpgradeOperations() {
+		if op.TargetVersion.Compare(greatest) >= 0 {
+			greatest = op.TargetVersion
+		}
+	}
+	return greatest
 }

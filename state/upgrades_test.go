@@ -14,6 +14,7 @@ import (
 	jc "github.com/juju/testing/checkers"
 	"github.com/juju/utils"
 	"github.com/juju/utils/set"
+	"github.com/juju/version"
 	gc "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -90,6 +91,7 @@ func (s *upgradesSuite) TestStripLocalUserDomainModels(c *gc.C) {
 			Cloud:           "cloud-aws",
 			CloudRegion:     "us-west-1",
 			CloudCredential: "aws#fred@local#default",
+			EnvironVersion:  version.Zero,
 		},
 		modelDoc{
 			UUID:            "0000-dead-beaf-0002",
@@ -99,6 +101,7 @@ func (s *upgradesSuite) TestStripLocalUserDomainModels(c *gc.C) {
 			Cloud:           "cloud-aws",
 			CloudRegion:     "us-west-1",
 			CloudCredential: "aws#mary@external#default",
+			EnvironVersion:  version.Zero,
 		},
 	)
 	c.Assert(err, jc.ErrorIsNil)
@@ -120,6 +123,7 @@ func (s *upgradesSuite) TestStripLocalUserDomainModels(c *gc.C) {
 		"migration-mode":   "",
 		"sla":              bson.M{"level": "", "credentials": []uint8{}},
 		"meter-status":     bson.M{"code": "", "info": ""},
+		"environ-version":  "0.0.0",
 	}, {
 		"_id":              "0000-dead-beaf-0002",
 		"owner":            "user-mary@external",
@@ -132,6 +136,7 @@ func (s *upgradesSuite) TestStripLocalUserDomainModels(c *gc.C) {
 		"migration-mode":   "",
 		"sla":              bson.M{"level": "", "credentials": []uint8{}},
 		"meter-status":     bson.M{"code": "", "info": ""},
+		"environ-version":  "0.0.0",
 	},
 		initialModel,
 	}

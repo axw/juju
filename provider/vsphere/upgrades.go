@@ -15,12 +15,12 @@ import (
 )
 
 // UpgradeOperations is part of the upgrades.OperationSource interface.
-func (env *environ) UpgradeOperations(args environs.UpgradeOperationsParams) []environs.UpgradeOperation {
+func (env *environ) UpgradeOperations() []environs.UpgradeOperation {
 	return []environs.UpgradeOperation{{
 		version.MustParse("2.2-beta3"),
 		[]environs.UpgradeStep{
-			extraConfigUpgradeStep{env, args.ControllerUUID},
-			modelFoldersUpgradeStep{env, args.ControllerUUID},
+			extraConfigUpgradeStep{env},
+			modelFoldersUpgradeStep{env},
 		},
 	}}
 }
@@ -28,8 +28,7 @@ func (env *environ) UpgradeOperations(args environs.UpgradeOperationsParams) []e
 // extraConfigUpgradeStep moves top-level VMs into a model-specific
 // VM folder.
 type extraConfigUpgradeStep struct {
-	env            *environ
-	controllerUUID string
+	env *environ
 }
 
 // Description is part of the environs.UpgradeStep interface.
@@ -38,12 +37,11 @@ func (extraConfigUpgradeStep) Description() string {
 }
 
 // Run is part of the environs.UpgradeStep interface.
-func (step extraConfigUpgradeStep) Run() error {
+func (step extraConfigUpgradeStep) Run(args environs.UpgradeStepParams) error {
 	const (
 		legacyControllerTag   = "juju_controller_uuid_key"
 		legacyIsControllerTag = "juju_is_controller_key"
 	)
-	controllerUUID := step.controllerUUID
 	return step.env.withSession(func(env *sessionEnviron) error {
 		vms, err := env.client.VirtualMachines(env.ctx, env.namespace.Prefix()+"*")
 		if err != nil || len(vms) == 0 {
@@ -65,7 +63,7 @@ func (step extraConfigUpgradeStep) Run() error {
 				continue
 			}
 			metadata := map[string]string{
-				tags.JujuController: controllerUUID,
+				tags.JujuController: args.ControllerUUID,
 				tags.JujuModel:      env.Config().UUID(),
 			}
 			if isController {
@@ -84,8 +82,7 @@ func (step extraConfigUpgradeStep) Run() error {
 // modelFoldersUpgradeStep moves top-level VMs into a model-specific
 // VM folder.
 type modelFoldersUpgradeStep struct {
-	env            *environ
-	controllerUUID string
+	env *environ
 }
 
 // Description is part of the environs.UpgradeStep interface.
@@ -94,12 +91,11 @@ func (modelFoldersUpgradeStep) Description() string {
 }
 
 // Run is part of the environs.UpgradeStep interface.
-func (step modelFoldersUpgradeStep) Run() error {
-	controllerUUID := step.controllerUUID
+func (step modelFoldersUpgradeStep) Run(args environs.UpgradeStepParams) error {
 	return step.env.withSession(func(env *sessionEnviron) error {
 		// We must create the folder even if there are no VMs in the model.
 		modelFolderPath := path.Join(
-			controllerFolderName(controllerUUID),
+			controllerFolderName(args.ControllerUUID),
 			env.modelFolderName(),
 		)
 		if err := env.client.EnsureVMFolder(env.ctx, modelFolderPath); err != nil {

@@ -405,22 +405,17 @@ type InstanceTypesFetcher interface {
 type Upgrader interface {
 	// UpgradeOperations returns a list of UpgradeOperations for upgrading
 	// an Environ.
-	UpgradeOperations(UpgradeOperationsParams) []UpgradeOperation
-}
-
-// UpgradeOperationsParams contains the parameters for
-// Upgrader.UpgradeOperations.
-type UpgradeOperationsParams struct {
-	// ControllerUUID is the UUID of the controller to be that contains
-	// the Environ that is to be upgraded.
-	ControllerUUID string
+	UpgradeOperations() []UpgradeOperation
 }
 
 // UpgradeOperation contains a target agent version and sequence of upgrade
 // steps to apply to get to that version.
 type UpgradeOperation struct {
-	// TargetVersion is the target agent version number to which the
-	// upgrade steps pertain.
+	// TargetVersion is the target environ version number to which the
+	// upgrade steps pertain. When a model is upgraded, all upgrade
+	// operations will be run for versions greater than the recorded
+	// environ version. This version number is independent of the agent
+	// and controller versions.
 	TargetVersion version.Number
 
 	// Steps contains the sequence of upgrade steps to apply when
@@ -436,5 +431,12 @@ type UpgradeStep interface {
 	Description() string
 
 	// Run executes the upgrade business logic.
-	Run() error
+	Run(UpgradeStepParams) error
+}
+
+// UpgradeStepParams contains the parameters for UpgradeStep.Run.
+type UpgradeStepParams struct {
+	// ControllerUUID is the UUID of the controller that manages
+	// the Environ being upgraded.
+	ControllerUUID string
 }

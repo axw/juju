@@ -432,6 +432,21 @@ type VersionResults struct {
 	Results []VersionResult `json:"results"`
 }
 
+// SetModelEnvironVersions holds the tags and associated environ versions
+// of a collection of models.
+type SetModelEnvironVersions struct {
+	Models []SetModelEnvironVersion `json:"models,omitempty"`
+}
+
+type SetModelEnvironVersion struct {
+	// ModelTag is the string representation of a model tag, which
+	// should be parseable using names.ParseTag.
+	ModelTag string `json:"model-tag"`
+
+	// Version is the environ version to set for the model.
+	Version int `json:"version"`
+}
+
 // ToolsResult holds the tools and possibly error for a given
 // Tools() API call.
 type ToolsResult struct {

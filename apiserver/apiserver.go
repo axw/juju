@@ -119,8 +119,9 @@ type Server struct {
 
 // LoginValidator functions are used to decide whether login requests
 // are to be allowed. The validator is called before credentials are
-// checked.
-type LoginValidator func(params.LoginRequest) error
+// checked. If the login is for a specific model, its UUID will be
+// supplied in modelUUID; otherwise it will be the empty string.
+type LoginValidator func(args params.LoginRequest, modelUUID string) error
 
 // ServerConfig holds parameters required to set up an API server.
 type ServerConfig struct {

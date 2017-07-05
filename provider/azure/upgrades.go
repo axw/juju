@@ -9,16 +9,15 @@ import (
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/juju/errors"
-	"github.com/juju/version"
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/tags"
 )
 
 // UpgradeOperations is part of the upgrades.OperationSource interface.
-func (env *azureEnviron) UpgradeOperations(environs.UpgradeOperationsParams) []environs.UpgradeOperation {
+func (env *azureEnviron) UpgradeOperations() []environs.UpgradeOperation {
 	return []environs.UpgradeOperation{{
-		version.MustParse("2.2-alpha1"),
+		providerVersion1,
 		[]environs.UpgradeStep{
 			commonDeploymentUpgradeStep{env},
 		},
@@ -37,7 +36,7 @@ func (commonDeploymentUpgradeStep) Description() string {
 }
 
 // Run is part of the environs.UpgradeStep interface.
-func (step commonDeploymentUpgradeStep) Run() error {
+func (step commonDeploymentUpgradeStep) Run(environs.UpgradeStepParams) error {
 	env := step.env
 	isControllerEnviron, err := isControllerEnviron(env)
 	if err != nil {

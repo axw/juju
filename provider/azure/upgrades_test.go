@@ -52,16 +52,16 @@ func (s *environUpgradeSuite) TestEnvironImplementsUpgrader(c *gc.C) {
 
 func (s *environUpgradeSuite) TestEnvironUpgradeOperations(c *gc.C) {
 	upgrader := s.env.(environs.Upgrader)
-	ops := upgrader.UpgradeOperations(environs.UpgradeOperationsParams{})
+	ops := upgrader.UpgradeOperations()
 	c.Assert(ops, gc.HasLen, 1)
-	c.Assert(ops[0].TargetVersion, gc.Equals, version.MustParse("2.2-alpha1"))
+	c.Assert(ops[0].TargetVersion, gc.Equals, version.MustParse("1.0.0"))
 	c.Assert(ops[0].Steps, gc.HasLen, 1)
 	c.Assert(ops[0].Steps[0].Description(), gc.Equals, "Create common resource deployment")
 }
 
 func (s *environUpgradeSuite) TestEnvironUpgradeOperationCreateCommonDeployment(c *gc.C) {
 	upgrader := s.env.(environs.Upgrader)
-	op0 := upgrader.UpgradeOperations(environs.UpgradeOperationsParams{})[0]
+	op0 := upgrader.UpgradeOperations()[0]
 
 	// The existing NSG has two rules: one for Juju API traffic,
 	// and an application-specific rule. Only the latter should
@@ -108,7 +108,7 @@ func (s *environUpgradeSuite) TestEnvironUpgradeOperationCreateCommonDeployment(
 	deploymentSender := azuretesting.NewSenderWithValue(&resources.Deployment{})
 	deploymentSender.PathPattern = ".*/deployments/common"
 	s.sender = append(s.sender, vmListSender, nsgSender, deploymentSender)
-	c.Assert(op0.Steps[0].Run(), jc.ErrorIsNil)
+	c.Assert(op0.Steps[0].Run(environs.UpgradeStepParams{}), jc.ErrorIsNil)
 	c.Assert(s.requests, gc.HasLen, 3)
 
 	expectedSecurityRules := []network.SecurityRule{{
@@ -200,6 +200,6 @@ func (s *environUpgradeSuite) TestEnvironUpgradeOperationCreateCommonDeploymentC
 	vmListSender.PathPattern = ".*/virtualMachines"
 	s.sender = append(s.sender, vmListSender)
 
-	op0 := upgrader.UpgradeOperations(environs.UpgradeOperationsParams{})[0]
-	c.Assert(op0.Steps[0].Run(), jc.ErrorIsNil)
+	op0 := upgrader.UpgradeOperations()[0]
+	c.Assert(op0.Steps[0].Run(environs.UpgradeStepParams{}), jc.ErrorIsNil)
 }

@@ -69,7 +69,7 @@ type modelDoc struct {
 	// EnvironVersion is the version of the Environ. As providers
 	// evolve, cloud resource representations may change; the environ
 	// version tracks the current version of that.
-	EnvironVersion version.Number `bson:"environ-version"`
+	EnvironVersion int `bson:"environ-version"`
 
 	// Cloud is the name of the cloud to which the model is deployed.
 	Cloud string `bson:"cloud"`
@@ -251,7 +251,7 @@ type ModelArgs struct {
 	MigrationMode MigrationMode
 
 	// EnvironVersion is the initial version of the Environ for the model.
-	EnvironVersion version.Number
+	EnvironVersion int
 }
 
 // Validate validates the ModelArgs.
@@ -734,13 +734,13 @@ func (m *Model) MeterStatus() MeterStatus {
 // to identify environ/provider upgrade steps to run for a model's environ
 // after the controller is upgraded, or the model is migrated to another
 // controller.
-func (m *Model) EnvironVersion() version.Number {
+func (m *Model) EnvironVersion() int {
 	return m.doc.EnvironVersion
 }
 
 // SetEnvironVersion sets the model's current environ version. The value
 // must be monotonically increasing.
-func (m *Model) SetEnvironVersion(v version.Number) error {
+func (m *Model) SetEnvironVersion(v int) error {
 	mOrig := m
 	buildTxn := func(attempt int) ([]txn.Op, error) {
 		if attempt > 0 {
@@ -752,14 +752,13 @@ func (m *Model) SetEnvironVersion(v version.Number) error {
 				return nil, errors.Trace(err)
 			}
 		}
-		d := v.Compare(m.doc.EnvironVersion)
-		if d < 0 {
+		if v < m.doc.EnvironVersion {
 			return nil, errors.Errorf(
-				"cannot set environ version to %s, which is less than the current version %s",
+				"cannot set environ version to %v, which is less than the current version %v",
 				v, m.doc.EnvironVersion,
 			)
 		}
-		if d == 0 {
+		if v == m.doc.EnvironVersion {
 			return nil, jujutxn.ErrNoOperations
 		}
 		return []txn.Op{{
@@ -1140,7 +1139,7 @@ func createModelOp(
 	name, uuid, controllerUUID, cloudName, cloudRegion string,
 	cloudCredential names.CloudCredentialTag,
 	migrationMode MigrationMode,
-	environVersion version.Number,
+	environVersion int,
 ) txn.Op {
 	doc := &modelDoc{
 		UUID:            uuid,

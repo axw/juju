@@ -326,6 +326,7 @@ func NewMachineAgent(
 		mongoDialCollector:          mongometrics.NewDialCollector(),
 		preUpgradeSteps:             preUpgradeSteps,
 		statePool:                   &statePoolHolder{},
+		modelRegistry:               modelRegistry{models: make(set.Strings)},
 	}
 	if err := a.registerPrometheusCollectors(); err != nil {
 		return nil, errors.Trace(err)
@@ -401,6 +402,11 @@ type MachineAgent struct {
 	// worker can have a single thing to hold that can report on the state pool.
 	// The content of the state pool holder is updated as the pool changes.
 	statePool *statePoolHolder
+
+	// modelRegistry contains the tags of models that are available for
+	// serving by the API server. The registry is updated by the
+	// modelregistrar workers run by each model's dependency engine.
+	modelRegistry modelRegistry
 }
 
 type statePoolHolder struct {
@@ -432,6 +438,16 @@ func (a *MachineAgent) isUpgradeRunning() bool {
 
 func (a *MachineAgent) isInitialUpgradeCheckPending() bool {
 	return !a.initialUpgradeCheckComplete.IsUnlocked()
+}
+
+// isModelUpgrading reports whether or not the modelupgrader has
+// not yet run to completion for the specified model.
+func (a *MachineAgent) isModelUpgrading(modelUUID string) bool {
+	if modelUUID == "" {
+		// controller-only login
+		return false
+	}
+	return !a.modelRegistry.modelRegistered(modelUUID)
 }
 
 // Wait waits for the machine agent to finish.
@@ -1210,6 +1226,7 @@ func (a *MachineAgent) startModelWorkers(controllerUUID, modelUUID string) (work
 		StatusHistoryPrunerInterval: 5 * time.Minute,
 		NewEnvironFunc:              newEnvirons,
 		NewMigrationMaster:          migrationmaster.NewWorker,
+		ModelRegistry:               &a.modelRegistry,
 	})
 	if err := dependency.Install(engine, manifolds); err != nil {
 		if err := worker.Stop(engine); err != nil {
@@ -1547,11 +1564,12 @@ func newObserverFn(
 
 // limitLogins is called by the API server for each login attempt.
 // it returns an error if upgrades or restore are running.
-func (a *MachineAgent) limitLogins(req params.LoginRequest) error {
+func (a *MachineAgent) limitLogins(req params.LoginRequest, modelUUID string) error {
+	logger.Debugf("limit? %s %s", req.AuthTag, modelUUID)
 	if err := a.limitLoginsDuringRestore(req); err != nil {
 		return err
 	}
-	if err := a.limitLoginsDuringUpgrade(req); err != nil {
+	if err := a.limitLoginsDuringUpgrade(req, modelUUID); err != nil {
 		return err
 	}
 	return a.limitLoginsDuringMongoUpgrade(req)
@@ -1604,8 +1622,8 @@ func (a *MachineAgent) limitLoginsDuringRestore(req params.LoginRequest) error {
 // limitLoginsDuringUpgrade is called by the API server for each login
 // attempt. It returns an error if upgrades are in progress unless the
 // login is for a user (i.e. a client) or the local machine.
-func (a *MachineAgent) limitLoginsDuringUpgrade(req params.LoginRequest) error {
-	if a.isUpgradeRunning() || a.isInitialUpgradeCheckPending() {
+func (a *MachineAgent) limitLoginsDuringUpgrade(req params.LoginRequest, modelUUID string) error {
+	if a.isUpgradeRunning() || a.isInitialUpgradeCheckPending() || a.isModelUpgrading(modelUUID) {
 		authTag, err := names.ParseTag(req.AuthTag)
 		if err != nil {
 			return errors.Annotate(err, "could not parse auth tag")
@@ -1964,4 +1982,31 @@ func getLogSinkConfig(cfg agent.Config) (apiserver.LogSinkConfig, error) {
 		}
 	}
 	return result, nil
+}
+
+type modelRegistry struct {
+	mu     sync.Mutex
+	models set.Strings
+}
+
+func (r *modelRegistry) modelRegistered(modelUUID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.models.Contains(modelUUID)
+}
+
+// RegisterModel is part of the modelregistrar.ModelRegistry interface.
+func (r *modelRegistry) RegisterModel(tag names.ModelTag) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.models.Add(tag.Id())
+	logger.Infof("registered model: %s", tag.Id())
+}
+
+// UnregisterModel is part of the modelregistrar.ModelRegistry interface.
+func (r *modelRegistry) UnregisterModel(tag names.ModelTag) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.models.Remove(tag.Id())
+	logger.Infof("unregistered model: %s", tag.Id())
 }

@@ -129,7 +129,7 @@ type ModelParams struct {
 	CloudRegion             string
 	CloudCredential         names.CloudCredentialTag
 	StorageProviderRegistry storage.ProviderRegistry
-	EnvironVersion          version.Number
+	EnvironVersion          int
 }
 
 type SpaceParams struct {

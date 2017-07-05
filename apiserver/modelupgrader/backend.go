@@ -5,18 +5,20 @@ package modelupgrader
 
 import (
 	"github.com/juju/errors"
+	"github.com/juju/juju/cloud"
 	"github.com/juju/juju/state"
-	"github.com/juju/version"
 	"gopkg.in/juju/names.v2"
 )
 
 type Backend interface {
+	Cloud(string) (cloud.Cloud, error)
 	GetModel(names.ModelTag) (Model, error)
 }
 
 type Model interface {
-	EnvironVersion() version.Number
-	SetEnvironVersion(version.Number) error
+	Cloud() string
+	EnvironVersion() int
+	SetEnvironVersion(int) error
 }
 
 func NewStateBackend(st *state.State) Backend {
@@ -24,11 +26,11 @@ func NewStateBackend(st *state.State) Backend {
 }
 
 type stateBackend struct {
-	st *state.State
+	*state.State
 }
 
 func (s stateBackend) GetModel(tag names.ModelTag) (Model, error) {
-	m, err := s.st.GetModel(tag)
+	m, err := s.State.GetModel(tag)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

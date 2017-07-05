@@ -31,7 +31,13 @@ func (config ManifoldConfig) start(context dependency.Context) (worker.Worker, e
 
 	var environ environs.Environ
 	if err := context.Get(config.EnvironName, &environ); err != nil {
-		return nil, errors.Trace(err)
+		if errors.Cause(err) != dependency.ErrMissing {
+			return nil, errors.Trace(err)
+		}
+		// Only the controller's leader is given an Environ; the
+		// other controller units will watch the model and wait
+		// for its environ version to be updated.
+		environ = nil
 	}
 
 	var apiCaller base.APICaller

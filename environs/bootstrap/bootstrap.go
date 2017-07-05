@@ -411,7 +411,7 @@ func Bootstrap(ctx environs.BootstrapContext, environ environs.Environ, args Boo
 	// Make sure we have the most recent environ config as the specified
 	// tools version has been updated there.
 	cfg = environ.Config()
-	environVersion := environs.GreatestEnvironVersion(environ)
+	environVersion := environ.Provider().Version()
 	if err := finalizeInstanceBootstrapConfig(
 		ctx, instanceConfig, args, cfg, environVersion, customImageMetadata,
 	); err != nil {
@@ -429,7 +429,7 @@ func finalizeInstanceBootstrapConfig(
 	icfg *instancecfg.InstanceConfig,
 	args BootstrapParams,
 	cfg *config.Config,
-	environVersion version.Number,
+	environVersion int,
 	customImageMetadata []*imagemetadata.ImageMetadata,
 ) error {
 	if icfg.APIInfo != nil || icfg.Controller.MongoInfo != nil {

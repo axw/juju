@@ -469,7 +469,7 @@ func (s *loginSuite) TestNonModelUserLoginFails(c *gc.C) {
 }
 
 func (s *loginSuite) TestLoginValidationSuccess(c *gc.C) {
-	validator := func(params.LoginRequest) error {
+	validator := func(params.LoginRequest, string) error {
 		return nil
 	}
 	checker := func(c *gc.C, loginErr error, st api.Connection) {
@@ -484,7 +484,7 @@ func (s *loginSuite) TestLoginValidationSuccess(c *gc.C) {
 }
 
 func (s *loginSuite) TestLoginValidationFail(c *gc.C) {
-	validator := func(params.LoginRequest) error {
+	validator := func(params.LoginRequest, string) error {
 		return errors.New("Login not allowed")
 	}
 	checker := func(c *gc.C, loginErr error, _ api.Connection) {
@@ -495,7 +495,7 @@ func (s *loginSuite) TestLoginValidationFail(c *gc.C) {
 }
 
 func (s *loginSuite) TestLoginValidationDuringUpgrade(c *gc.C) {
-	validator := func(params.LoginRequest) error {
+	validator := func(params.LoginRequest, string) error {
 		return params.UpgradeInProgressError
 	}
 	checker := func(c *gc.C, loginErr error, st api.Connection) {
@@ -513,7 +513,7 @@ func (s *loginSuite) TestLoginValidationDuringUpgrade(c *gc.C) {
 
 func (s *loginSuite) TestFailedLoginDuringMaintenance(c *gc.C) {
 	cfg := defaultServerConfig(c)
-	cfg.Validator = func(params.LoginRequest) error {
+	cfg.Validator = func(params.LoginRequest, string) error {
 		return errors.New("something")
 	}
 	info, srv := newServerWithConfig(c, s.pool, cfg)

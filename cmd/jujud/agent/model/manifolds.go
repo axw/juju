@@ -38,6 +38,7 @@ import (
 	"github.com/juju/juju/worker/metricworker"
 	"github.com/juju/juju/worker/migrationflag"
 	"github.com/juju/juju/worker/migrationmaster"
+	"github.com/juju/juju/worker/modelregistrar"
 	"github.com/juju/juju/worker/modelupgrader"
 	"github.com/juju/juju/worker/provisioner"
 	"github.com/juju/juju/worker/remoterelations"
@@ -94,6 +95,11 @@ type ManifoldsConfig struct {
 	// NewMigrationMaster is called to create a new migrationmaster
 	// worker.
 	NewMigrationMaster func(migrationmaster.Config) (worker.Worker, error)
+
+	// ModelRegistry is used to register the model for use once it is
+	// is upgraded; and to unregister it once the model workers are
+	// stopped.
+	ModelRegistry modelregistrar.ModelRegistry
 }
 
 // Manifolds returns a set of interdependent dependency manifolds that will
@@ -159,12 +165,18 @@ func Manifolds(config ManifoldsConfig) dependency.Manifolds {
 			NewEnvironFunc: config.NewEnvironFunc,
 		})),
 
-		modelUpgradeGateName: ifResponsible(gate.Manifold()),
-		modelUpgradedFlagName: ifResponsible(gate.FlagManifold(gate.FlagManifoldConfig{
+		// The model upgrader runs on all controller agents, and
+		// unlocks the gate when the model is up-to-date. The
+		// environ tracker will be supplied only to the leader,
+		// which is the agent that will run the upgrade steps;
+		// the other controller agents will wait for it to complete
+		// running those steps before allowing logins to the model.
+		modelUpgradeGateName: gate.Manifold(),
+		modelUpgradedFlagName: gate.FlagManifold(gate.FlagManifoldConfig{
 			GateName:  modelUpgradeGateName,
 			NewWorker: gate.NewFlagWorker,
-		})),
-		modelUpgraderName: ifResponsible(modelupgrader.Manifold(modelupgrader.ManifoldConfig{
+		}),
+		modelUpgraderName: modelupgrader.Manifold(modelupgrader.ManifoldConfig{
 			APICallerName: apiCallerName,
 			EnvironName:   environTrackerName,
 			GateName:      modelUpgradeGateName,
@@ -172,6 +184,14 @@ func Manifolds(config ManifoldsConfig) dependency.Manifolds {
 			ModelTag:      modelTag,
 			NewFacade:     modelupgrader.NewFacade,
 			NewWorker:     modelupgrader.NewWorker,
+		}),
+
+		// The model registrar is responsible for registering the model
+		// for use once it has been upgraded, and for unregistering it
+		// once the model's dependency engine is stopped.
+		modelRegistrarName: ifNotUpgrading(modelregistrar.Manifold(modelregistrar.ManifoldConfig{
+			ModelTag: modelTag,
+			Registry: config.ModelRegistry,
 		})),
 
 		// The migration workers collaborate to run migrations;
@@ -405,6 +425,7 @@ const (
 	modelUpgradeGateName  = "model-upgrade-gate"
 	modelUpgradedFlagName = "model-upgraded-flag"
 	modelUpgraderName     = "model-upgrader"
+	modelRegistrarName    = "model-registrar"
 
 	environTrackerName       = "environ-tracker"
 	undertakerName           = "undertaker"

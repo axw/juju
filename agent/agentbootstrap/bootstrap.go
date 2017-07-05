@@ -207,7 +207,7 @@ func InitializeState(
 		CloudRegion:             args.ControllerCloudRegion,
 		CloudCredential:         cloudCredentialTag,
 		StorageProviderRegistry: args.StorageProviderRegistry,
-		EnvironVersion:          environs.GreatestEnvironVersion(hostedModelEnv),
+		EnvironVersion:          hostedModelEnv.Provider().Version(),
 	})
 	if err != nil {
 		return nil, nil, errors.Annotate(err, "creating hosted model")

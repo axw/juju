@@ -66,7 +66,7 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 
 	// Use the login validation function, if one was specified.
 	if a.srv.validator != nil {
-		err := a.srv.validator(req)
+		err := a.srv.validator(req, a.root.modelUUID)
 		switch err {
 		case params.UpgradeInProgressError:
 			apiRoot = restrictRoot(apiRoot, upgradeMethodsOnly)
@@ -81,7 +81,6 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 		}
 	}
 
-	isUser := true
 	kind := names.UserTagKind
 	if req.AuthTag != "" {
 		var err error
@@ -93,7 +92,6 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 			addCount(1)
 			defer addCount(-1)
 
-			isUser = false
 			// Users are not rate limited, all other entities are.
 			if !a.srv.limiter.Acquire() {
 				logger.Debugf("rate limiting for agent %s", req.AuthTag)
@@ -107,9 +105,8 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 	}
 
 	controllerOnlyLogin := a.root.modelUUID == ""
-	controllerMachineLogin := false
 
-	entity, lastConnection, err := a.checkCreds(req, isUser)
+	entity, lastConnection, controllerMachineLogin, err := a.checkCreds(req, kind)
 	if err != nil {
 		if err, ok := errors.Cause(err).(*common.DischargeRequiredError); ok {
 			loginResult := params.LoginResult{
@@ -127,30 +124,7 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 			// logins with a more helpful one.
 			return fail, MaintenanceNoLoginError
 		}
-		// Here we have a special case.  The machine agents that manage
-		// models in the controller model need to be able to
-		// open API connections to other models.  In those cases, we
-		// need to look in the controller database to check the creds
-		// against the machine if and only if the entity tag is a machine tag,
-		// and the machine exists in the controller model, and the
-		// machine has the manage state job.  If all those parts are valid, we
-		// can then check the credentials against the controller model
-		// machine.
-		if kind != names.MachineTagKind {
-			return fail, errors.Trace(err)
-		}
-		if errors.Cause(err) != common.ErrBadCreds {
-			return fail, err
-		}
-		entity, err = a.checkControllerMachineCreds(req)
-		if err != nil {
-			return fail, errors.Trace(err)
-		}
-		// If we are here, then the entity will refer to a controller
-		// machine in the controller model, and we don't need a pinger
-		// for it as we already have one running in the machine agent api
-		// worker for the controller model.
-		controllerMachineLogin = true
+		return fail, errors.Trace(err)
 	}
 	a.root.entity = entity
 	a.apiObserver.Login(entity.Tag(), a.root.state.ModelTag(), controllerMachineLogin, req.UserData)
@@ -167,7 +141,7 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 
 	var maybeUserInfo *params.AuthUserInfo
 	// Send back user info if user
-	if isUser {
+	if kind == names.UserTagKind {
 		userTag := entity.Tag().(names.UserTag)
 		maybeUserInfo, err = a.checkUserPermissions(userTag, controllerOnlyLogin)
 		if err != nil {
@@ -193,7 +167,7 @@ func (a *admin) login(req params.LoginRequest, loginVersion int) (params.LoginRe
 		return fail, errors.Trace(err)
 	}
 
-	if isUser {
+	if kind == names.UserTagKind {
 		switch model.MigrationMode() {
 		case state.MigrationModeImporting:
 			// The user is not able to access a model that is currently being
@@ -308,8 +282,34 @@ func filterFacades(registry *facade.Registry, allowFacade func(name string) bool
 	return out
 }
 
-func (a *admin) checkCreds(req params.LoginRequest, lookForModelUser bool) (state.Entity, *time.Time, error) {
-	return doCheckCreds(a.root.state, req, lookForModelUser, a.authenticator())
+func (a *admin) checkCreds(req params.LoginRequest, tagKind string) (state.Entity, *time.Time, bool, error) {
+	lookForModelUser := tagKind == names.UserTagKind
+	entity, lastConnection, err := doCheckCreds(a.root.state, req, lookForModelUser, a.authenticator())
+	if err == nil {
+		return entity, lastConnection, false, nil
+	}
+	if err, ok := errors.Cause(err).(*common.DischargeRequiredError); ok {
+		return nil, nil, false, err
+	}
+	// Here we have a special case.  The machine agents that manage
+	// models in the controller model need to be able to
+	// open API connections to other models.  In those cases, we
+	// need to look in the controller database to check the creds
+	// against the machine if and only if the entity tag is a machine tag,
+	// and the machine exists in the controller model, and the
+	// machine has the manage state job.  If all those parts are valid, we
+	// can then check the credentials against the controller model
+	// machine.
+	if tagKind == names.MachineTagKind && errors.Cause(err) == common.ErrBadCreds {
+		entity, err = a.checkControllerMachineCreds(req)
+		if err != nil {
+			return nil, nil, false, errors.Trace(err)
+		}
+		// If we are here, then the entity will refer to a controller
+		// machine in the controller model.
+		return entity, nil, true, nil
+	}
+	return nil, nil, false, errors.Trace(err)
 }
 
 func (a *admin) checkControllerMachineCreds(req params.LoginRequest) (state.Entity, error) {
@@ -336,7 +336,7 @@ func (a *admin) maintenanceInProgress() bool {
 	req := params.LoginRequest{
 		AuthTag: names.NewUserTag("arbitrary").String(),
 	}
-	return a.srv.validator(req) != nil
+	return a.srv.validator(req, a.root.modelUUID) != nil
 }
 
 var doCheckCreds = checkCreds

@@ -432,22 +432,19 @@ type VersionResults struct {
 	Results []VersionResult `json:"results"`
 }
 
-// EntityVersionNumber holds the tag of an entity and an associated
-// version number.
-type EntityVersionNumber struct {
-	// Tag is the string representation of an entity tag, which
-	// should be parseable using names.ParseTag.
-	Tag string `json:"tag,omitempty"`
-
-	// Version is the string representation of a version number,
-	// which should be parseable using version.Number.
-	Version string `json:"version,omitempty"`
+// SetModelEnvironVersions holds the tags and associated environ versions
+// of a collection of models.
+type SetModelEnvironVersions struct {
+	Models []SetModelEnvironVersion `json:"models,omitempty"`
 }
 
-// EntityVersionNumbers holds a list of entities and associated
-// version numbers.
-type EntityVersionNumbers struct {
-	Entities []EntityVersionNumber `json:"entities"`
+type SetModelEnvironVersion struct {
+	// ModelTag is the string representation of a model tag, which
+	// should be parseable using names.ParseTag.
+	ModelTag string `json:"model-tag"`
+
+	// Version is the environ version to set for the model.
+	Version int `json:"version"`
 }
 
 // ToolsResult holds the tools and possibly error for a given

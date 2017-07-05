@@ -6,11 +6,12 @@ package modelupgrader
 import (
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
-	"github.com/juju/version"
 	"gopkg.in/juju/names.v2"
 
 	"github.com/juju/juju/api/base"
+	"github.com/juju/juju/api/common"
 	"github.com/juju/juju/apiserver/params"
+	"github.com/juju/juju/watcher"
 )
 
 var logger = loggo.GetLogger("juju.api.modelupgrader")
@@ -29,34 +30,51 @@ func NewClient(caller base.APICaller) *Client {
 
 // ModelEnvironVersion returns the current version of the environ corresponding
 // to the specified model.
-func (c *Client) ModelEnvironVersion(tag names.ModelTag) (version.Number, error) {
+func (c *Client) ModelEnvironVersion(tag names.ModelTag) (int, error) {
 	args := params.Entities{
 		Entities: []params.Entity{{Tag: tag.String()}},
 	}
-	var results params.VersionResults
+	var results params.IntResults
 	err := c.facade.FacadeCall("ModelEnvironVersion", &args, &results)
 	if err != nil {
-		return version.Zero, errors.Trace(err)
+		return -1, errors.Trace(err)
 	}
 	if len(results.Results) != 1 {
-		return version.Zero, errors.Errorf("expected 1 result, got %d", len(results.Results))
+		return -1, errors.Errorf("expected 1 result, got %d", len(results.Results))
 	}
 	if err := results.Results[0].Error; err != nil {
-		return version.Zero, err
+		return -1, err
 	}
-	if results.Results[0].Version == nil {
-		return version.Zero, errors.New("nil version returned")
+	return results.Results[0].Result, nil
+}
+
+// ModelTargetEnvironVersion returns the target version of the environ
+// corresponding to the specified model.
+func (c *Client) ModelTargetEnvironVersion(tag names.ModelTag) (int, error) {
+	args := params.Entities{
+		Entities: []params.Entity{{Tag: tag.String()}},
 	}
-	return *results.Results[0].Version, nil
+	var results params.IntResults
+	err := c.facade.FacadeCall("ModelTargetEnvironVersion", &args, &results)
+	if err != nil {
+		return -1, errors.Trace(err)
+	}
+	if len(results.Results) != 1 {
+		return -1, errors.Errorf("expected 1 result, got %d", len(results.Results))
+	}
+	if err := results.Results[0].Error; err != nil {
+		return -1, err
+	}
+	return results.Results[0].Result, nil
 }
 
 // SetModelEnvironVersion sets the current version of the environ corresponding
 // to the specified model.
-func (c *Client) SetModelEnvironVersion(tag names.ModelTag, v version.Number) error {
-	args := params.EntityVersionNumbers{
-		Entities: []params.EntityVersionNumber{{
-			Tag:     tag.String(),
-			Version: v.String(),
+func (c *Client) SetModelEnvironVersion(tag names.ModelTag, v int) error {
+	args := params.SetModelEnvironVersions{
+		Models: []params.SetModelEnvironVersion{{
+			ModelTag: tag.String(),
+			Version:  v,
 		}},
 	}
 	var results params.ErrorResults
@@ -65,4 +83,9 @@ func (c *Client) SetModelEnvironVersion(tag names.ModelTag, v version.Number) er
 		return errors.Trace(err)
 	}
 	return results.OneError()
+}
+
+// WatchModel starts a NotifyWatcher for the model with the specified tag.
+func (c *Client) WatchModel(tag names.ModelTag) (watcher.NotifyWatcher, error) {
+	return common.Watch(c.facade, tag)
 }

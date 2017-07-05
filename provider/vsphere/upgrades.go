@@ -7,7 +7,6 @@ import (
 	"path"
 
 	"github.com/juju/errors"
-	"github.com/juju/version"
 	"github.com/vmware/govmomi/vim25/types"
 
 	"github.com/juju/juju/environs"
@@ -17,7 +16,7 @@ import (
 // UpgradeOperations is part of the upgrades.OperationSource interface.
 func (env *environ) UpgradeOperations() []environs.UpgradeOperation {
 	return []environs.UpgradeOperation{{
-		version.MustParse("2.2-beta3"),
+		providerVersion1,
 		[]environs.UpgradeStep{
 			extraConfigUpgradeStep{env},
 			modelFoldersUpgradeStep{env},

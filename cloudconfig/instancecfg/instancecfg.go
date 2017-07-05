@@ -231,7 +231,7 @@ type StateInitializationParams struct {
 
 	// ControllerModelEnvironVersion holds the initial controller model
 	// environ version.
-	ControllerModelEnvironVersion version.Number
+	ControllerModelEnvironVersion int
 
 	// ControllerCloud contains the properties of the cloud that Juju will
 	// be bootstrapped in.
@@ -291,7 +291,7 @@ type StateInitializationParams struct {
 type stateInitializationParamsInternal struct {
 	ControllerConfig                        map[string]interface{}            `yaml:"controller-config"`
 	ControllerModelConfig                   map[string]interface{}            `yaml:"controller-model-config"`
-	ControllerModelEnvironVersion           version.Number                    `yaml:"controller-model-version"`
+	ControllerModelEnvironVersion           int                               `yaml:"controller-model-version"`
 	ControllerInheritedConfig               map[string]interface{}            `yaml:"controller-config-defaults,omitempty"`
 	RegionInheritedConfig                   cloud.RegionConfig                `yaml:"region-inherited-config,omitempty"`
 	HostedModelConfig                       map[string]interface{}            `yaml:"hosted-model-config,omitempty"`

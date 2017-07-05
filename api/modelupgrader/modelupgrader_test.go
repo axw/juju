@@ -5,7 +5,6 @@ package modelupgrader_test
 
 import (
 	jc "github.com/juju/testing/checkers"
-	"github.com/juju/version"
 	gc "gopkg.in/check.v1"
 	names "gopkg.in/juju/names.v2"
 
@@ -17,7 +16,6 @@ import (
 
 var (
 	modelTag = names.NewModelTag("e5757df7-c86a-4835-84bc-7174af535d25")
-	version1 = version.MustParse("1.0.0")
 )
 
 var _ = gc.Suite(&ModelUpgraderSuite{})
@@ -41,10 +39,10 @@ func (s *ModelUpgraderSuite) TestModelEnvironVersion(c *gc.C) {
 		c.Check(arg, jc.DeepEquals, &params.Entities{
 			Entities: []params.Entity{{Tag: modelTag.String()}},
 		})
-		c.Assert(result, gc.FitsTypeOf, &params.VersionResults{})
-		*(result.(*params.VersionResults)) = params.VersionResults{
-			Results: []params.VersionResult{{
-				Version: &version1,
+		c.Assert(result, gc.FitsTypeOf, &params.IntResults{})
+		*(result.(*params.IntResults)) = params.IntResults{
+			Results: []params.IntResult{{
+				Result: 1,
 			}},
 		}
 		return nil
@@ -53,13 +51,13 @@ func (s *ModelUpgraderSuite) TestModelEnvironVersion(c *gc.C) {
 	client := modelupgrader.NewClient(apiCaller)
 	version, err := client.ModelEnvironVersion(modelTag)
 	c.Assert(err, jc.ErrorIsNil)
-	c.Assert(version, jc.DeepEquals, version1)
+	c.Assert(version, gc.Equals, 1)
 }
 
 func (s *ModelUpgraderSuite) TestModelEnvironVersionError(c *gc.C) {
 	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
-		*(result.(*params.VersionResults)) = params.VersionResults{
-			Results: []params.VersionResult{{
+		*(result.(*params.IntResults)) = params.IntResults{
+			Results: []params.IntResult{{
 				Error: &params.Error{Message: "foo"},
 			}},
 		}
@@ -71,23 +69,10 @@ func (s *ModelUpgraderSuite) TestModelEnvironVersionError(c *gc.C) {
 	c.Assert(err, gc.ErrorMatches, "foo")
 }
 
-func (s *ModelUpgraderSuite) TestModelEnvironNilVersion(c *gc.C) {
-	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
-		*(result.(*params.VersionResults)) = params.VersionResults{
-			Results: []params.VersionResult{{}},
-		}
-		return nil
-	})
-
-	client := modelupgrader.NewClient(apiCaller)
-	_, err := client.ModelEnvironVersion(modelTag)
-	c.Assert(err, gc.ErrorMatches, "nil version returned")
-}
-
 func (s *ModelUpgraderSuite) TestModelEnvironArityMismatch(c *gc.C) {
 	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
-		*(result.(*params.VersionResults)) = params.VersionResults{
-			Results: []params.VersionResult{{}, {}},
+		*(result.(*params.IntResults)) = params.IntResults{
+			Results: []params.IntResult{{}, {}},
 		}
 		return nil
 	})
@@ -97,16 +82,68 @@ func (s *ModelUpgraderSuite) TestModelEnvironArityMismatch(c *gc.C) {
 	c.Assert(err, gc.ErrorMatches, "expected 1 result, got 2")
 }
 
+func (s *ModelUpgraderSuite) TestModelTargetEnvironVersion(c *gc.C) {
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		c.Check(objType, gc.Equals, "ModelUpgrader")
+		c.Check(version, gc.Equals, 0)
+		c.Check(id, gc.Equals, "")
+		c.Check(request, gc.Equals, "ModelTargetEnvironVersion")
+		c.Check(arg, jc.DeepEquals, &params.Entities{
+			Entities: []params.Entity{{Tag: modelTag.String()}},
+		})
+		c.Assert(result, gc.FitsTypeOf, &params.IntResults{})
+		*(result.(*params.IntResults)) = params.IntResults{
+			Results: []params.IntResult{{
+				Result: 1,
+			}},
+		}
+		return nil
+	})
+
+	client := modelupgrader.NewClient(apiCaller)
+	version, err := client.ModelTargetEnvironVersion(modelTag)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(version, gc.Equals, 1)
+}
+
+func (s *ModelUpgraderSuite) TestModelTargetEnvironVersionError(c *gc.C) {
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		*(result.(*params.IntResults)) = params.IntResults{
+			Results: []params.IntResult{{
+				Error: &params.Error{Message: "foo"},
+			}},
+		}
+		return nil
+	})
+
+	client := modelupgrader.NewClient(apiCaller)
+	_, err := client.ModelTargetEnvironVersion(modelTag)
+	c.Assert(err, gc.ErrorMatches, "foo")
+}
+
+func (s *ModelUpgraderSuite) TestModelTargetEnvironArityMismatch(c *gc.C) {
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		*(result.(*params.IntResults)) = params.IntResults{
+			Results: []params.IntResult{{}, {}},
+		}
+		return nil
+	})
+
+	client := modelupgrader.NewClient(apiCaller)
+	_, err := client.ModelTargetEnvironVersion(modelTag)
+	c.Assert(err, gc.ErrorMatches, "expected 1 result, got 2")
+}
+
 func (s *ModelUpgraderSuite) TestSetModelEnvironVersion(c *gc.C) {
 	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
 		c.Check(objType, gc.Equals, "ModelUpgrader")
 		c.Check(version, gc.Equals, 0)
 		c.Check(id, gc.Equals, "")
 		c.Check(request, gc.Equals, "SetModelEnvironVersion")
-		c.Check(arg, jc.DeepEquals, &params.EntityVersionNumbers{
-			Entities: []params.EntityVersionNumber{{
-				Tag:     modelTag.String(),
-				Version: version1.String(),
+		c.Check(arg, jc.DeepEquals, &params.SetModelEnvironVersions{
+			Models: []params.SetModelEnvironVersion{{
+				ModelTag: modelTag.String(),
+				Version:  1,
 			}},
 		})
 		c.Assert(result, gc.FitsTypeOf, &params.ErrorResults{})
@@ -117,7 +154,7 @@ func (s *ModelUpgraderSuite) TestSetModelEnvironVersion(c *gc.C) {
 	})
 
 	client := modelupgrader.NewClient(apiCaller)
-	err := client.SetModelEnvironVersion(modelTag, version1)
+	err := client.SetModelEnvironVersion(modelTag, 1)
 	c.Assert(err, gc.ErrorMatches, "foo")
 }
 
@@ -130,6 +167,6 @@ func (s *ModelUpgraderSuite) TestSetModelEnvironVersionArityMismatch(c *gc.C) {
 	})
 
 	client := modelupgrader.NewClient(apiCaller)
-	err := client.SetModelEnvironVersion(modelTag, version1)
+	err := client.SetModelEnvironVersion(modelTag, 1)
 	c.Assert(err, gc.ErrorMatches, "expected 1 result, got 2")
 }

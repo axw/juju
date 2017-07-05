@@ -46,6 +46,8 @@ var (
 		"migration-fortress",
 		"migration-inactive-flag",
 		"migration-master",
+		"model-upgrade-gate",
+		"model-upgraded-flag",
 		"application-scaler",
 		"state-cleaner",
 		"status-history-pruner",
@@ -59,6 +61,8 @@ var (
 		"migration-fortress",
 		"migration-inactive-flag",
 		"migration-master",
+		"model-upgrade-gate",
+		"model-upgraded-flag",
 		"log-forwarder",
 	}
 	// ReallyLongTimeout should be long enough for the model-tracker

@@ -443,11 +443,13 @@ func (a *MachineAgent) isInitialUpgradeCheckPending() bool {
 // isModelUpgrading reports whether or not the modelupgrader has
 // not yet run to completion for the specified model.
 func (a *MachineAgent) isModelUpgrading(modelUUID string) bool {
-	if modelUUID == "" {
-		// controller-only login
-		return false
-	}
-	return !a.modelRegistry.modelRegistered(modelUUID)
+	//logger.Debugf("isModelUpgrading(%s)", modelUUID)
+	//if modelUUID == "" {
+	// controller-only login
+	return false
+	//}
+	//logger.Debugf("registered? %v", a.modelRegistry.modelRegistered(modelUUID))
+	//return !a.modelRegistry.modelRegistered(modelUUID)
 }
 
 // Wait waits for the machine agent to finish.

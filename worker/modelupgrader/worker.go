@@ -146,6 +146,7 @@ func newUpgradeWorker(config Config, targetVersion int) (worker.Worker, error) {
 		if err := runEnvironUpgradeSteps(
 			config.Environ,
 			config.ControllerTag,
+			config.ModelTag,
 			currentVersion,
 			targetVersion,
 			setVersion,
@@ -160,12 +161,14 @@ func newUpgradeWorker(config Config, targetVersion int) (worker.Worker, error) {
 func runEnvironUpgradeSteps(
 	env environs.Environ,
 	controllerTag names.ControllerTag,
+	modelTag names.ModelTag,
 	currentVersion int,
 	targetVersion int,
 	setVersion func(int) error,
 ) error {
-	if wrench.IsActive("modelupgrader", "fail-upgrades") {
-		return errors.New("modelupgrader/fail-upgrades wrench enabled")
+	if wrench.IsActive("modelupgrader", "fail-upgrades") ||
+		wrench.IsActive("modelupgrader", "fail-model-"+modelTag.Id()) {
+		return errors.New("wrench active")
 	}
 	upgrader, ok := env.(environs.Upgrader)
 	if !ok {

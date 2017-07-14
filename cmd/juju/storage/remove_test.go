@@ -29,7 +29,7 @@ func (s *RemoveStorageSuite) TestRemoveStorage(c *gc.C) {
 	ctx, err := cmdtesting.RunCommand(c, cmd, "pgdata/0", "pgdata/1")
 	c.Assert(err, jc.ErrorIsNil)
 	fake.CheckCallNames(c, "NewStorageDestroyerCloser", "Destroy", "Close")
-	fake.CheckCall(c, 1, "Destroy", []string{"pgdata/0", "pgdata/1"}, false)
+	fake.CheckCall(c, 1, "Destroy", []string{"pgdata/0", "pgdata/1"}, false, false)
 	c.Assert(cmdtesting.Stderr(ctx), gc.Equals, `
 removing pgdata/0
 removing pgdata/1
@@ -44,7 +44,18 @@ func (s *RemoveStorageSuite) TestRemoveStorageForce(c *gc.C) {
 	cmd := storage.NewRemoveStorageCommand(fake.new)
 	_, err := cmdtesting.RunCommand(c, cmd, "--force", "pgdata/0", "pgdata/1")
 	c.Assert(err, jc.ErrorIsNil)
-	fake.CheckCall(c, 1, "Destroy", []string{"pgdata/0", "pgdata/1"}, true)
+	fake.CheckCall(c, 1, "Destroy", []string{"pgdata/0", "pgdata/1"}, true, false)
+}
+
+func (s *RemoveStorageSuite) TestRemoveStorageNoDestroy(c *gc.C) {
+	fake := fakeStorageDestroyer{results: []params.ErrorResult{
+		{},
+		{},
+	}}
+	cmd := storage.NewRemoveStorageCommand(fake.new)
+	_, err := cmdtesting.RunCommand(c, cmd, "--no-destroy", "--force", "pgdata/0", "pgdata/1")
+	c.Assert(err, jc.ErrorIsNil)
+	fake.CheckCall(c, 1, "Destroy", []string{"pgdata/0", "pgdata/1"}, true, true)
 }
 
 func (s *RemoveStorageSuite) TestRemoveStorageError(c *gc.C) {
@@ -104,7 +115,7 @@ func (f *fakeStorageDestroyer) Close() error {
 	return f.NextErr()
 }
 
-func (f *fakeStorageDestroyer) Destroy(ids []string, destroyAttached bool) ([]params.ErrorResult, error) {
-	f.MethodCall(f, "Destroy", ids, destroyAttached)
+func (f *fakeStorageDestroyer) Destroy(ids []string, destroyAttached, release bool) ([]params.ErrorResult, error) {
+	f.MethodCall(f, "Destroy", ids, destroyAttached, release)
 	return f.results, f.NextErr()
 }

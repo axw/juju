@@ -180,7 +180,7 @@ func (c *Client) Attach(unitId string, storageIds []string) ([]params.ErrorResul
 }
 
 // Destroy destroys specified storage entities.
-func (c *Client) Destroy(storageIds []string, destroyAttached bool) ([]params.ErrorResult, error) {
+func (c *Client) Destroy(storageIds []string, destroyAttachments, releaseStorage bool) ([]params.ErrorResult, error) {
 	for _, id := range storageIds {
 		if !names.IsValidStorage(id) {
 			return nil, errors.NotValidf("storage ID %q", id)
@@ -189,6 +189,9 @@ func (c *Client) Destroy(storageIds []string, destroyAttached bool) ([]params.Er
 	results := params.ErrorResults{}
 	var args interface{}
 	if c.BestAPIVersion() <= 3 {
+		if releaseStorage {
+			return nil, errors.Errorf("this juju controller does not support releasing storage")
+		}
 		// In version 3, destroyAttached is ignored; removing
 		// storage always causes detachment.
 		entities := make([]params.Entity, len(storageIds))
@@ -200,8 +203,9 @@ func (c *Client) Destroy(storageIds []string, destroyAttached bool) ([]params.Er
 		storage := make([]params.DestroyStorageInstance, len(storageIds))
 		for i, id := range storageIds {
 			storage[i] = params.DestroyStorageInstance{
-				Tag:             names.NewStorageTag(id).String(),
-				DestroyAttached: destroyAttached,
+				Tag:                names.NewStorageTag(id).String(),
+				DestroyAttachments: destroyAttachments,
+				ReleaseStorage:     releaseStorage,
 			}
 		}
 		args = params.DestroyStorage{storage}

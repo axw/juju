@@ -445,17 +445,22 @@ func (v *ebsVolumeSource) DescribeVolumes(volIds []string) ([]storage.DescribeVo
 
 // DestroyVolumes is specified on the storage.VolumeSource interface.
 func (v *ebsVolumeSource) DestroyVolumes(volIds []string) ([]error, error) {
-	return destroyVolumes(v.env.ec2, volIds), nil
+	return destroyVolumes(v.env.ec2, volIds, false), nil
 }
 
-func destroyVolumes(client *ec2.EC2, volIds []string) []error {
+// ReleaseVolumes is specified on the storage.VolumeSource interface.
+func (v *ebsVolumeSource) ReleaseVolumes(volIds []string) ([]error, error) {
+	return destroyVolumes(v.env.ec2, volIds, true), nil
+}
+
+func destroyVolumes(client *ec2.EC2, volIds []string, release bool) []error {
 	var wg sync.WaitGroup
 	wg.Add(len(volIds))
 	results := make([]error, len(volIds))
 	for i, volumeId := range volIds {
 		go func(i int, volumeId string) {
 			defer wg.Done()
-			results[i] = destroyVolume(client, volumeId)
+			results[i] = destroyVolume(client, volumeId, release)
 		}(i, volumeId)
 	}
 	wg.Wait()
@@ -467,7 +472,11 @@ var destroyVolumeAttempt = utils.AttemptStrategy{
 	Delay: 5 * time.Second,
 }
 
-func destroyVolume(client *ec2.EC2, volumeId string) (err error) {
+func destroyVolume(client *ec2.EC2, volumeId string, release bool) (err error) {
+	action := "destroying"
+	if release {
+		action = "releasing"
+	}
 	defer func() {
 		if err != nil {
 			if ec2ErrCode(err) == volumeNotFound || errors.IsNotFound(err) {
@@ -475,13 +484,13 @@ func destroyVolume(client *ec2.EC2, volumeId string) (err error) {
 				// instance corresponding to a DeleteOnTermination
 				// attachment; in either case, the volume is or will
 				// be destroyed.
-				logger.Tracef("Ignoring error destroying volume %q: %v", volumeId, err)
+				logger.Tracef("Ignoring error %s volume %q: %v", action, volumeId, err)
 				err = nil
 			}
 		}
 	}()
 
-	logger.Debugf("destroying %q", volumeId)
+	logger.Debugf("%s %q", action, volumeId)
 	// Volumes must not be in-use when destroying. A volume may
 	// still be in-use when the instance it is attached to is
 	// in the process of being terminated.
@@ -569,8 +578,21 @@ func destroyVolume(client *ec2.EC2, volumeId string) (err error) {
 		// nothing more to do.
 		return nil
 	}
-	if _, err := client.DeleteVolume(volumeId); err != nil {
-		return errors.Annotatef(err, "destroying %q", volumeId)
+	if release {
+		// Releasing the volume just means dropping the
+		// tags that associate it with the model and
+		// controller.
+		tags := map[string]string{
+			tags.JujuModel:      "",
+			tags.JujuController: "",
+		}
+		if err := tagResources(client, tags, volumeId); err != nil {
+			return errors.Annotate(err, "tagging volume")
+		}
+	} else {
+		if _, err := client.DeleteVolume(volumeId); err != nil {
+			return errors.Annotatef(err, "destroying %q", volumeId)
+		}
 	}
 	return nil
 }

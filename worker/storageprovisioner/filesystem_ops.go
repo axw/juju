@@ -190,9 +190,18 @@ func destroyFilesystems(ctx *context, ops map[names.FilesystemTag]*destroyFilesy
 	for tag := range ops {
 		tags = append(tags, tag)
 	}
-	filesystemParams, err := filesystemParams(ctx, tags)
+	destroyFilesystemParams, err := destroyFilesystemParams(ctx, tags)
 	if err != nil {
 		return errors.Trace(err)
+	}
+	filesystemParams := make([]storage.FilesystemParams, len(tags))
+	destroyFilesystemParamsByTag := make(map[names.FilesystemTag]params.DestroyFilesystemParams)
+	for i, args := range destroyFilesystemParams {
+		destroyFilesystemParamsByTag[tags[i]] = args
+		filesystemParams[i] = storage.FilesystemParams{
+			Tag:      tags[i],
+			Provider: storage.ProviderType(args.Provider),
+		}
 	}
 	paramsBySource, filesystemSources, err := filesystemParamsBySource(
 		ctx.config.StorageDir,
@@ -209,50 +218,66 @@ func destroyFilesystems(ctx *context, ops map[names.FilesystemTag]*destroyFilesy
 	for sourceName, filesystemParams := range paramsBySource {
 		logger.Debugf("destroying filesystems from %q: %v", sourceName, filesystemParams)
 		filesystemSource := filesystemSources[sourceName]
-		validFilesystemParams, validationErrors := validateFilesystemParams(filesystemSource, filesystemParams)
-		for i, err := range validationErrors {
-			if err == nil {
-				continue
-			}
-			statuses = append(statuses, params.EntityStatusArgs{
-				Tag:    filesystemParams[i].Tag.String(),
-				Status: status.Error.String(),
-				Info:   err.Error(),
-			})
-			logger.Debugf(
-				"failed to validate parameters for %s: %v",
-				names.ReadableString(filesystemParams[i].Tag), err,
-			)
+		destroyFilesystemParams := make([]params.DestroyFilesystemParams, len(filesystemParams))
+		for i, args := range filesystemParams {
+			destroyFilesystemParams[i] = destroyFilesystemParamsByTag[args.Tag]
 		}
-		filesystemParams = validFilesystemParams
-		if len(filesystemParams) == 0 {
+		if len(destroyFilesystemParams) == 0 {
 			continue
 		}
-		filesystemIds := make([]string, len(filesystemParams))
-		for i, filesystemParams := range filesystemParams {
-			filesystem, ok := ctx.filesystems[filesystemParams.Tag]
-			if !ok {
-				return errors.NotFoundf("filesystem %s", filesystemParams.Tag.Id())
-			}
-			filesystemIds[i] = filesystem.FilesystemId
-		}
-		errs, err := filesystemSource.DestroyFilesystems(filesystemIds)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		for i, err := range errs {
+		destroyFilesystemTags := make([]names.FilesystemTag, 0, len(destroyFilesystemParams))
+		destroyFilesystemIds := make([]string, 0, len(destroyFilesystemParams))
+		releaseFilesystemTags := make([]names.FilesystemTag, 0, len(destroyFilesystemParams))
+		releaseFilesystemIds := make([]string, 0, len(destroyFilesystemParams))
+		for i, args := range destroyFilesystemParams {
 			tag := filesystemParams[i].Tag
-			if err == nil {
-				remove = append(remove, tag)
-				continue
+			if args.Release {
+				releaseFilesystemTags = append(releaseFilesystemTags, tag)
+				releaseFilesystemIds = append(releaseFilesystemIds, args.FilesystemId)
+			} else {
+				destroyFilesystemTags = append(destroyFilesystemTags, tag)
+				destroyFilesystemIds = append(destroyFilesystemIds, args.FilesystemId)
 			}
-			// Failed to destroy filesystem; reschedule and update status.
-			reschedule = append(reschedule, ops[tag])
-			statuses = append(statuses, params.EntityStatusArgs{
-				Tag:    tag.String(),
-				Status: status.Destroying.String(),
-				Info:   err.Error(),
-			})
+		}
+		if len(destroyFilesystemIds) > 0 {
+			errs, err := filesystemSource.DestroyFilesystems(destroyFilesystemIds)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			for i, err := range errs {
+				tag := destroyFilesystemTags[i]
+				if err == nil {
+					remove = append(remove, tag)
+					continue
+				}
+				// Failed to destroy filesystem; reschedule and update status.
+				reschedule = append(reschedule, ops[tag])
+				statuses = append(statuses, params.EntityStatusArgs{
+					Tag:    tag.String(),
+					Status: status.Destroying.String(),
+					Info:   err.Error(),
+				})
+			}
+		}
+		if len(releaseFilesystemIds) > 0 {
+			errs, err := filesystemSource.ReleaseFilesystems(releaseFilesystemIds)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			for i, err := range errs {
+				tag := releaseFilesystemTags[i]
+				if err == nil {
+					remove = append(remove, tag)
+					continue
+				}
+				// Failed to destroy filesystem; reschedule and update status.
+				reschedule = append(reschedule, ops[tag])
+				statuses = append(statuses, params.EntityStatusArgs{
+					Tag:    tag.String(),
+					Status: status.Destroying.String(),
+					Info:   err.Error(),
+				})
+			}
 		}
 	}
 	scheduleOperations(ctx, reschedule...)

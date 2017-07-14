@@ -398,6 +398,39 @@ func (s *provisionerSuite) TestVolumeParams(c *gc.C) {
 	}})
 }
 
+func (s *provisionerSuite) TestDestroyVolumeParams(c *gc.C) {
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		c.Check(objType, gc.Equals, "StorageProvisioner")
+		c.Check(version, gc.Equals, 0)
+		c.Check(id, gc.Equals, "")
+		c.Check(request, gc.Equals, "DestroyVolumeParams")
+		c.Check(arg, gc.DeepEquals, params.Entities{Entities: []params.Entity{{"volume-100"}}})
+		c.Assert(result, gc.FitsTypeOf, &params.DestroyVolumeParamsResults{})
+		*(result.(*params.DestroyVolumeParamsResults)) = params.DestroyVolumeParamsResults{
+			Results: []params.DestroyVolumeParamsResult{{
+				Result: params.DestroyVolumeParams{
+					Provider: "foo",
+					VolumeId: "bar",
+					Release:  true,
+				},
+			}},
+		}
+		return nil
+	})
+
+	st, err := storageprovisioner.NewState(apiCaller, names.NewMachineTag("123"))
+	c.Assert(err, jc.ErrorIsNil)
+	volumeParams, err := st.DestroyVolumeParams([]names.VolumeTag{names.NewVolumeTag("100")})
+	c.Check(err, jc.ErrorIsNil)
+	c.Assert(volumeParams, jc.DeepEquals, []params.DestroyVolumeParamsResult{{
+		Result: params.DestroyVolumeParams{
+			Provider: "foo",
+			VolumeId: "bar",
+			Release:  true,
+		},
+	}})
+}
+
 func (s *provisionerSuite) TestFilesystemParams(c *gc.C) {
 	var callCount int
 	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
@@ -428,6 +461,39 @@ func (s *provisionerSuite) TestFilesystemParams(c *gc.C) {
 	c.Assert(filesystemParams, jc.DeepEquals, []params.FilesystemParamsResult{{
 		Result: params.FilesystemParams{
 			FilesystemTag: "filesystem-100", Size: 1024, Provider: "loop",
+		},
+	}})
+}
+
+func (s *provisionerSuite) TestDestroyFilesystemParams(c *gc.C) {
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		c.Check(objType, gc.Equals, "StorageProvisioner")
+		c.Check(version, gc.Equals, 0)
+		c.Check(id, gc.Equals, "")
+		c.Check(request, gc.Equals, "DestroyFilesystemParams")
+		c.Check(arg, gc.DeepEquals, params.Entities{Entities: []params.Entity{{"filesystem-100"}}})
+		c.Assert(result, gc.FitsTypeOf, &params.DestroyFilesystemParamsResults{})
+		*(result.(*params.DestroyFilesystemParamsResults)) = params.DestroyFilesystemParamsResults{
+			Results: []params.DestroyFilesystemParamsResult{{
+				Result: params.DestroyFilesystemParams{
+					Provider:     "foo",
+					FilesystemId: "bar",
+					Release:      true,
+				},
+			}},
+		}
+		return nil
+	})
+
+	st, err := storageprovisioner.NewState(apiCaller, names.NewMachineTag("123"))
+	c.Assert(err, jc.ErrorIsNil)
+	filesystemParams, err := st.DestroyFilesystemParams([]names.FilesystemTag{names.NewFilesystemTag("100")})
+	c.Check(err, jc.ErrorIsNil)
+	c.Assert(filesystemParams, jc.DeepEquals, []params.DestroyFilesystemParamsResult{{
+		Result: params.DestroyFilesystemParams{
+			Provider:     "foo",
+			FilesystemId: "bar",
+			Release:      true,
 		},
 	}})
 }
@@ -753,6 +819,27 @@ func (s *provisionerSuite) TestVolumeParamsClientError(c *gc.C) {
 	})
 }
 
+func (s *provisionerSuite) TestDestroyVolumeParamsClientError(c *gc.C) {
+	s.testClientError(c, func(st *storageprovisioner.State) error {
+		_, err := st.DestroyVolumeParams(nil)
+		return err
+	})
+}
+
+func (s *provisionerSuite) TestFilesystemParamsClientError(c *gc.C) {
+	s.testClientError(c, func(st *storageprovisioner.State) error {
+		_, err := st.FilesystemParams(nil)
+		return err
+	})
+}
+
+func (s *provisionerSuite) TestDestroyFilesystemParamsClientError(c *gc.C) {
+	s.testClientError(c, func(st *storageprovisioner.State) error {
+		_, err := st.DestroyFilesystemParams(nil)
+		return err
+	})
+}
+
 func (s *provisionerSuite) TestRemoveClientError(c *gc.C) {
 	s.testClientError(c, func(st *storageprovisioner.State) error {
 		_, err := st.Remove(nil)
@@ -839,6 +926,57 @@ func (s *provisionerSuite) TestVolumeParamsServerError(c *gc.C) {
 	st, err := storageprovisioner.NewState(apiCaller, names.NewMachineTag("123"))
 	c.Assert(err, jc.ErrorIsNil)
 	results, err := st.VolumeParams([]names.VolumeTag{names.NewVolumeTag("100")})
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(results, gc.HasLen, 1)
+	c.Check(results[0].Error, gc.ErrorMatches, "MSG")
+}
+
+func (s *provisionerSuite) TestDestroyVolumeParamsServerError(c *gc.C) {
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		*(result.(*params.DestroyVolumeParamsResults)) = params.DestroyVolumeParamsResults{
+			Results: []params.DestroyVolumeParamsResult{{
+				Error: &params.Error{Message: "MSG", Code: "621"},
+			}},
+		}
+		return nil
+	})
+	st, err := storageprovisioner.NewState(apiCaller, names.NewMachineTag("123"))
+	c.Assert(err, jc.ErrorIsNil)
+	results, err := st.DestroyVolumeParams([]names.VolumeTag{names.NewVolumeTag("100")})
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(results, gc.HasLen, 1)
+	c.Check(results[0].Error, gc.ErrorMatches, "MSG")
+}
+
+func (s *provisionerSuite) TestFilesystemParamsServerError(c *gc.C) {
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		*(result.(*params.FilesystemParamsResults)) = params.FilesystemParamsResults{
+			Results: []params.FilesystemParamsResult{{
+				Error: &params.Error{Message: "MSG", Code: "621"},
+			}},
+		}
+		return nil
+	})
+	st, err := storageprovisioner.NewState(apiCaller, names.NewMachineTag("123"))
+	c.Assert(err, jc.ErrorIsNil)
+	results, err := st.FilesystemParams([]names.FilesystemTag{names.NewFilesystemTag("100")})
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(results, gc.HasLen, 1)
+	c.Check(results[0].Error, gc.ErrorMatches, "MSG")
+}
+
+func (s *provisionerSuite) TestDestroyFilesystemParamsServerError(c *gc.C) {
+	apiCaller := testing.APICallerFunc(func(objType string, version int, id, request string, arg, result interface{}) error {
+		*(result.(*params.DestroyFilesystemParamsResults)) = params.DestroyFilesystemParamsResults{
+			Results: []params.DestroyFilesystemParamsResult{{
+				Error: &params.Error{Message: "MSG", Code: "621"},
+			}},
+		}
+		return nil
+	})
+	st, err := storageprovisioner.NewState(apiCaller, names.NewMachineTag("123"))
+	c.Assert(err, jc.ErrorIsNil)
+	results, err := st.DestroyFilesystemParams([]names.FilesystemTag{names.NewFilesystemTag("100")})
 	c.Assert(err, jc.ErrorIsNil)
 	c.Assert(results, gc.HasLen, 1)
 	c.Check(results[0].Error, gc.ErrorMatches, "MSG")

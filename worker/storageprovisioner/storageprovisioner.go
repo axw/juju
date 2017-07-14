@@ -75,6 +75,10 @@ type VolumeAccessor interface {
 	// with the specified tags.
 	VolumeParams([]names.VolumeTag) ([]params.VolumeParamsResult, error)
 
+	// DestroyVolumeParams returns the parameters for destroying the volumes
+	// with the specified tags.
+	DestroyVolumeParams([]names.VolumeTag) ([]params.DestroyVolumeParamsResult, error)
+
 	// VolumeAttachmentParams returns the parameters for creating the
 	// volume attachments with the specified tags.
 	VolumeAttachmentParams([]params.MachineStorageId) ([]params.VolumeAttachmentParamsResult, error)
@@ -108,6 +112,10 @@ type FilesystemAccessor interface {
 	// FilesystemParams returns the parameters for creating the filesystems
 	// with the specified tags.
 	FilesystemParams([]names.FilesystemTag) ([]params.FilesystemParamsResult, error)
+
+	// DestroyFilesystemParams returns the parameters for destroying the
+	// filesystems with the specified tags.
+	DestroyFilesystemParams([]names.FilesystemTag) ([]params.DestroyFilesystemParamsResult, error)
 
 	// FilesystemAttachmentParams returns the parameters for creating the
 	// filesystem attachments with the specified tags.

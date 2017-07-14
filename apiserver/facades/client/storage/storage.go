@@ -756,7 +756,7 @@ func (a *APIv3) Destroy(args params.Entities) (params.ErrorResults, error) {
 			Tag: arg.Tag,
 			// The v3 behaviour was to detach the storage
 			// at the same time as marking the storage Dying.
-			DestroyAttached: true,
+			DestroyAttachments: true,
 		}
 	}
 	return a.destroy(v4Args)
@@ -785,8 +785,12 @@ func (a *APIv3) destroy(args params.DestroyStorage) (params.ErrorResults, error)
 			result[i].Error = common.ServerError(err)
 			continue
 		}
+		destroy := a.storage.DestroyStorageInstance
+		if arg.ReleaseStorage {
+			destroy = a.storage.ReleaseStorageInstance
+		}
 		result[i].Error = common.ServerError(
-			a.storage.DestroyStorageInstance(tag, arg.DestroyAttached),
+			destroy(tag, arg.DestroyAttachments),
 		)
 	}
 	return params.ErrorResults{result}, nil

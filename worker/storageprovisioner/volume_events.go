@@ -382,6 +382,22 @@ func volumeParams(ctx *context, tags []names.VolumeTag) ([]storage.VolumeParams,
 	return allParams, nil
 }
 
+// destroyVolumeParams obtains the specified volumes' destruction parameters.
+func destroyVolumeParams(ctx *context, tags []names.VolumeTag) ([]params.DestroyVolumeParams, error) {
+	paramsResults, err := ctx.config.Volumes.DestroyVolumeParams(tags)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting volume params")
+	}
+	allParams := make([]params.DestroyVolumeParams, len(tags))
+	for i, result := range paramsResults {
+		if result.Error != nil {
+			return nil, errors.Annotate(result.Error, "getting volume destruction parameters")
+		}
+		allParams[i] = result.Result
+	}
+	return allParams, nil
+}
+
 func volumesFromStorage(in []storage.Volume) []params.Volume {
 	out := make([]params.Volume, len(in))
 	for i, v := range in {

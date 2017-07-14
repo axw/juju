@@ -243,6 +243,26 @@ func (st *State) VolumeParams(tags []names.VolumeTag) ([]params.VolumeParamsResu
 	return results.Results, nil
 }
 
+// DestroyVolumeParams returns the parameters for destroying the volumes
+// with the specified tags.
+func (st *State) DestroyVolumeParams(tags []names.VolumeTag) ([]params.DestroyVolumeParamsResult, error) {
+	args := params.Entities{
+		Entities: make([]params.Entity, len(tags)),
+	}
+	for i, tag := range tags {
+		args.Entities[i].Tag = tag.String()
+	}
+	var results params.DestroyVolumeParamsResults
+	err := st.facade.FacadeCall("DestroyVolumeParams", args, &results)
+	if err != nil {
+		return nil, err
+	}
+	if len(results.Results) != len(tags) {
+		panic(errors.Errorf("expected %d result(s), got %d", len(tags), len(results.Results)))
+	}
+	return results.Results, nil
+}
+
 // FilesystemParams returns the parameters for creating the filesystems
 // with the specified tags.
 func (st *State) FilesystemParams(tags []names.FilesystemTag) ([]params.FilesystemParamsResult, error) {
@@ -254,6 +274,26 @@ func (st *State) FilesystemParams(tags []names.FilesystemTag) ([]params.Filesyst
 	}
 	var results params.FilesystemParamsResults
 	err := st.facade.FacadeCall("FilesystemParams", args, &results)
+	if err != nil {
+		return nil, err
+	}
+	if len(results.Results) != len(tags) {
+		panic(errors.Errorf("expected %d result(s), got %d", len(tags), len(results.Results)))
+	}
+	return results.Results, nil
+}
+
+// DestroyFilesystemParams returns the parameters for destroying the filesystems
+// with the specified tags.
+func (st *State) DestroyFilesystemParams(tags []names.FilesystemTag) ([]params.DestroyFilesystemParamsResult, error) {
+	args := params.Entities{
+		Entities: make([]params.Entity, len(tags)),
+	}
+	for i, tag := range tags {
+		args.Entities[i].Tag = tag.String()
+	}
+	var results params.DestroyFilesystemParamsResults
+	err := st.facade.FacadeCall("DestroyFilesystemParams", args, &results)
 	if err != nil {
 		return nil, err
 	}

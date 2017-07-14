@@ -195,9 +195,18 @@ func destroyVolumes(ctx *context, ops map[names.VolumeTag]*destroyVolumeOp) erro
 	for tag := range ops {
 		tags = append(tags, tag)
 	}
-	volumeParams, err := volumeParams(ctx, tags)
+	destroyVolumeParams, err := destroyVolumeParams(ctx, tags)
 	if err != nil {
 		return errors.Trace(err)
+	}
+	volumeParams := make([]storage.VolumeParams, len(tags))
+	destroyVolumeParamsByTag := make(map[names.VolumeTag]params.DestroyVolumeParams)
+	for i, args := range destroyVolumeParams {
+		destroyVolumeParamsByTag[tags[i]] = args
+		volumeParams[i] = storage.VolumeParams{
+			Tag:      tags[i],
+			Provider: storage.ProviderType(args.Provider),
+		}
 	}
 	paramsBySource, volumeSources, err := volumeParamsBySource(
 		ctx.config.StorageDir, volumeParams, ctx.config.Registry,
@@ -211,50 +220,66 @@ func destroyVolumes(ctx *context, ops map[names.VolumeTag]*destroyVolumeOp) erro
 	for sourceName, volumeParams := range paramsBySource {
 		logger.Debugf("destroying volumes from %q: %v", sourceName, volumeParams)
 		volumeSource := volumeSources[sourceName]
-		validVolumeParams, validationErrors := validateVolumeParams(volumeSource, volumeParams)
-		for i, err := range validationErrors {
-			if err == nil {
-				continue
-			}
-			statuses = append(statuses, params.EntityStatusArgs{
-				Tag:    volumeParams[i].Tag.String(),
-				Status: status.Error.String(),
-				Info:   err.Error(),
-			})
-			logger.Debugf(
-				"failed to validate parameters for %s: %v",
-				names.ReadableString(volumeParams[i].Tag), err,
-			)
+		destroyVolumeParams := make([]params.DestroyVolumeParams, len(volumeParams))
+		for i, args := range volumeParams {
+			destroyVolumeParams[i] = destroyVolumeParamsByTag[args.Tag]
 		}
-		volumeParams = validVolumeParams
-		if len(volumeParams) == 0 {
+		if len(destroyVolumeParams) == 0 {
 			continue
 		}
-		volumeIds := make([]string, len(volumeParams))
-		for i, volumeParams := range volumeParams {
-			volume, ok := ctx.volumes[volumeParams.Tag]
-			if !ok {
-				return errors.NotFoundf("volume %s", volumeParams.Tag.Id())
-			}
-			volumeIds[i] = volume.VolumeId
-		}
-		errs, err := volumeSource.DestroyVolumes(volumeIds)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		for i, err := range errs {
+		destroyVolumeTags := make([]names.VolumeTag, 0, len(destroyVolumeParams))
+		destroyVolumeIds := make([]string, 0, len(destroyVolumeParams))
+		releaseVolumeTags := make([]names.VolumeTag, 0, len(destroyVolumeParams))
+		releaseVolumeIds := make([]string, 0, len(destroyVolumeParams))
+		for i, args := range destroyVolumeParams {
 			tag := volumeParams[i].Tag
-			if err == nil {
-				remove = append(remove, tag)
-				continue
+			if args.Release {
+				releaseVolumeTags = append(releaseVolumeTags, tag)
+				releaseVolumeIds = append(releaseVolumeIds, args.VolumeId)
+			} else {
+				destroyVolumeTags = append(destroyVolumeTags, tag)
+				destroyVolumeIds = append(destroyVolumeIds, args.VolumeId)
 			}
-			// Failed to destroy volume; reschedule and update status.
-			reschedule = append(reschedule, ops[tag])
-			statuses = append(statuses, params.EntityStatusArgs{
-				Tag:    tag.String(),
-				Status: status.Destroying.String(),
-				Info:   err.Error(),
-			})
+		}
+		if len(destroyVolumeIds) > 0 {
+			errs, err := volumeSource.DestroyVolumes(destroyVolumeIds)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			for i, err := range errs {
+				tag := destroyVolumeTags[i]
+				if err == nil {
+					remove = append(remove, tag)
+					continue
+				}
+				// Failed to destroy volume; reschedule and update status.
+				reschedule = append(reschedule, ops[tag])
+				statuses = append(statuses, params.EntityStatusArgs{
+					Tag:    tag.String(),
+					Status: status.Destroying.String(),
+					Info:   err.Error(),
+				})
+			}
+		}
+		if len(releaseVolumeIds) > 0 {
+			errs, err := volumeSource.ReleaseVolumes(releaseVolumeIds)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			for i, err := range errs {
+				tag := releaseVolumeTags[i]
+				if err == nil {
+					remove = append(remove, tag)
+					continue
+				}
+				// Failed to destroy volume; reschedule and update status.
+				reschedule = append(reschedule, ops[tag])
+				statuses = append(statuses, params.EntityStatusArgs{
+					Tag:    tag.String(),
+					Status: status.Destroying.String(),
+					Info:   err.Error(),
+				})
+			}
 		}
 	}
 	scheduleOperations(ctx, reschedule...)

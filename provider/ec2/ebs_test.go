@@ -369,6 +369,27 @@ func (s *ebsSuite) TestDestroyVolumesStillAttached(c *gc.C) {
 	c.Assert(ec2Vols.Volumes[0].Size, gc.Equals, 20)
 }
 
+func (s *ebsSuite) TestReleaseVolumes(c *gc.C) {
+	vs := s.volumeSource(c, nil)
+	params := s.setupAttachVolumesTest(c, vs, ec2test.Running)
+	errs, err := vs.DetachVolumes(params)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(errs, jc.DeepEquals, []error{nil})
+	errs, err = vs.ReleaseVolumes([]string{"vol-0"})
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(errs, jc.DeepEquals, []error{nil})
+
+	ec2Client := ec2.StorageEC2(vs)
+	ec2Vols, err := ec2Client.Volumes([]string{"vol-0"}, nil)
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(ec2Vols.Volumes, gc.HasLen, 1)
+	c.Assert(ec2Vols.Volumes[0].Tags, jc.SameContents, []awsec2.Tag{
+		{"juju-controller-uuid", ""},
+		{"juju-model-uuid", ""},
+		{"Name", "juju-testenv-volume-0"},
+	})
+}
+
 func (s *ebsSuite) TestDescribeVolumes(c *gc.C) {
 	vs := s.volumeSource(c, nil)
 	s.assertCreateVolumes(c, vs, "")

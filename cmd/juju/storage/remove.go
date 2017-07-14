@@ -41,7 +41,15 @@ is attached to any units. To override this behaviour,
 you can use "juju remove-storage --force".
 
 Examples:
+    # Remove the detached storage pgdata/0.
     juju remove-storage pgdata/0
+
+    # Remove the possibly attached storage pgdata/0.
+    juju remove-storage --force pgdata/0
+
+    # Remove the storage pgdata/0, without destroying
+    # the corresponding cloud storage.
+    juju remove-storage --no-destroy pgdata/0
 `
 	removeStorageCommandArgs = `<storage> [<storage> ...]`
 )
@@ -51,6 +59,7 @@ type removeStorageCommand struct {
 	newStorageDestroyerCloser NewStorageDestroyerCloserFunc
 	storageIds                []string
 	force                     bool
+	noDestroy                 bool
 }
 
 // Info implements Command.Info.
@@ -66,6 +75,7 @@ func (c *removeStorageCommand) Info() *cmd.Info {
 func (c *removeStorageCommand) SetFlags(f *gnuflag.FlagSet) {
 	c.StorageCommandBase.SetFlags(f)
 	f.BoolVar(&c.force, "force", false, "Remove storage even if it is currently attached")
+	f.BoolVar(&c.noDestroy, "no-destroy", false, "Remove the storage without destroying it")
 }
 
 // Init implements Command.Init.
@@ -85,7 +95,7 @@ func (c *removeStorageCommand) Run(ctx *cmd.Context) error {
 	}
 	defer destroyer.Close()
 
-	results, err := destroyer.Destroy(c.storageIds, c.force)
+	results, err := destroyer.Destroy(c.storageIds, c.force, c.noDestroy)
 	if err != nil {
 		if params.IsCodeUnauthorized(err) {
 			common.PermissionsMessage(ctx.Stderr, "remove storage")
@@ -133,5 +143,8 @@ type StorageDestroyerCloser interface {
 // StorageDestroyer defines an interface for destroying storage instances
 // with the specified IDs.
 type StorageDestroyer interface {
-	Destroy(storageIds []string, destroyAttached bool) ([]params.ErrorResult, error)
+	Destroy(
+		storageIds []string,
+		destroyAttachments, releaseStorage bool,
+	) ([]params.ErrorResult, error)
 }

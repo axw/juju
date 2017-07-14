@@ -420,6 +420,22 @@ func filesystemParams(ctx *context, tags []names.FilesystemTag) ([]storage.Files
 	return allParams, nil
 }
 
+// destroyFilesystemParams obtains the specified filesystems' destruction parameters.
+func destroyFilesystemParams(ctx *context, tags []names.FilesystemTag) ([]params.DestroyFilesystemParams, error) {
+	paramsResults, err := ctx.config.Filesystems.DestroyFilesystemParams(tags)
+	if err != nil {
+		return nil, errors.Annotate(err, "getting filesystem params")
+	}
+	allParams := make([]params.DestroyFilesystemParams, len(tags))
+	for i, result := range paramsResults {
+		if result.Error != nil {
+			return nil, errors.Annotate(result.Error, "getting filesystem destruction parameters")
+		}
+		allParams[i] = result.Result
+	}
+	return allParams, nil
+}
+
 func filesystemFromParams(in params.Filesystem) (storage.Filesystem, error) {
 	filesystemTag, err := names.ParseFilesystemTag(in.FilesystemTag)
 	if err != nil {

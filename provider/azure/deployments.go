@@ -29,12 +29,13 @@ func createDeployment(
 		},
 	}
 	if err := callAPI(func() (autorest.Response, error) {
-		return client.CreateOrUpdate(
+		resultChan, errChan := client.CreateOrUpdate(
 			resourceGroup,
 			deploymentName,
 			deployment,
 			nil, // abort channel
 		)
+		return (<-resultChan).Response, <-errChan
 	}); err != nil {
 		return errors.Annotatef(err, "creating deployment %q", deploymentName)
 	}

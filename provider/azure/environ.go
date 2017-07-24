@@ -63,6 +63,10 @@ const (
 	// controllerAvailabilitySet is the name of the availability set
 	// used for controller machines.
 	controllerAvailabilitySet = "juju-controller"
+
+	computeAPIVersion = "2016-03-30"
+	networkAPIVersion = "2017-03-01"
+	storageAPIVersion = "2016-12-01"
 )
 
 type azureEnviron struct {
@@ -249,7 +253,7 @@ func (env *azureEnviron) initResourceGroup(controllerUUID string, controller boo
 
 	logger.Debugf("creating resource group %q", env.resourceGroup)
 	err := env.callAPI(func() (autorest.Response, error) {
-		group, err := resourceGroupsClient.CreateOrUpdate(env.resourceGroup, resources.ResourceGroup{
+		group, err := resourceGroupsClient.CreateOrUpdate(env.resourceGroup, resources.Group{
 			Location: to.StringPtr(env.location),
 			Tags:     to.StringMapPtr(tags),
 		})
@@ -628,7 +632,7 @@ func (env *azureEnviron) createVirtualMachine(
 			availabilitySetName,
 		)
 		resources = append(resources, armtemplates.Resource{
-			APIVersion: compute.APIVersion,
+			APIVersion: "2016-03-30",
 			Type:       "Microsoft.Compute/availabilitySets",
 			Name:       availabilitySetName,
 			Location:   env.location,
@@ -643,7 +647,7 @@ func (env *azureEnviron) createVirtualMachine(
 	publicIPAddressName := vmName + "-public-ip"
 	publicIPAddressId := fmt.Sprintf(`[resourceId('Microsoft.Network/publicIPAddresses', '%s')]`, publicIPAddressName)
 	resources = append(resources, armtemplates.Resource{
-		APIVersion: network.APIVersion,
+		APIVersion: networkAPIVersion,
 		Type:       "Microsoft.Network/publicIPAddresses",
 		Name:       publicIPAddressName,
 		Location:   env.location,
@@ -676,7 +680,7 @@ func (env *azureEnviron) createVirtualMachine(
 	nicDependsOn = append(nicDependsOn, publicIPAddressId)
 	ipConfigurations := []network.InterfaceIPConfiguration{{
 		Name: to.StringPtr("primary"),
-		Properties: &network.InterfaceIPConfigurationPropertiesFormat{
+		InterfaceIPConfigurationPropertiesFormat: &network.InterfaceIPConfigurationPropertiesFormat{
 			Primary:                   to.BoolPtr(true),
 			PrivateIPAddress:          to.StringPtr(privateIP.String()),
 			PrivateIPAllocationMethod: network.Static,
@@ -687,7 +691,7 @@ func (env *azureEnviron) createVirtualMachine(
 		},
 	}}
 	resources = append(resources, armtemplates.Resource{
-		APIVersion: network.APIVersion,
+		APIVersion: networkAPIVersion,
 		Type:       "Microsoft.Network/networkInterfaces",
 		Name:       nicName,
 		Location:   env.location,
@@ -700,13 +704,13 @@ func (env *azureEnviron) createVirtualMachine(
 
 	nics := []compute.NetworkInterfaceReference{{
 		ID: to.StringPtr(nicId),
-		Properties: &compute.NetworkInterfaceReferenceProperties{
+		NetworkInterfaceReferenceProperties: &compute.NetworkInterfaceReferenceProperties{
 			Primary: to.BoolPtr(true),
 		},
 	}}
 	vmDependsOn = append(vmDependsOn, nicId)
 	resources = append(resources, armtemplates.Resource{
-		APIVersion: compute.APIVersion,
+		APIVersion: computeAPIVersion,
 		Type:       "Microsoft.Compute/virtualMachines",
 		Name:       vmName,
 		Location:   env.location,
@@ -738,7 +742,7 @@ func (env *azureEnviron) createVirtualMachine(
 			)
 		}
 		resources = append(resources, armtemplates.Resource{
-			APIVersion: compute.APIVersion,
+			APIVersion: computeAPIVersion,
 			Type:       "Microsoft.Compute/virtualMachines/extensions",
 			Name:       vmName + "/" + extensionName,
 			Location:   env.location,
@@ -904,7 +908,7 @@ func newStorageProfile(
 
 	osDisksRoot := fmt.Sprintf(
 		`reference(resourceId('Microsoft.Storage/storageAccounts', '%s'), '%s').primaryEndpoints.blob`,
-		storageAccountName, storage.APIVersion,
+		storageAccountName, storageAPIVersion,
 	)
 	osDiskName := vmName
 	osDiskURI := fmt.Sprintf(
@@ -1295,7 +1299,7 @@ func (env *azureEnviron) AdoptResources(controllerUUID string, fromVersion versi
 }
 
 func (env *azureEnviron) updateGroupControllerTag(client *resources.GroupsClient, groupName, controllerUUID string) error {
-	var group resources.ResourceGroup
+	var group resources.Group
 	err := env.callAPI(func() (autorest.Response, error) {
 		var err error
 		group, err = client.Get(groupName)
@@ -1502,7 +1506,7 @@ func (env *azureEnviron) deleteControllerManagedResourceGroups(controllerUUID st
 		tags.JujuController, controllerUUID,
 	)
 	client := resources.GroupsClient{env.resources}
-	var result resources.ResourceGroupListResult
+	var result resources.GroupListResult
 	if err := env.callAPI(func() (autorest.Response, error) {
 		var err error
 		result, err = client.List(filter, nil)

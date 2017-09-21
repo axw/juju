@@ -319,15 +319,25 @@ func (c *Client) DestroyUnitsDeprecated(unitNames ...string) error {
 	return c.facade.FacadeCall("DestroyUnits", params, nil)
 }
 
+// DestroyUnitsParams contains parameters for the DestroyUnits API method.
+type DestroyUnitsParams struct {
+	// Units holds the IDs of units to destroy.
+	Units []string
+
+	// DestroyStorage controls whether or not storage attached
+	// to the units will be destroyed.
+	DestroyStorage bool
+}
+
 // DestroyUnits decreases the number of units dedicated to one or more
 // applications.
-func (c *Client) DestroyUnits(unitNames ...string) ([]params.DestroyUnitResult, error) {
-	args := params.Entities{
-		Entities: make([]params.Entity, 0, len(unitNames)),
+func (c *Client) DestroyUnits(in DestroyUnitsParams) ([]params.DestroyUnitResult, error) {
+	args := params.DestroyUnitsParams{
+		Units: make([]params.DestroyUnitParams, 0, len(in.Units)),
 	}
-	allResults := make([]params.DestroyUnitResult, len(unitNames))
-	index := make([]int, 0, len(unitNames))
-	for i, name := range unitNames {
+	allResults := make([]params.DestroyUnitResult, len(in.Units))
+	index := make([]int, 0, len(in.Units))
+	for i, name := range in.Units {
 		if !names.IsValidUnit(name) {
 			allResults[i].Error = &params.Error{
 				Message: errors.NotValidf("unit ID %q", name).Error(),
@@ -335,17 +345,18 @@ func (c *Client) DestroyUnits(unitNames ...string) ([]params.DestroyUnitResult, 
 			continue
 		}
 		index = append(index, i)
-		args.Entities = append(args.Entities, params.Entity{
-			Tag: names.NewUnitTag(name).String(),
+		args.Units = append(args.Units, params.DestroyUnitParams{
+			UnitTag:        names.NewUnitTag(name).String(),
+			DestroyStorage: in.DestroyStorage,
 		})
 	}
-	if len(args.Entities) > 0 {
+	if len(args.Units) > 0 {
 		var result params.DestroyUnitResults
 		if err := c.facade.FacadeCall("DestroyUnit", args, &result); err != nil {
 			return nil, errors.Trace(err)
 		}
-		if n := len(result.Results); n != len(args.Entities) {
-			return nil, errors.Errorf("expected %d result(s), got %d", len(args.Entities), n)
+		if n := len(result.Results); n != len(args.Units) {
+			return nil, errors.Errorf("expected %d result(s), got %d", len(args.Units), n)
 		}
 		for i, result := range result.Results {
 			allResults[index[i]] = result
@@ -369,14 +380,23 @@ func (c *Client) DestroyDeprecated(application string) error {
 	return c.facade.FacadeCall("Destroy", params, nil)
 }
 
+type DestroyApplicationsParams struct {
+	// Applications holds the names of applications to destroy.
+	Applications []string
+
+	// DestroyStorage controls whether or not storage attached
+	// to units of the applications will be destroyed.
+	DestroyStorage bool
+}
+
 // DestroyApplications destroys the given applications.
-func (c *Client) DestroyApplications(appNames ...string) ([]params.DestroyApplicationResult, error) {
-	args := params.Entities{
-		Entities: make([]params.Entity, 0, len(appNames)),
+func (c *Client) DestroyApplications(in DestroyApplicationsParams) ([]params.DestroyApplicationResult, error) {
+	args := params.DestroyApplicationsParams{
+		Applications: make([]params.DestroyApplicationParams, 0, len(in.Applications)),
 	}
-	allResults := make([]params.DestroyApplicationResult, len(appNames))
-	index := make([]int, 0, len(appNames))
-	for i, name := range appNames {
+	allResults := make([]params.DestroyApplicationResult, len(in.Applications))
+	index := make([]int, 0, len(in.Applications))
+	for i, name := range in.Applications {
 		if !names.IsValidApplication(name) {
 			allResults[i].Error = &params.Error{
 				Message: errors.NotValidf("application name %q", name).Error(),
@@ -384,17 +404,18 @@ func (c *Client) DestroyApplications(appNames ...string) ([]params.DestroyApplic
 			continue
 		}
 		index = append(index, i)
-		args.Entities = append(args.Entities, params.Entity{
-			Tag: names.NewApplicationTag(name).String(),
+		args.Applications = append(args.Applications, params.DestroyApplicationParams{
+			ApplicationTag: names.NewApplicationTag(name).String(),
+			DestroyStorage: in.DestroyStorage,
 		})
 	}
-	if len(args.Entities) > 0 {
+	if len(args.Applications) > 0 {
 		var result params.DestroyApplicationResults
 		if err := c.facade.FacadeCall("DestroyApplication", args, &result); err != nil {
 			return nil, errors.Trace(err)
 		}
-		if n := len(result.Results); n != len(args.Entities) {
-			return nil, errors.Errorf("expected %d result(s), got %d", len(args.Entities), n)
+		if n := len(result.Results); n != len(args.Applications) {
+			return nil, errors.Errorf("expected %d result(s), got %d", len(args.Applications), n)
 		}
 		for i, result := range result.Results {
 			allResults[index[i]] = result

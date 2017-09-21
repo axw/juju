@@ -361,7 +361,9 @@ func opClientDestroyServiceUnits(c *gc.C, st api.Connection, mst *state.State) (
 }
 
 func opClientDestroyUnit(c *gc.C, st api.Connection, mst *state.State) (func(), error) {
-	_, err := application.NewClient(st).DestroyUnits("wordpress/99")
+	_, err := application.NewClient(st).DestroyUnits(application.DestroyUnitsParams{
+		Units: []string{"wordpress/99"},
+	})
 	return func() {}, err
 }
 

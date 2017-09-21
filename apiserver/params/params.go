@@ -442,14 +442,54 @@ type AddApplicationUnits struct {
 	AttachStorage   []string              `json:"attach-storage,omitempty"`
 }
 
-// DestroyApplicationUnits holds parameters for the DestroyUnits call.
+// DestroyApplicationUnits holds parameters for the deprecated
+// Application.DestroyUnits call.
 type DestroyApplicationUnits struct {
 	UnitNames []string `json:"unit-names"`
 }
 
-// ApplicationDestroy holds the parameters for making the application Destroy call.
+// DestroyUnitsParams holds bulk parameters for the Application.DestroyUnit call.
+type DestroyUnitsParams struct {
+	// NOTE(axw) the JSON tag is "entities" for compatibility
+	// with the Entities type, which this replaces for newer
+	// versions of DestroyUnit.
+	Units []DestroyUnitParams `json:"entities"`
+}
+
+// DestroyUnitParams holds parameters for the Application.DestroyUnit call.
+type DestroyUnitParams struct {
+	// UnitTag holds the tag of the unit to destroy.
+	UnitTag string `json:"tag"`
+
+	// DestroyStorage controls whether or not storage
+	// attached to the unit should be destroyed.
+	DestroyStorage bool `json:"destroy-storage"`
+}
+
+// ApplicationDestroy holds the parameters for making the deprecated
+// Application.Destroy call.
 type ApplicationDestroy struct {
 	ApplicationName string `json:"application"`
+}
+
+// DestroyApplicationsParams holds bulk parameters for the
+// Application.DestroyApplication call.
+type DestroyApplicationsParams struct {
+	// NOTE(axw) the JSON tag is "entities" for compatibility
+	// with the Entities type, which this replaces for newer
+	// versions of DestroyApplication.
+	Applications []DestroyApplicationParams `json:"entities"`
+}
+
+// DestroyApplicationParams holds parameters for the
+// Application.DestroyApplication call.
+type DestroyApplicationParams struct {
+	// ApplicationTag holds the tag of the application to destroy.
+	ApplicationTag string `json:"tag"`
+
+	// DestroyStorage controls whether or not storage attached to
+	// units of the application should be destroyed.
+	DestroyStorage bool `json:"destroy-storage"`
 }
 
 // Creds holds credentials for identifying an entity.

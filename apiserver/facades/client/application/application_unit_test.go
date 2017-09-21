@@ -321,10 +321,10 @@ func (s *ApplicationSuite) TestDestroyApplicationNotFound(c *gc.C) {
 }
 
 func (s *ApplicationSuite) TestDestroyUnit(c *gc.C) {
-	results, err := s.api.DestroyUnit(params.Entities{
-		Entities: []params.Entity{
-			{Tag: "unit-postgresql-0"},
-			{Tag: "unit-postgresql-1"},
+	results, err := s.api.DestroyUnit(params.DestroyUnitsParams{
+		Units: []params.DestroyUnitParams{
+			{UnitTag: "unit-postgresql-0"},
+			{UnitTag: "unit-postgresql-1"},
 		},
 	})
 	c.Assert(err, jc.ErrorIsNil)

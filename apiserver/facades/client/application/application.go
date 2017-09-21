@@ -736,16 +736,16 @@ func addApplicationUnits(backend Backend, args params.AddApplicationUnits) ([]Un
 // Drop this in Juju 3.0.
 func (api *API) DestroyUnits(args params.DestroyApplicationUnits) error {
 	var errs []error
-	entities := params.Entities{
-		Entities: make([]params.Entity, 0, len(args.UnitNames)),
+	entities := params.DestroyUnitsParams{
+		Units: make([]params.DestroyUnitParams, 0, len(args.UnitNames)),
 	}
 	for _, unitName := range args.UnitNames {
 		if !names.IsValidUnit(unitName) {
 			errs = append(errs, errors.NotValidf("unit name %q", unitName))
 			continue
 		}
-		entities.Entities = append(entities.Entities, params.Entity{
-			Tag: names.NewUnitTag(unitName).String(),
+		entities.Units = append(entities.Units, params.DestroyUnitParams{
+			UnitTag: names.NewUnitTag(unitName).String(),
 		})
 	}
 	results, err := api.DestroyUnit(entities)
@@ -761,15 +761,15 @@ func (api *API) DestroyUnits(args params.DestroyApplicationUnits) error {
 }
 
 // DestroyUnit removes a given set of application units.
-func (api *API) DestroyUnit(args params.Entities) (params.DestroyUnitResults, error) {
+func (api *API) DestroyUnit(args params.DestroyUnitsParams) (params.DestroyUnitResults, error) {
 	if err := api.checkCanWrite(); err != nil {
 		return params.DestroyUnitResults{}, errors.Trace(err)
 	}
 	if err := api.check.RemoveAllowed(); err != nil {
 		return params.DestroyUnitResults{}, errors.Trace(err)
 	}
-	destroyUnit := func(entity params.Entity) (*params.DestroyUnitInfo, error) {
-		unitTag, err := names.ParseUnitTag(entity.Tag)
+	destroyUnit := func(arg params.DestroyUnitParams) (*params.DestroyUnitInfo, error) {
+		unitTag, err := names.ParseUnitTag(arg.UnitTag)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -788,19 +788,30 @@ func (api *API) DestroyUnit(args params.Entities) (params.DestroyUnitResults, er
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		info.DestroyedStorage, info.DetachedStorage, err = storagecommon.ClassifyDetachedStorage(
-			api.backend, storage,
-		)
-		if err != nil {
-			return nil, errors.Trace(err)
+		if arg.DestroyStorage {
+			for _, s := range storage {
+				info.DestroyedStorage = append(
+					info.DestroyedStorage,
+					params.Entity{s.StorageTag().String()},
+				)
+			}
+		} else {
+			info.DestroyedStorage, info.DetachedStorage, err = storagecommon.ClassifyDetachedStorage(
+				api.backend, storage,
+			)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
 		}
-		if err := unit.Destroy(); err != nil {
+		op := unit.DestroyOperation()
+		op.DestroyStorage = arg.DestroyStorage
+		if err := api.backend.ApplyOperation(op); err != nil {
 			return nil, errors.Trace(err)
 		}
 		return &info, nil
 	}
-	results := make([]params.DestroyUnitResult, len(args.Entities))
-	for i, entity := range args.Entities {
+	results := make([]params.DestroyUnitResult, len(args.Units))
+	for i, entity := range args.Units {
 		info, err := destroyUnit(entity)
 		if err != nil {
 			results[i].Error = common.ServerError(err)
@@ -819,16 +830,16 @@ func (api *API) DestroyUnit(args params.Entities) (params.DestroyUnitResults, er
 //
 // TODO(axw) 2017-03-16 #1673323
 // Drop this in Juju 3.0.
-func (api *API) Destroy(args params.ApplicationDestroy) error {
-	if !names.IsValidApplication(args.ApplicationName) {
-		return errors.NotValidf("application name %q", args.ApplicationName)
+func (api *API) Destroy(in params.ApplicationDestroy) error {
+	if !names.IsValidApplication(in.ApplicationName) {
+		return errors.NotValidf("application name %q", in.ApplicationName)
 	}
-	entities := params.Entities{
-		Entities: []params.Entity{{
-			Tag: names.NewApplicationTag(args.ApplicationName).String(),
+	args := params.DestroyApplicationsParams{
+		Applications: []params.DestroyApplicationParams{{
+			ApplicationTag: names.NewApplicationTag(in.ApplicationName).String(),
 		}},
 	}
-	results, err := api.DestroyApplication(entities)
+	results, err := api.DestroyApplication(args)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -839,7 +850,7 @@ func (api *API) Destroy(args params.ApplicationDestroy) error {
 }
 
 // DestroyApplication removes a given set of applications.
-func (api *API) DestroyApplication(args params.Entities) (params.DestroyApplicationResults, error) {
+func (api *API) DestroyApplication(args params.DestroyApplicationsParams) (params.DestroyApplicationResults, error) {
 	if err := api.checkCanWrite(); err != nil {
 		return params.DestroyApplicationResults{}, err
 	}
@@ -853,8 +864,8 @@ func (api *API) DestroyApplication(args params.Entities) (params.DestroyApplicat
 		}
 		return app.Destroy()
 	}
-	destroyApp := func(entity params.Entity) (*params.DestroyApplicationInfo, error) {
-		tag, err := names.ParseApplicationTag(entity.Tag)
+	destroyApp := func(arg params.DestroyApplicationParams) (*params.DestroyApplicationInfo, error) {
+		tag, err := names.ParseApplicationTag(arg.ApplicationTag)
 		if err != nil {
 			return nil, err
 		}
@@ -894,23 +905,34 @@ func (api *API) DestroyApplication(args params.Entities) (params.DestroyApplicat
 			}
 			storage = unseen
 
-			destroyed, detached, err := storagecommon.ClassifyDetachedStorage(
-				api.backend, storage,
-			)
-			if err != nil {
-				return nil, err
+			if arg.DestroyStorage {
+				for _, s := range storage {
+					info.DestroyedStorage = append(
+						info.DestroyedStorage,
+						params.Entity{s.StorageTag().String()},
+					)
+				}
+			} else {
+				destroyed, detached, err := storagecommon.ClassifyDetachedStorage(
+					api.backend, storage,
+				)
+				if err != nil {
+					return nil, err
+				}
+				info.DestroyedStorage = append(info.DestroyedStorage, destroyed...)
+				info.DetachedStorage = append(info.DetachedStorage, detached...)
 			}
-			info.DestroyedStorage = append(info.DestroyedStorage, destroyed...)
-			info.DetachedStorage = append(info.DetachedStorage, detached...)
 		}
-		if err := app.Destroy(); err != nil {
+		op := app.DestroyOperation()
+		op.DestroyStorage = arg.DestroyStorage
+		if err := api.backend.ApplyOperation(op); err != nil {
 			return nil, err
 		}
 		return &info, nil
 	}
-	results := make([]params.DestroyApplicationResult, len(args.Entities))
-	for i, entity := range args.Entities {
-		info, err := destroyApp(entity)
+	results := make([]params.DestroyApplicationResult, len(args.Applications))
+	for i, arg := range args.Applications {
+		info, err := destroyApp(arg)
 		if err != nil {
 			results[i].Error = common.ServerError(err)
 			continue

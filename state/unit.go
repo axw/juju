@@ -36,10 +36,6 @@ var unitLogger = loggo.GetLogger("juju.state.unit")
 type AssignmentPolicy string
 
 const (
-	// AssignLocal indicates that all service units should be assigned
-	// to machine 0.
-	AssignLocal AssignmentPolicy = "local"
-
 	// AssignClean indicates that every service unit should be assigned
 	// to a machine which never previously has hosted any units, and that
 	// new machines should be launched if required.
@@ -1303,28 +1299,14 @@ var (
 	inUseErr           = errors.New("machine is not unused")
 )
 
-// assignToMachine is the internal version of AssignToMachine.
-func (u *Unit) assignToMachine(m *Machine, unused bool) (err error) {
-	buildTxn := func(attempt int) ([]txn.Op, error) {
-		u, m := u, m // don't change outer vars
-		if attempt > 0 {
-			var err error
-			u, err = u.st.Unit(u.Name())
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			m, err = u.st.Machine(m.Id())
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-		}
-		return u.assignToMachineOps(m, unused)
-	}
-	if err := u.st.db().Run(buildTxn); err != nil {
+// AssignToMachine assigns this unit to the given machine.
+func (u *Unit) AssignToMachine(m *Machine) error {
+	op := u.AssignOperation()
+	op.Machine = m
+	if err := u.st.ApplyOperation(op); err != nil {
 		return errors.Trace(err)
 	}
-	u.doc.MachineId = m.doc.Id
-	m.doc.Clean = false
+	u.doc.MachineId = m.Id()
 	return nil
 }
 
@@ -1334,7 +1316,8 @@ func (u *Unit) assignToMachine(m *Machine, unused bool) (err error) {
 // - unitNotAliveErr when the unit is not alive.
 // - alreadyAssignedErr when the unit has already been assigned
 // - inUseErr when the machine already has a unit assigned (if unused is true)
-func (u *Unit) assignToMachineOps(m *Machine, unused bool) ([]txn.Op, error) {
+func (u *Unit) assignToMachineOps(m *Machine, unused bool) (_ []txn.Op, err error) {
+	defer assignContextf(&err, u.Name(), fmt.Sprintf("machine %s", m.Id()))
 	if u.Life() != Alive {
 		return nil, unitNotAliveErr
 	}
@@ -1592,15 +1575,9 @@ func assignContextf(err *error, unitName string, target string) {
 	}
 }
 
-// AssignToMachine assigns this unit to a given machine.
-func (u *Unit) AssignToMachine(m *Machine) (err error) {
-	defer assignContextf(&err, u.Name(), fmt.Sprintf("machine %s", m))
-	return u.assignToMachine(m, false)
-}
-
-// assignToNewMachineOps returns txn.Ops to assign the unit to a machine
+// assignToNewMachineTemplateOps returns txn.Ops to assign the unit to a machine
 // created according to the supplied params, with the supplied constraints.
-func (u *Unit) assignToNewMachineOps(
+func (u *Unit) assignToNewMachineTemplateOps(
 	template MachineTemplate,
 	parentId string,
 	containerType instance.ContainerType,
@@ -1699,23 +1676,17 @@ func (u *Unit) Constraints() (*constraints.Value, error) {
 	return &cons, nil
 }
 
-// AssignToNewMachineOrContainer assigns the unit to a new machine,
-// with constraints determined according to the service and
-// model constraints at the time of unit creation. If a
-// container is required, a clean, empty machine instance is required
-// on which to create the container. An existing clean, empty instance
-// is first searched for, and if not found, a new one is created.
-func (u *Unit) AssignToNewMachineOrContainer() (err error) {
+func (u *Unit) assignToNewMachineOrContainerOps() (m *Machine, _ []txn.Op, err error) {
 	defer assignContextf(&err, u.Name(), "new machine or container")
 	if u.doc.Principal != "" {
-		return fmt.Errorf("unit is a subordinate")
+		return nil, nil, errors.New("unit is a subordinate")
 	}
 	cons, err := u.Constraints()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if !cons.HasContainer() {
-		return u.AssignToNewMachine()
+		return u.assignToNewMachineOps()
 	}
 
 	// Find a clean, empty machine on which to create a container.
@@ -1724,7 +1695,7 @@ func (u *Unit) AssignToNewMachineOrContainer() (err error) {
 	hostCons.Container = &noContainer
 	query, err := u.findCleanMachineQuery(true, &hostCons)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	machinesCollection, closer := u.st.db().GetCollection(machinesC)
 	defer closer()
@@ -1733,93 +1704,57 @@ func (u *Unit) AssignToNewMachineOrContainer() (err error) {
 		// No existing clean, empty machine so create a new one. The
 		// container constraint will be used by AssignToNewMachine to
 		// create the required container.
-		return u.AssignToNewMachine()
+		return u.assignToNewMachineOps()
 	} else if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	var m *Machine
-	buildTxn := func(attempt int) ([]txn.Op, error) {
-		var err error
-		u := u // don't change outer var
-		if attempt > 0 {
-			u, err = u.st.Unit(u.Name())
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-		}
-		template := MachineTemplate{
-			Series:      u.doc.Series,
-			Constraints: *cons,
-			Jobs:        []MachineJob{JobHostUnits},
-		}
-		var ops []txn.Op
-		m, ops, err = u.assignToNewMachineOps(template, host.Id, *cons.Container)
-		return ops, err
+	template := MachineTemplate{
+		Series:      u.doc.Series,
+		Constraints: *cons,
+		Jobs:        []MachineJob{JobHostUnits},
 	}
-	if err := u.st.db().Run(buildTxn); err != nil {
-		if errors.Cause(err) == machineNotCleanErr {
-			// The clean machine was used before we got a chance
-			// to use it so just stick the unit on a new machine.
-			return u.AssignToNewMachine()
-		}
-		return errors.Trace(err)
+	m, ops, err := u.assignToNewMachineTemplateOps(template, host.Id, *cons.Container)
+	if errors.Cause(err) == machineNotCleanErr {
+		// The host machine we found above became unclean, so inform
+		// the caller to try again.
+		return nil, nil, jujutxn.ErrTransientFailure
+	} else if err != nil {
+		return nil, nil, errors.Trace(err)
 	}
-	u.doc.MachineId = m.doc.Id
-	return nil
+	return m, ops, nil
 }
 
-// AssignToNewMachine assigns the unit to a new machine, with constraints
-// determined according to the service and model constraints at the
-// time of unit creation.
-func (u *Unit) AssignToNewMachine() (err error) {
+func (u *Unit) assignToNewMachineOps() (m *Machine, _ []txn.Op, err error) {
 	defer assignContextf(&err, u.Name(), "new machine")
 	if u.doc.Principal != "" {
-		return fmt.Errorf("unit is a subordinate")
+		return nil, nil, errors.New("unit is a subordinate")
 	}
-	var m *Machine
-	buildTxn := func(attempt int) ([]txn.Op, error) {
-		var err error
-		u := u // don't change outer var
-		if attempt > 0 {
-			u, err = u.st.Unit(u.Name())
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-		}
-		cons, err := u.Constraints()
-		if err != nil {
-			return nil, err
-		}
-		var containerType instance.ContainerType
-		if cons.HasContainer() {
-			containerType = *cons.Container
-		}
-		storageParams, err := u.machineStorageParams()
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		template := MachineTemplate{
-			Series:                u.doc.Series,
-			Constraints:           *cons,
-			Jobs:                  []MachineJob{JobHostUnits},
-			Volumes:               storageParams.volumes,
-			VolumeAttachments:     storageParams.volumeAttachments,
-			Filesystems:           storageParams.filesystems,
-			FilesystemAttachments: storageParams.filesystemAttachments,
-		}
-		// Get the ops necessary to create a new machine, and the
-		// machine doc that will be added with those operations
-		// (which includes the machine id).
-		var ops []txn.Op
-		m, ops, err = u.assignToNewMachineOps(template, "", containerType)
-		return ops, err
+	cons, err := u.Constraints()
+	if err != nil {
+		return nil, nil, err
 	}
-	if err := u.st.db().Run(buildTxn); err != nil {
-		return errors.Trace(err)
+	var containerType instance.ContainerType
+	if cons.HasContainer() {
+		containerType = *cons.Container
 	}
-	u.doc.MachineId = m.doc.Id
-	return nil
+	storageParams, err := u.machineStorageParams()
+	if err != nil {
+		return nil, nil, errors.Trace(err)
+	}
+	template := MachineTemplate{
+		Series:                u.doc.Series,
+		Constraints:           *cons,
+		Jobs:                  []MachineJob{JobHostUnits},
+		Volumes:               storageParams.volumes,
+		VolumeAttachments:     storageParams.volumeAttachments,
+		Filesystems:           storageParams.filesystems,
+		FilesystemAttachments: storageParams.filesystemAttachments,
+	}
+	// Get the ops necessary to create a new machine, and the
+	// machine doc that will be added with those operations
+	// (which includes the machine id).
+	return u.assignToNewMachineTemplateOps(template, "", containerType)
 }
 
 type byStorageInstance []StorageAttachment
@@ -2043,26 +1978,6 @@ func machineStorageParamsForStorageInstance(
 }
 
 var noCleanMachines = errors.New("all eligible machines in use")
-
-// AssignToCleanMachine assigns u to a machine which is marked as clean. A machine
-// is clean if it has never had any principal units assigned to it.
-// If there are no clean machines besides any machine(s) running JobHostEnviron,
-// an error is returned.
-// This method does not take constraints into consideration when choosing a
-// machine (lp:1161919).
-func (u *Unit) AssignToCleanMachine() (m *Machine, err error) {
-	return u.assignToCleanMaybeEmptyMachine(false)
-}
-
-// AssignToCleanEmptyMachine assigns u to a machine which is marked as clean and is also
-// not hosting any containers. A machine is clean if it has never had any principal units
-// assigned to it. If there are no clean machines besides any machine(s) running JobHostEnviron,
-// an error is returned.
-// This method does not take constraints into consideration when choosing a
-// machine (lp:1161919).
-func (u *Unit) AssignToCleanEmptyMachine() (m *Machine, err error) {
-	return u.assignToCleanMaybeEmptyMachine(true)
-}
 
 var hasContainerTerm = bson.DocElem{
 	"$and", []bson.D{
@@ -2612,4 +2527,78 @@ func (u *Unit) GetSpaceForBinding(bindingName string) (string, error) {
 		return "", errors.NewNotValid(nil, fmt.Sprintf("binding name %q not defined by the unit's charm", bindingName))
 	}
 	return boundSpace, nil
+}
+
+// AssignUnitOperation is a ModelOperation for assigning a unit to a machine.
+type AssignUnitOperation struct {
+	u *Unit
+	m *Machine // set to assigned machine on success
+
+	// Machine, if non-nil, is an existing machine to which the unit
+	// should be assigned.
+	Machine *Machine
+
+	// Policy is the unit assignment policy to use, if Machine is nil.
+	Policy AssignmentPolicy
+}
+
+// AssignOperation returns a new AssignUnitOperation for this unit.
+func (u *Unit) AssignOperation() *AssignUnitOperation {
+	return &AssignUnitOperation{u: &Unit{st: u.st, doc: u.doc}}
+}
+
+// Build is part of the ModelOperation interface.
+func (op *AssignUnitOperation) Build(attempt int) (_ []txn.Op, err error) {
+	if op.Machine == nil && op.Policy == "" {
+		return nil, errors.New("one of Machine or Policy must be specified")
+	}
+	if op.Machine != nil && op.Policy != "" {
+		return nil, errors.New("Machine and Policy are mutually exclusive")
+	}
+	if attempt > 0 {
+		if err := op.u.Refresh(); err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
+
+	if op.Machine != nil {
+		ops, err := op.u.assignToMachineOps(op.Machine, false)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		op.m = op.Machine
+		return ops, nil
+	}
+
+	switch op.Policy {
+	case AssignNew:
+		m, ops, err := op.u.assignToNewMachineOps()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		op.m = m
+		return ops, nil
+
+	case AssignClean, AssignCleanEmpty:
+		requireEmpty := op.Policy == AssignCleanEmpty
+		m, ops, err := op.u.assignToCleanMaybeEmptyMachineOps(requireEmpty)
+		if errors.Cause(err) == noCleanMachines {
+			m, ops, err = op.u.assignToNewMachineOrContainerOps()
+		}
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		op.m = m
+		return ops, nil
+	}
+	return nil, errors.Errorf("unknown unit assignment policy: %q", op.Policy)
+}
+
+// Done is part of the ModelOperation interface.
+func (op *AssignUnitOperation) Done(err error) error {
+	if err != nil {
+		return err
+	}
+	op.m.doc.Clean = false
+	return nil
 }

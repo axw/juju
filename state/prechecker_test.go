@@ -176,7 +176,7 @@ func (s *PrecheckerSuite) TestPrecheckAddApplication(c *gc.C) {
 
 	unit, err := app.AddUnit(state.AddUnitParams{})
 	c.Assert(err, jc.ErrorIsNil)
-	err = unit.AssignToNewMachine()
+	err = s.State.AssignUnit(unit, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	machineId, err := unit.AssignedMachineId()
 	c.Assert(err, jc.ErrorIsNil)

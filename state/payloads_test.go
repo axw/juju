@@ -218,7 +218,7 @@ func (s *PayloadsSuite) TestRemoveUnitUntracksPayloads(c *gc.C) {
 
 func (s *PayloadsSuite) TestTrackRaceDyingUnit(c *gc.C) {
 	fix := s.newFixture(c)
-	preventUnitDestroyRemove(c, fix.Unit)
+	preventUnitDestroyRemove(c, s.State, fix.Unit)
 
 	defer state.SetBeforeHooks(c, s.State, func() {
 		err := fix.Unit.Destroy()
@@ -233,7 +233,7 @@ func (s *PayloadsSuite) TestTrackRaceDyingUnit(c *gc.C) {
 
 func (s *PayloadsSuite) TestTrackRaceDeadUnit(c *gc.C) {
 	fix := s.newFixture(c)
-	preventUnitDestroyRemove(c, fix.Unit)
+	preventUnitDestroyRemove(c, s.State, fix.Unit)
 
 	defer state.SetBeforeHooks(c, s.State, func() {
 		err := fix.Unit.Destroy()
@@ -672,7 +672,7 @@ func addUnit(c *gc.C, s ConnSuite, args unitArgs) *state.Unit {
 
 	// TODO(ericsnow) Explicitly: call unit.AssignToMachine(m)?
 	c.Assert(args.machine, gc.Equals, "0")
-	err = unit.AssignToNewMachine() // machine "0"
+	err = s.State.AssignUnit(unit, state.AssignNew) // machine "0"
 	c.Assert(err, jc.ErrorIsNil)
 
 	return unit

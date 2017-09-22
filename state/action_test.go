@@ -355,7 +355,7 @@ func (s *ActionSuite) TestAddActionAcceptsDuplicateNames(c *gc.C) {
 func (s *ActionSuite) TestAddActionLifecycle(c *gc.C) {
 	unit, err := s.State.Unit(s.unit.Name())
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit)
+	preventUnitDestroyRemove(c, s.State, unit)
 
 	// make unit state Dying
 	err = unit.Destroy()
@@ -377,7 +377,7 @@ func (s *ActionSuite) TestAddActionLifecycle(c *gc.C) {
 func (s *ActionSuite) TestAddActionFailsOnDeadUnitInTransaction(c *gc.C) {
 	unit, err := s.State.Unit(s.unit.Name())
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit)
+	preventUnitDestroyRemove(c, s.State, unit)
 
 	killUnit := txn.TestHook{
 		Before: func() {
@@ -395,7 +395,7 @@ func (s *ActionSuite) TestFail(c *gc.C) {
 	// get unit, add an action, retrieve that action
 	unit, err := s.State.Unit(s.unit.Name())
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit)
+	preventUnitDestroyRemove(c, s.State, unit)
 
 	a, err := unit.AddAction("snapshot", nil)
 	c.Assert(err, jc.ErrorIsNil)
@@ -445,7 +445,7 @@ func (s *ActionSuite) TestComplete(c *gc.C) {
 	// get unit, add an action, retrieve that action
 	unit, err := s.State.Unit(s.unit.Name())
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit)
+	preventUnitDestroyRemove(c, s.State, unit)
 
 	a, err := unit.AddAction("snapshot", nil)
 	c.Assert(err, jc.ErrorIsNil)
@@ -557,7 +557,7 @@ func (s *ActionSuite) TestActionsWatcherEmitsInitialChanges(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	u, err := s.State.Unit(unit.Name())
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, u)
+	preventUnitDestroyRemove(c, s.State, u)
 
 	// queue up actions
 	a1, err := u.AddAction("snapshot", nil)
@@ -586,11 +586,11 @@ func (s *ActionSuite) TestUnitWatchActionNotifications(c *gc.C) {
 	// get units
 	unit1, err := s.State.Unit(s.unit.Name())
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit1)
+	preventUnitDestroyRemove(c, s.State, unit1)
 
 	unit2, err := s.State.Unit(s.unit2.Name())
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit2)
+	preventUnitDestroyRemove(c, s.State, unit2)
 
 	// queue some actions before starting the watcher
 	fa1, err := unit1.AddAction("snapshot", nil)

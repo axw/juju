@@ -99,7 +99,7 @@ func (s *UnitStatusSuite) checkGetSetStatus(c *gc.C) {
 }
 
 func (s *UnitStatusSuite) TestGetSetStatusDying(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	err := s.unit.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 
@@ -107,7 +107,7 @@ func (s *UnitStatusSuite) TestGetSetStatusDying(c *gc.C) {
 }
 
 func (s *UnitStatusSuite) TestGetSetStatusDead(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	err := s.unit.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	err = s.unit.EnsureDead()

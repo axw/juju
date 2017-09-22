@@ -203,7 +203,7 @@ func (s *MinUnitsSuite) TestMinUnitsSetDestroyEntities(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 
 	// Destroy a unit and ensure the revno has been increased.
-	preventUnitDestroyRemove(c, unit1)
+	preventUnitDestroyRemove(c, s.State, unit1)
 	err = unit1.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	s.assertRevno(c, 1, nil)
@@ -227,7 +227,7 @@ func (s *MinUnitsSuite) TestMinUnitsNotSetDestroyEntities(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 
 	// Destroy a unit and ensure the minUnits document has not been created.
-	preventUnitDestroyRemove(c, unit1)
+	preventUnitDestroyRemove(c, s.State, unit1)
 	err = unit1.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	s.assertRevno(c, 0, mgo.ErrNotFound)
@@ -300,7 +300,7 @@ func (s *MinUnitsSuite) TestEnsureMinUnits(c *gc.C) {
 		allUnits, err := service.AllUnits()
 		c.Assert(err, jc.ErrorIsNil)
 		for i := 0; i < t.destroy; i++ {
-			preventUnitDestroyRemove(c, allUnits[i])
+			preventUnitDestroyRemove(c, s.State, allUnits[i])
 			err = allUnits[i].Destroy()
 			c.Assert(err, jc.ErrorIsNil)
 		}

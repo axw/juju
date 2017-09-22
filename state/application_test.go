@@ -946,7 +946,7 @@ func (s *ApplicationSuite) TestUpdateApplicationSeriesSamesSeriesAfterStart(c *g
 			Before: func() {
 				unit, err := app.AddUnit(state.AddUnitParams{})
 				c.Assert(err, jc.ErrorIsNil)
-				err = unit.AssignToNewMachine()
+				err = s.State.AssignUnit(unit, state.AssignNew)
 				c.Assert(err, jc.ErrorIsNil)
 
 				ops := []txn.Op{{
@@ -1022,7 +1022,7 @@ func (s *ApplicationSuite) setupMultiSeriesUnitWithSubordinate(c *gc.C) (*state.
 
 	unit, err := app.AddUnit(state.AddUnitParams{})
 	c.Assert(err, jc.ErrorIsNil)
-	err = unit.AssignToNewMachine()
+	err = s.State.AssignUnit(unit, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 
 	ru, err := rel.Unit(unit)
@@ -1089,7 +1089,7 @@ func (s *ApplicationSuite) TestUpdateApplicationSeriesUnitCountChange(c *gc.C) {
 
 				unit, err := app.AddUnit(state.AddUnitParams{})
 				c.Assert(err, jc.ErrorIsNil)
-				err = unit.AssignToNewMachine()
+				err = s.State.AssignUnit(unit, state.AssignNew)
 				c.Assert(err, jc.ErrorIsNil)
 
 				ru, err := rel.Unit(unit)
@@ -1758,7 +1758,7 @@ func (s *ApplicationSuite) TestReadUnitWhenDying(c *gc.C) {
 	// Test that we can still read units when the service is Dying...
 	unit, err := s.mysql.AddUnit(state.AddUnitParams{})
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit)
+	preventUnitDestroyRemove(c, s.State, unit)
 	err = s.mysql.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	_, err = s.mysql.AllUnits()
@@ -1945,7 +1945,7 @@ func (s *ApplicationSuite) TestDestroyQueuesUnitCleanup(c *gc.C) {
 		c.Assert(err, jc.ErrorIsNil)
 		units[i] = unit
 		if i%2 != 0 {
-			preventUnitDestroyRemove(c, unit)
+			preventUnitDestroyRemove(c, s.State, unit)
 		}
 	}
 
@@ -2216,14 +2216,14 @@ func (s *ApplicationSuite) TestWatchUnitsBulkEvents(c *gc.C) {
 	// Dying unit...
 	dying, err := s.mysql.AddUnit(state.AddUnitParams{})
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, dying)
+	preventUnitDestroyRemove(c, s.State, dying)
 	err = dying.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 
 	// Dead unit...
 	dead, err := s.mysql.AddUnit(state.AddUnitParams{})
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, dead)
+	preventUnitDestroyRemove(c, s.State, dead)
 	err = dead.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	err = dead.EnsureDead()
@@ -2282,7 +2282,7 @@ func (s *ApplicationSuite) TestWatchUnitsLifecycle(c *gc.C) {
 	wc.AssertNoChange()
 
 	// Change unit itself, no change.
-	preventUnitDestroyRemove(c, slow)
+	preventUnitDestroyRemove(c, s.State, slow)
 	wc.AssertNoChange()
 
 	// Make unit Dying, change detected.

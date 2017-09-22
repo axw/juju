@@ -343,7 +343,7 @@ func (s *RelationUnitSuite) TestContainerCreateSubordinate(c *gc.C) {
 
 func (s *RelationUnitSuite) TestDestroyRelationWithUnitsInScope(c *gc.C) {
 	pr := newPeerRelation(c, s.State)
-	preventPeerUnitsDestroyRemove(c, pr)
+	preventPeerUnitsDestroyRemove(c, s.State, pr)
 	rel := pr.ru0.Relation()
 
 	// Enter two units, and check that Destroying the service sets the
@@ -814,7 +814,7 @@ func (s *RelationUnitSuite) assertNoScopeChange(c *gc.C, ws ...*state.RelationSc
 
 func (s *RelationUnitSuite) TestIngressAddress(c *gc.C) {
 	prr := newProReqRelation(c, &s.ConnSuite, charm.ScopeGlobal)
-	err := prr.pu0.AssignToNewMachine()
+	err := s.State.AssignUnit(prr.pu0, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	id, err := prr.pu0.AssignedMachineId()
 	c.Assert(err, jc.ErrorIsNil)
@@ -876,7 +876,7 @@ func (s *RelationUnitSuite) TestIngressAddressWithSpaces(c *gc.C) {
 	}
 
 	prr := newProReqRelationWithBindings(c, &s.ConnSuite, charm.ScopeGlobal, bindings, nil)
-	err := prr.pu0.AssignToNewMachine()
+	err := s.State.AssignUnit(prr.pu0, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	id, err := prr.pu0.AssignedMachineId()
 	c.Assert(err, jc.ErrorIsNil)
@@ -902,7 +902,7 @@ func (s *RelationUnitSuite) TestIngressAddressWithSpaces(c *gc.C) {
 
 func (s *RelationUnitSuite) TestIngressAddressRemoteRelation(c *gc.C) {
 	prr := newRemoteProReqRelation(c, &s.ConnSuite)
-	err := prr.ru0.AssignToNewMachine()
+	err := s.State.AssignUnit(prr.ru0, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	id, err := prr.ru0.AssignedMachineId()
 	c.Assert(err, jc.ErrorIsNil)
@@ -922,7 +922,7 @@ func (s *RelationUnitSuite) TestIngressAddressRemoteRelation(c *gc.C) {
 
 func (s *RelationUnitSuite) TestIngressAddressRemoteRelationNoPublicAddr(c *gc.C) {
 	prr := newRemoteProReqRelation(c, &s.ConnSuite)
-	err := prr.ru0.AssignToNewMachine()
+	err := s.State.AssignUnit(prr.ru0, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	id, err := prr.ru0.AssignedMachineId()
 	c.Assert(err, jc.ErrorIsNil)
@@ -1010,11 +1010,11 @@ type PeerRelation struct {
 	ru0, ru1, ru2, ru3 *state.RelationUnit
 }
 
-func preventPeerUnitsDestroyRemove(c *gc.C, pr *PeerRelation) {
-	preventUnitDestroyRemove(c, pr.u0)
-	preventUnitDestroyRemove(c, pr.u1)
-	preventUnitDestroyRemove(c, pr.u2)
-	preventUnitDestroyRemove(c, pr.u3)
+func preventPeerUnitsDestroyRemove(c *gc.C, st *state.State, pr *PeerRelation) {
+	preventUnitDestroyRemove(c, st, pr.u0)
+	preventUnitDestroyRemove(c, st, pr.u1)
+	preventUnitDestroyRemove(c, st, pr.u2)
+	preventUnitDestroyRemove(c, st, pr.u3)
 }
 
 func newPeerRelation(c *gc.C, st *state.State) *PeerRelation {
@@ -1038,11 +1038,11 @@ type ProReqRelation struct {
 	pru0, pru1, rru0, rru1 *state.RelationUnit
 }
 
-func preventProReqUnitsDestroyRemove(c *gc.C, prr *ProReqRelation) {
-	preventUnitDestroyRemove(c, prr.pu0)
-	preventUnitDestroyRemove(c, prr.pu1)
-	preventUnitDestroyRemove(c, prr.ru0)
-	preventUnitDestroyRemove(c, prr.ru1)
+func preventProReqUnitsDestroyRemove(c *gc.C, st *state.State, prr *ProReqRelation) {
+	preventUnitDestroyRemove(c, st, prr.pu0)
+	preventUnitDestroyRemove(c, st, prr.pu1)
+	preventUnitDestroyRemove(c, st, prr.ru0)
+	preventUnitDestroyRemove(c, st, prr.ru1)
 }
 
 func newProReqRelation(c *gc.C, s *ConnSuite, scope charm.RelationScope) *ProReqRelation {
@@ -1206,7 +1206,7 @@ func (s *WatchScopeSuite) TestPeer(c *gc.C) {
 	addUnit := func(i int) *state.RelationUnit {
 		unit, err := riak.AddUnit(state.AddUnitParams{})
 		c.Assert(err, jc.ErrorIsNil)
-		err = unit.AssignToNewMachine()
+		err = s.State.AssignUnit(unit, state.AssignNew)
 		c.Assert(err, jc.ErrorIsNil)
 		mId, err := unit.AssignedMachineId()
 		c.Assert(err, jc.ErrorIsNil)

@@ -56,12 +56,12 @@ var alternatePassword = "bar-12345678901234567890"
 // is useful because several tests go through a unit's lifecycle step by step,
 // asserting the behaviour of a given method in each state, and the unit quick-
 // remove change caused many of these to fail.
-func preventUnitDestroyRemove(c *gc.C, u *state.Unit) {
+func preventUnitDestroyRemove(c *gc.C, st *state.State, u *state.Unit) {
 	// To have a non-allocating status, a unit needs to
 	// be assigned to a machine.
 	_, err := u.AssignedMachineId()
 	if errors.IsNotAssigned(err) {
-		err = u.AssignToNewMachine()
+		err = st.AssignUnit(u, state.AssignNew)
 	}
 	c.Assert(err, jc.ErrorIsNil)
 	now := time.Now()
@@ -3371,7 +3371,7 @@ func (s *StateSuite) TestWatchMinUnits(c *gc.C) {
 
 	// Destroy a unit of a service with required minimum units.
 	// Also avoid the unit removal. A single change should occur.
-	preventUnitDestroyRemove(c, wordpress0)
+	preventUnitDestroyRemove(c, s.State, wordpress0)
 	err = wordpress0.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	wc.AssertChange(wordpressName)

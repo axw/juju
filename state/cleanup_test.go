@@ -39,7 +39,7 @@ func (s *CleanupSuite) TestCleanupDyingApplicationUnits(c *gc.C) {
 		c.Assert(err, jc.ErrorIsNil)
 		units[i] = unit
 	}
-	preventUnitDestroyRemove(c, units[0])
+	preventUnitDestroyRemove(c, s.State, units[0])
 	s.assertDoesNotNeedCleanup(c)
 
 	// Destroy the application and check the units are unaffected, but a cleanup
@@ -189,7 +189,7 @@ func (s *CleanupSuite) TestCleanupModelMachines(c *gc.C) {
 	pr := newPeerRelation(c, s.State)
 	err = pr.u0.AssignToMachine(machine)
 	c.Assert(err, jc.ErrorIsNil)
-	preventPeerUnitsDestroyRemove(c, pr)
+	preventPeerUnitsDestroyRemove(c, s.State, pr)
 
 	err = pr.ru0.EnterScope(nil)
 	c.Assert(err, jc.ErrorIsNil)
@@ -263,7 +263,7 @@ func (s *CleanupSuite) TestCleanupModelApplications(c *gc.C) {
 func (s *CleanupSuite) TestCleanupRelationSettings(c *gc.C) {
 	// Create a relation with a unit in scope.
 	pr := newPeerRelation(c, s.State)
-	preventPeerUnitsDestroyRemove(c, pr)
+	preventPeerUnitsDestroyRemove(c, s.State, pr)
 	rel := pr.ru0.Relation()
 	err := pr.ru0.EnterScope(map[string]interface{}{"some": "settings"})
 	c.Assert(err, jc.ErrorIsNil)
@@ -312,7 +312,7 @@ func (s *CleanupSuite) TestCleanupForceDestroyedMachineUnit(c *gc.C) {
 	pr := newPeerRelation(c, s.State)
 	err = pr.u0.AssignToMachine(machine)
 	c.Assert(err, jc.ErrorIsNil)
-	preventPeerUnitsDestroyRemove(c, pr)
+	preventPeerUnitsDestroyRemove(c, s.State, pr)
 	err = pr.ru0.EnterScope(nil)
 	c.Assert(err, jc.ErrorIsNil)
 	s.assertDoesNotNeedCleanup(c)
@@ -407,7 +407,7 @@ func (s *CleanupSuite) TestCleanupForceDestroyedMachineWithContainer(c *gc.C) {
 	c.Assert(err, jc.ErrorIsNil)
 	err = prr.pu1.AssignToMachine(container)
 	c.Assert(err, jc.ErrorIsNil)
-	preventProReqUnitsDestroyRemove(c, prr)
+	preventProReqUnitsDestroyRemove(c, s.State, prr)
 	s.assertDoesNotNeedCleanup(c)
 
 	// Force removal of the top-level machine.
@@ -446,7 +446,7 @@ func (s *CleanupSuite) TestCleanupForceDestroyedMachineWithContainer(c *gc.C) {
 func (s *CleanupSuite) TestCleanupDyingUnit(c *gc.C) {
 	// Create active unit, in a relation.
 	prr := newProReqRelation(c, &s.ConnSuite, charm.ScopeGlobal)
-	preventProReqUnitsDestroyRemove(c, prr)
+	preventProReqUnitsDestroyRemove(c, s.State, prr)
 	err := prr.pru0.EnterScope(nil)
 	c.Assert(err, jc.ErrorIsNil)
 
@@ -481,7 +481,7 @@ func (s *CleanupSuite) TestCleanupDyingUnit(c *gc.C) {
 func (s *CleanupSuite) TestCleanupDyingUnitAlreadyRemoved(c *gc.C) {
 	// Create active unit, in a relation.
 	prr := newProReqRelation(c, &s.ConnSuite, charm.ScopeGlobal)
-	preventProReqUnitsDestroyRemove(c, prr)
+	preventProReqUnitsDestroyRemove(c, s.State, prr)
 	err := prr.pru0.EnterScope(nil)
 	c.Assert(err, jc.ErrorIsNil)
 

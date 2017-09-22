@@ -3075,7 +3075,7 @@ func testChangeUnits(c *gc.C, owner names.UserTag, runChangeTests func(*gc.C, []
 			wordpress := AddTestingApplication(c, st, "wordpress", AddTestingCharm(c, st, "wordpress"))
 			u, err := wordpress.AddUnit(AddUnitParams{})
 			c.Assert(err, jc.ErrorIsNil)
-			err = u.AssignToNewMachine()
+			err = st.AssignUnit(u, AssignNew)
 			c.Assert(err, jc.ErrorIsNil)
 			now := testing.ZeroTime()
 			sInfo := status.StatusInfo{
@@ -3136,7 +3136,7 @@ func testChangeUnits(c *gc.C, owner names.UserTag, runChangeTests func(*gc.C, []
 				Message: "",
 				Since:   &now,
 			}
-			err = u.AssignToNewMachine()
+			err = st.AssignUnit(u, AssignNew)
 			c.Assert(err, jc.ErrorIsNil)
 			err = u.SetAgentStatus(sInfo)
 			c.Assert(err, jc.ErrorIsNil)
@@ -3252,7 +3252,7 @@ func testChangeUnits(c *gc.C, owner names.UserTag, runChangeTests func(*gc.C, []
 			wordpress := AddTestingApplication(c, st, "wordpress", AddTestingCharm(c, st, "wordpress"))
 			u, err := wordpress.AddUnit(AddUnitParams{})
 			c.Assert(err, jc.ErrorIsNil)
-			err = u.AssignToNewMachine()
+			err = st.AssignUnit(u, AssignNew)
 			c.Assert(err, jc.ErrorIsNil)
 			now := testing.ZeroTime()
 			sInfo := status.StatusInfo{

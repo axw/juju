@@ -1428,7 +1428,14 @@ func (st *State) AssignUnitWithPlacement(unit *Unit, placement *instance.Placeme
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return unit.AssignToMachine(m)
+
+	op := unit.AssignOperation()
+	op.Machine = m
+	if err := st.ApplyOperation(op); err != nil {
+		return errors.Trace(err)
+	}
+	unit.doc.MachineId = m.Id()
+	return nil
 }
 
 // placementData is a helper type that encodes some of the logic behind how an
@@ -1964,32 +1971,13 @@ func (st *State) UnitsFor(machineId string) ([]*Unit, error) {
 // state of the model, this may lead to new instances being launched
 // within the model.
 func (st *State) AssignUnit(u *Unit, policy AssignmentPolicy) (err error) {
-	if !u.IsPrincipal() {
-		return errors.Errorf("subordinate unit %q cannot be assigned directly to a machine", u)
+	op := u.AssignOperation()
+	op.Policy = policy
+	if err := st.ApplyOperation(op); err != nil {
+		return errors.Trace(err)
 	}
-	defer errors.DeferredAnnotatef(&err, "cannot assign unit %q to machine", u)
-	var m *Machine
-	switch policy {
-	case AssignLocal:
-		m, err = st.Machine("0")
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return u.AssignToMachine(m)
-	case AssignClean:
-		if _, err = u.AssignToCleanMachine(); errors.Cause(err) != noCleanMachines {
-			return errors.Trace(err)
-		}
-		return u.AssignToNewMachineOrContainer()
-	case AssignCleanEmpty:
-		if _, err = u.AssignToCleanEmptyMachine(); errors.Cause(err) != noCleanMachines {
-			return errors.Trace(err)
-		}
-		return u.AssignToNewMachineOrContainer()
-	case AssignNew:
-		return errors.Trace(u.AssignToNewMachine())
-	}
-	return errors.Errorf("unknown unit assignment policy: %q", policy)
+	u.doc.MachineId = op.m.Id()
+	return nil
 }
 
 // StartSync forces watchers to resynchronize their state with the

@@ -96,7 +96,7 @@ func (l *unitLife) id() (coll string, id interface{}) {
 func (l *unitLife) setup(s *LifeSuite, c *gc.C) state.AgentLiving {
 	unit, err := s.svc.AddUnit(state.AddUnitParams{})
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit)
+	preventUnitDestroyRemove(c, s.State, unit)
 	l.unit = unit
 	return l.unit
 }

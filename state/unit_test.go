@@ -182,7 +182,7 @@ func (s *UnitSuite) addSubordinateUnit(c *gc.C) *state.Unit {
 func (s *UnitSuite) setAssignedMachineAddresses(c *gc.C, u *state.Unit) {
 	mid, err := u.AssignedMachineId()
 	if errors.IsNotAssigned(err) {
-		err = u.AssignToNewMachine()
+		err = s.State.AssignUnit(u, state.AssignNew)
 		c.Assert(err, jc.ErrorIsNil)
 		mid, err = u.AssignedMachineId()
 	}
@@ -422,7 +422,7 @@ func (s *UnitSuite) TestRemoveUnitMachineFastForwardDestroy(c *gc.C) {
 func (s *UnitSuite) TestRemoveUnitMachineNoFastForwardDestroy(c *gc.C) {
 	for _, tc := range s.destroyMachineTestCases(c) {
 		c.Log(tc.desc)
-		preventUnitDestroyRemove(c, tc.target)
+		preventUnitDestroyRemove(c, s.State, tc.target)
 		c.Assert(tc.target.Destroy(), gc.IsNil)
 		c.Assert(tc.target.EnsureDead(), gc.IsNil)
 		assertLife(c, tc.host, state.Alive)
@@ -576,7 +576,7 @@ func (s *UnitSuite) TestRefresh(c *gc.C) {
 }
 
 func (s *UnitSuite) TestSetCharmURLSuccess(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	curl, ok := s.unit.CharmURL()
 	c.Assert(ok, jc.IsFalse)
 	c.Assert(curl, gc.IsNil)
@@ -590,7 +590,7 @@ func (s *UnitSuite) TestSetCharmURLSuccess(c *gc.C) {
 }
 
 func (s *UnitSuite) TestSetCharmURLFailures(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	curl, ok := s.unit.CharmURL()
 	c.Assert(ok, jc.IsFalse)
 	c.Assert(curl, gc.IsNil)
@@ -617,7 +617,7 @@ func (s *UnitSuite) TestSetCharmURLWithRemovedUnit(c *gc.C) {
 }
 
 func (s *UnitSuite) TestSetCharmURLWithDyingUnit(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	err := s.unit.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	assertLife(c, s.unit, state.Dying)
@@ -631,7 +631,7 @@ func (s *UnitSuite) TestSetCharmURLWithDyingUnit(c *gc.C) {
 }
 
 func (s *UnitSuite) TestSetCharmURLRetriesWithDeadUnit(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 
 	defer state.SetBeforeHooks(c, s.State, func() {
 		err := s.unit.Destroy()
@@ -687,7 +687,7 @@ func (s *UnitSuite) TestSetCharmURLRetriesWithDifferentURL(c *gc.C) {
 
 func (s *UnitSuite) TestDestroySetStatusRetry(c *gc.C) {
 	defer state.SetRetryHooks(c, s.State, func() {
-		err := s.unit.AssignToNewMachine()
+		err := s.State.AssignUnit(s.unit, state.AssignNew)
 		c.Assert(err, jc.ErrorIsNil)
 		now := coretesting.NonZeroTime()
 		sInfo := status.StatusInfo{
@@ -785,7 +785,7 @@ func (s *UnitSuite) TestDestroyAssignErrorRetry(c *gc.C) {
 	c.Assert(err, jc.Satisfies, errors.IsNotAssigned)
 
 	defer state.SetRetryHooks(c, s.State, func() {
-		err := s.unit.AssignToNewMachine()
+		err := s.State.AssignUnit(s.unit, state.AssignNew)
 		c.Assert(err, jc.ErrorIsNil)
 		now := coretesting.NonZeroTime()
 		sInfo := status.StatusInfo{
@@ -828,7 +828,7 @@ func (s *UnitSuite) TestShortCircuitDestroyUnitNotAssigned(c *gc.C) {
 func (s *UnitSuite) TestCannotShortCircuitDestroyAssignedUnit(c *gc.C) {
 	// This test is similar to TestShortCircuitDestroyUnitNotAssigned but
 	// the unit is assigned to a machine.
-	err := s.unit.AssignToNewMachine()
+	err := s.State.AssignUnit(s.unit, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	now := coretesting.NonZeroTime()
 	err = s.unit.SetAgentStatus(status.StatusInfo{
@@ -848,7 +848,7 @@ func (s *UnitSuite) TestCannotShortCircuitDestroyWithSubordinates(c *gc.C) {
 	s.AddTestingApplication(c, "logging", s.AddTestingCharm(c, "logging"))
 	eps, err := s.State.InferEndpoints("logging", "wordpress")
 	c.Assert(err, jc.ErrorIsNil)
-	err = s.unit.AssignToNewMachine()
+	err = s.State.AssignUnit(s.unit, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	rel, err := s.State.AddRelation(eps...)
 	c.Assert(err, jc.ErrorIsNil)
@@ -878,7 +878,7 @@ func (s *UnitSuite) TestCannotShortCircuitDestroyWithAgentStatus(c *gc.C) {
 		c.Logf("test %d: %s", i, test.status)
 		unit, err := s.service.AddUnit(state.AddUnitParams{})
 		c.Assert(err, jc.ErrorIsNil)
-		err = unit.AssignToNewMachine()
+		err = s.State.AssignUnit(unit, state.AssignNew)
 		c.Assert(err, jc.ErrorIsNil)
 		now := coretesting.NonZeroTime()
 		sInfo := status.StatusInfo{
@@ -898,7 +898,7 @@ func (s *UnitSuite) TestCannotShortCircuitDestroyWithAgentStatus(c *gc.C) {
 func (s *UnitSuite) TestShortCircuitDestroyWithProvisionedMachine(c *gc.C) {
 	// A unit assigned to a provisioned machine is still removed directly so
 	// long as it has not set status.
-	err := s.unit.AssignToNewMachine()
+	err := s.State.AssignUnit(s.unit, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	mid, err := s.unit.AssignedMachineId()
 	c.Assert(err, jc.ErrorIsNil)
@@ -913,7 +913,7 @@ func (s *UnitSuite) TestShortCircuitDestroyWithProvisionedMachine(c *gc.C) {
 }
 
 func (s *UnitSuite) TestDestroyRemovesStatusHistory(c *gc.C) {
-	err := s.unit.AssignToNewMachine()
+	err := s.State.AssignUnit(s.unit, state.AssignNew)
 	c.Assert(err, jc.ErrorIsNil)
 	now := coretesting.NonZeroTime()
 	for i := 0; i < 10; i++ {
@@ -987,7 +987,7 @@ func (s *UnitSuite) TestTag(c *gc.C) {
 }
 
 func (s *UnitSuite) TestSetPassword(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	testSetPassword(c, func() (state.Authenticator, error) {
 		return s.State.Unit(s.unit.Name())
 	})
@@ -1257,7 +1257,7 @@ func (s *UnitSuite) TestOpenClosePortWhenDying(c *gc.C) {
 	err = s.unit.AssignToMachine(machine)
 	c.Assert(err, jc.ErrorIsNil)
 
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	testWhenDying(c, s.unit, noErr, contentionErr, func() error {
 		err := s.unit.OpenPort("tcp", 20)
 		if err != nil {
@@ -1363,7 +1363,7 @@ func (s *UnitSuite) TestRemoveUnitRemovesItsPortsOnly(c *gc.C) {
 }
 
 func (s *UnitSuite) TestSetClearResolvedWhenNotAlive(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	err := s.unit.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	err = s.unit.SetResolved(state.ResolvedNoHooks)
@@ -1743,7 +1743,7 @@ func (s *UnitSuite) TestWatchUnit(c *gc.C) {
 	// Make two changes, check one event.
 	err = unit.SetPassword("arble-farble-dying-yarble")
 	c.Assert(err, jc.ErrorIsNil)
-	preventUnitDestroyRemove(c, unit)
+	preventUnitDestroyRemove(c, s.State, unit)
 	err = unit.Destroy()
 	c.Assert(err, jc.ErrorIsNil)
 	wc.AssertOneChange()
@@ -1763,7 +1763,7 @@ func (s *UnitSuite) TestWatchUnit(c *gc.C) {
 }
 
 func (s *UnitSuite) TestUnitAgentTools(c *gc.C) {
-	preventUnitDestroyRemove(c, s.unit)
+	preventUnitDestroyRemove(c, s.State, s.unit)
 	testAgentTools(c, s.unit, `unit "wordpress/0"`)
 }
 

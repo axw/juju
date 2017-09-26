@@ -513,6 +513,15 @@ func substNilSinceTimeForEntities(c *gc.C, entities []multiwatcher.EntityInfo) {
 			substNilSinceTimeForStatus(c, &machineInfo.AgentStatus)
 			substNilSinceTimeForStatus(c, &machineInfo.InstanceStatus)
 			entities[i] = &machineInfo
+		case *multiwatcher.StorageInfo:
+			storageInfo := *e // must copy because this entity came out of the multiwatcher cache.
+			if storageInfo.Volume != nil {
+				substNilSinceTimeForStatus(c, &storageInfo.Volume.Status)
+			}
+			if storageInfo.Filesystem != nil {
+				substNilSinceTimeForStatus(c, &storageInfo.Filesystem.Status)
+			}
+			entities[i] = &storageInfo
 		}
 	}
 }
@@ -539,6 +548,15 @@ func substNilSinceTimeForEntityNoCheck(entity multiwatcher.EntityInfo) multiwatc
 		machineInfo.AgentStatus.Since = nil
 		machineInfo.InstanceStatus.Since = nil
 		return &machineInfo
+	case *multiwatcher.StorageInfo:
+		storageInfo := *e // must copy because this entity came out of the multiwatcher cache.
+		if storageInfo.Volume != nil {
+			storageInfo.Volume.Status.Since = nil
+		}
+		if storageInfo.Filesystem != nil {
+			storageInfo.Filesystem.Status.Since = nil
+		}
+		return &storageInfo
 	default:
 		return entity
 	}
@@ -602,6 +620,10 @@ func (s *allWatcherStateSuite) TestChangeRemoteApplications(c *gc.C) {
 
 func (s *allWatcherStateSuite) TestChangeApplicationOffers(c *gc.C) {
 	testChangeApplicationOffers(c, s.performChangeTestCases)
+}
+
+func (s *allWatcherStateSuite) TestChangeStorage(c *gc.C) {
+	testChangeStorage(c, s.performChangeTestCases)
 }
 
 func (s *allWatcherStateSuite) TestChangeActions(c *gc.C) {
@@ -1382,6 +1404,10 @@ func (s *allModelWatcherStateSuite) TestChangeUnitsNonNilPorts(c *gc.C) {
 
 func (s *allModelWatcherStateSuite) TestChangeRemoteApplications(c *gc.C) {
 	testChangeRemoteApplications(c, s.performChangeTestCases)
+}
+
+func (s *allModelWatcherStateSuite) TestChangeStorage(c *gc.C) {
+	testChangeStorage(c, s.performChangeTestCases)
 }
 
 func (s *allModelWatcherStateSuite) TestChangeModels(c *gc.C) {
@@ -3710,6 +3736,143 @@ func testChangeApplicationOffers(c *gc.C, runChangeTests func(*gc.C, []changeTes
 				expectContents: []multiwatcher.EntityInfo{&applicationOfferInfo},
 			}
 		},
+	}
+	runChangeTests(c, changeTestFuncs)
+}
+
+func testChangeStorage(c *gc.C, runChangeTests func(*gc.C, []changeTestFunc)) {
+	changeTestFuncs := []changeTestFunc{
+		func(c *gc.C, st *State) changeTestCase {
+			return changeTestCase{
+				about: "no storage in state, no storage in store -> do nothing",
+				change: watcher.Change{
+					C:  "storageinstances",
+					Id: st.docID("pgdata/0"),
+				},
+			}
+		},
+		func(c *gc.C, st *State) changeTestCase {
+			return changeTestCase{
+				about: "storage is removed if it's not in backing",
+				initialContents: []multiwatcher.EntityInfo{&multiwatcher.StorageInfo{
+					ModelUUID: st.ModelUUID(),
+					Id:        "pgdata/0",
+				}},
+				change: watcher.Change{
+					C:  "storageinstances",
+					Id: st.docID("pgdata/0"),
+				},
+			}
+		},
+		func(c *gc.C, st *State) changeTestCase {
+			im, err := st.IAASModel()
+			c.Assert(err, jc.ErrorIsNil)
+			storageTag, err := im.AddExistingFilesystem(
+				FilesystemInfo{
+					Pool:         "modelscoped",
+					Size:         123,
+					FilesystemId: "foo",
+				},
+				nil, // no backing volume
+				"pgdata",
+			)
+			c.Assert(err, jc.ErrorIsNil)
+			c.Assert(storageTag.Id(), gc.Equals, "pgdata/0")
+
+			return changeTestCase{
+				about: "storage is added if it's in backing but not in Store",
+				change: watcher.Change{
+					C:  "storageinstances",
+					Id: st.docID("pgdata/0"),
+				},
+				expectContents: []multiwatcher.EntityInfo{&multiwatcher.StorageInfo{
+					ModelUUID: st.ModelUUID(),
+					Id:        "pgdata/0",
+					Life:      "alive",
+					Kind:      "filesystem",
+					Filesystem: &multiwatcher.FilesystemInfo{
+						ModelUUID:  st.ModelUUID(),
+						Name:       "0",
+						Life:       "alive",
+						Pool:       "modelscoped",
+						Size:       123,
+						ProviderId: "foo",
+						Status: multiwatcher.StatusInfo{
+							Current: "detached",
+							Data:    map[string]interface{}{},
+						},
+					},
+				}},
+			}
+		},
+		func(c *gc.C, st *State) changeTestCase {
+			im, err := st.IAASModel()
+			c.Assert(err, jc.ErrorIsNil)
+			_, err = im.AddExistingFilesystem(
+				FilesystemInfo{
+					Pool:         "modelscoped",
+					Size:         123,
+					FilesystemId: "foo",
+				},
+				nil, // no backing volume
+				"pgdata",
+			)
+			c.Assert(err, jc.ErrorIsNil)
+
+			now := testing.ZeroTime()
+			return changeTestCase{
+				about: "storage is updated if it's in backing and in multiwatcher.Store",
+				initialContents: []multiwatcher.EntityInfo{&multiwatcher.StorageInfo{
+					ModelUUID: st.ModelUUID(),
+					Id:        "pgdata/0",
+					Life:      "alive",
+					Kind:      "filesystem",
+					Filesystem: &multiwatcher.FilesystemInfo{
+						ModelUUID:  st.ModelUUID(),
+						Name:       "0",
+						Life:       "alive",
+						Pool:       "modelscoped",
+						Size:       123,
+						ProviderId: "foo",
+						Status: multiwatcher.StatusInfo{
+							Current: "detached",
+							Data:    map[string]interface{}{},
+							Since:   &now,
+						},
+					},
+				}},
+				change: watcher.Change{
+					C:  "storageinstances",
+					Id: st.docID("pgdata/0"),
+				},
+				expectContents: []multiwatcher.EntityInfo{&multiwatcher.StorageInfo{
+					ModelUUID: st.ModelUUID(),
+					Id:        "pgdata/0",
+					Life:      "alive",
+					Kind:      "filesystem",
+					Filesystem: &multiwatcher.FilesystemInfo{
+						ModelUUID:  st.ModelUUID(),
+						Name:       "0",
+						Life:       "alive",
+						Pool:       "modelscoped",
+						Size:       123,
+						ProviderId: "foo",
+						Status: multiwatcher.StatusInfo{
+							Current: "detached",
+							Data:    map[string]interface{}{},
+						},
+					},
+				}},
+			}
+		},
+		// TODO(axw) update filesystem info, show that it
+		// updates the storage info.
+		// TODO(axw) update volume info, show that it
+		// updates the storage info.
+		// TODO(axw) update filesystem status, show that it
+		// updates the storage info.
+		// TODO(axw) update volume status, show that it
+		// updates the storage info.
 	}
 	runChangeTests(c, changeTestFuncs)
 }

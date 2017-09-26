@@ -94,6 +94,14 @@ func makeAllWatcherCollectionInfo(collNames ...string) map[string]allWatcherStat
 			collection.docType = reflect.TypeOf(backingRemoteApplication{})
 		case applicationOffersC:
 			collection.docType = reflect.TypeOf(backingApplicationOffer{})
+		case storageInstancesC:
+			collection.docType = reflect.TypeOf(backingStorage{})
+		case volumesC:
+			collection.docType = reflect.TypeOf(backingVolume{})
+			collection.subsidiary = true
+		case filesystemsC:
+			collection.docType = reflect.TypeOf(backingFilesystem{})
+			collection.subsidiary = true
 		default:
 			panic(errors.Errorf("unknown collection %q", collName))
 		}
@@ -1184,6 +1192,16 @@ func backingEntityIdForGlobalKey(modelUUID, key string) (multiwatcher.EntityId, 
 			ModelUUID: modelUUID,
 			Name:      id,
 		}).EntityId(), true
+	case 'v':
+		return (&multiwatcher.VolumeInfo{
+			ModelUUID: modelUUID,
+			Name:      id,
+		}).EntityId(), true
+	case 'f':
+		return (&multiwatcher.FilesystemInfo{
+			ModelUUID: modelUUID,
+			Name:      id,
+		}).EntityId(), true
 	default:
 		return multiwatcher.EntityId{}, false
 	}
@@ -1224,6 +1242,9 @@ func newAllWatcherStateBacking(st *State, params WatchParams) Backing {
 		actionsC,
 		blocksC,
 		remoteApplicationsC,
+		storageInstancesC,
+		volumesC,
+		filesystemsC,
 	}
 	if params.IncludeOffers {
 		collectionNames = append(collectionNames, applicationOffersC)
@@ -1308,6 +1329,9 @@ func NewAllModelWatcherStateBacking(st *State, pool *StatePool) Backing {
 		settingsC,
 		openedPortsC,
 		remoteApplicationsC,
+		storageInstancesC,
+		volumesC,
+		filesystemsC,
 	)
 	return &allModelWatcherStateBacking{
 		st:               st,
@@ -1470,4 +1494,188 @@ func normaliseStatusData(data map[string]interface{}) map[string]interface{} {
 		return make(map[string]interface{})
 	}
 	return data
+}
+
+type backingStorage storageInstanceDoc
+
+func (s *backingStorage) updated(st *State, store *multiwatcherStore, id string) error {
+	info := &multiwatcher.StorageInfo{
+		ModelUUID: st.ModelUUID(),
+		Id:        s.Id,
+		Kind:      s.Kind.String(),
+		Life:      multiwatcher.Life(s.Life.String()),
+		OwnerTag:  s.Owner,
+	}
+	oldInfo := store.Get(info.EntityId())
+	if oldInfo == nil {
+		// This is the first time we've seen the storage instance,
+		// so grab the associated volume and filesystem.
+		im, err := st.IAASModel()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		tag := names.NewStorageTag(s.Id)
+		switch info.Kind {
+		case "filesystem":
+			fs, err := im.storageInstanceFilesystem(tag)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			bfs := backingFilesystem(fs.doc)
+			finfo, err := bfs.info(st)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			info.Filesystem = finfo
+			if fs.doc.VolumeId == "" {
+				break
+			}
+			// The filesystem has a backing volume, so fall
+			// through and add the volume info.
+			fallthrough
+		case "block":
+			vol, err := im.storageInstanceVolume(tag)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			bvol := backingVolume(vol.doc)
+			vinfo, err := bvol.info(st)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			info.Volume = vinfo
+		}
+	} else {
+		// The volume/filesystem association for a storage instance
+		// doesn't change, so copy across from the existing entry.
+		oldInfo := oldInfo.(*multiwatcher.StorageInfo)
+		info.Filesystem = oldInfo.Filesystem
+		info.Volume = oldInfo.Volume
+	}
+	store.Update(info)
+	return nil
+}
+
+func (s *backingStorage) removed(store *multiwatcherStore, modelUUID, id string, _ *State) error {
+	store.Remove(multiwatcher.EntityId{
+		Kind:      "storage",
+		ModelUUID: modelUUID,
+		Id:        id,
+	})
+	return nil
+}
+
+func (s *backingStorage) mongoId() string {
+	return s.DocID
+}
+
+type backingFilesystem filesystemDoc
+
+func (f *backingFilesystem) updated(st *State, store *multiwatcherStore, id string) error {
+	parentInfo := store.Get(multiwatcher.EntityId{
+		Kind:      "storage",
+		ModelUUID: f.ModelUUID,
+		Id:        f.StorageId,
+	})
+	if parentInfo == nil {
+		return nil
+	}
+	storageInfo := parentInfo.(*multiwatcher.StorageInfo)
+
+	info, err := f.info(st)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	storageInfoCopy := *storageInfo
+	storageInfoCopy.Filesystem = info
+	store.Update(&storageInfoCopy)
+	return nil
+}
+
+func (f *backingFilesystem) info(st *State) (*multiwatcher.FilesystemInfo, error) {
+	key := filesystemGlobalKey(f.FilesystemId)
+	filesystemStatus, err := getStatus(st.db(), key, "filesystem")
+	if err != nil {
+		return nil, errors.Annotatef(err, "reading filesystem status for key %s", key)
+	}
+	info := &multiwatcher.FilesystemInfo{
+		ModelUUID: st.ModelUUID(),
+		Name:      f.FilesystemId,
+		Life:      multiwatcher.Life(f.Life.String()),
+		Status:    multiwatcher.NewStatusInfo(filesystemStatus, nil),
+	}
+	if f.Info != nil {
+		info.Pool = f.Info.Pool
+		info.Size = f.Info.Size
+		info.ProviderId = f.Info.FilesystemId
+	} else if f.Params != nil {
+		info.Pool = f.Params.Pool
+	}
+	return info, nil
+}
+
+func (f *backingFilesystem) removed(store *multiwatcherStore, modelUUID, id string, _ *State) error {
+	// Filesystem is not stored independently of the storage instance.
+	return nil
+}
+
+func (f *backingFilesystem) mongoId() string {
+	return f.DocID
+}
+
+type backingVolume volumeDoc
+
+func (v *backingVolume) updated(st *State, store *multiwatcherStore, id string) error {
+	parentInfo := store.Get(multiwatcher.EntityId{
+		Kind:      "storage",
+		ModelUUID: v.ModelUUID,
+		Id:        v.StorageId,
+	})
+	if parentInfo == nil {
+		return nil
+	}
+	storageInfo := parentInfo.(*multiwatcher.StorageInfo)
+
+	info, err := v.info(st)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	storageInfoCopy := *storageInfo
+	storageInfoCopy.Volume = info
+	store.Update(&storageInfoCopy)
+	return nil
+}
+
+func (v *backingVolume) info(st *State) (*multiwatcher.VolumeInfo, error) {
+	key := volumeGlobalKey(v.Name)
+	volumeStatus, err := getStatus(st.db(), key, "volume")
+	if err != nil {
+		return nil, errors.Annotatef(err, "reading volume status for key %s", key)
+	}
+	info := &multiwatcher.VolumeInfo{
+		ModelUUID: st.ModelUUID(),
+		Name:      v.Name,
+		Life:      multiwatcher.Life(v.Life.String()),
+		Status:    multiwatcher.NewStatusInfo(volumeStatus, nil),
+	}
+	if v.Info != nil {
+		info.Pool = v.Info.Pool
+		info.Size = v.Info.Size
+		info.ProviderId = v.Info.VolumeId
+		info.HardwareId = v.Info.HardwareId
+		info.WWN = v.Info.WWN
+		info.Persistent = v.Info.Persistent
+	} else if v.Params != nil {
+		info.Pool = v.Params.Pool
+	}
+	return info, nil
+}
+
+func (v *backingVolume) removed(store *multiwatcherStore, modelUUID, id string, _ *State) error {
+	// Volume is not stored independently of the storage instance.
+	return nil
+}
+
+func (v *backingVolume) mongoId() string {
+	return v.DocID
 }

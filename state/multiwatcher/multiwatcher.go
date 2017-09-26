@@ -105,6 +105,12 @@ func (d *Delta) UnmarshalJSON(data []byte) error {
 		d.Entity = new(BlockInfo)
 	case "action":
 		d.Entity = new(ActionInfo)
+	case "storage":
+		d.Entity = new(StorageInfo)
+	case "volume":
+		d.Entity = new(VolumeInfo)
+	case "filesystem":
+		d.Entity = new(FilesystemInfo)
 	default:
 		return errors.Errorf("Unexpected entity name %q", entityKind)
 	}
@@ -454,5 +460,72 @@ func (i *ModelInfo) EntityId() EntityId {
 		Kind:      "model",
 		ModelUUID: i.ModelUUID,
 		Id:        i.ModelUUID,
+	}
+}
+
+// StorageInfo holds the information about an application that is tracked
+// by multiwatcherStore.
+type StorageInfo struct {
+	ModelUUID  string          `json:"model-uuid"`
+	Id         string          `json:"id"`
+	OwnerTag   string          `json:"owner-tag,omitempty"`
+	Life       Life            `json:"life"`
+	Kind       string          `json:"kind"`
+	Filesystem *FilesystemInfo `json:"filesystem,omitempty"`
+	Volume     *VolumeInfo     `json:"volume,omitempty"`
+	// TODO(axw) attachments
+}
+
+// EntityId returns a unique identifier for a storage instance across models.
+func (i *StorageInfo) EntityId() EntityId {
+	return EntityId{
+		Kind:      "storage",
+		ModelUUID: i.ModelUUID,
+		Id:        i.Id,
+	}
+}
+
+type FilesystemInfo struct {
+	ModelUUID string     `json:"model-uuid"`
+	Name      string     `json:"name"`
+	Life      Life       `json:"life"`
+	Status    StatusInfo `json:"status"`
+
+	Pool       string `json:"pool,omitempty"`
+	Size       uint64 `json:"size,omitempty"`
+	ProviderId string `json:"provider-id,omitempty"`
+
+	// TODO(axw) attachments
+}
+
+func (i *FilesystemInfo) EntityId() EntityId {
+	return EntityId{
+		Kind:      "filesystem",
+		ModelUUID: i.ModelUUID,
+		Id:        i.Name,
+	}
+}
+
+type VolumeInfo struct {
+	ModelUUID string     `json:"model-uuid"`
+	Name      string     `json:"name"`
+	Life      Life       `json:"life"`
+	Status    StatusInfo `json:"status"`
+
+	Pool       string `json:"pool,omitempty"`
+	Size       uint64 `json:"size,omitempty"`
+	ProviderId string `json:"provider-id,omitempty"`
+	HardwareId string `json:"hardware-id,omitempty"`
+	WWN        string `json:"wwn,omitempty"`
+	Persistent bool   `json:"persistent,omitempty"`
+
+	// TODO(axw) attachments
+}
+
+func (i *VolumeInfo) EntityId() EntityId {
+	return EntityId{
+		Kind:      "volume",
+		ModelUUID: i.ModelUUID,
+		Id:        i.Name,
 	}
 }

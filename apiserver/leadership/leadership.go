@@ -22,6 +22,10 @@ const (
 	// service endpoint.
 	FacadeName = "LeadershipService"
 
+	// LeadershipClaimerResource is the name for the leadership.Claimer
+	// required by this facade.
+	LeadershipClaimerResource = "leadership-claimer"
+
 	// MinLeaseRequest is the shortest duration for which we will accept
 	// a leadership claim.
 	MinLeaseRequest = 5 * time.Second
@@ -36,7 +40,15 @@ const (
 func NewLeadershipServiceFacade(
 	state *state.State, resources facade.Resources, authorizer facade.Authorizer,
 ) (LeadershipService, error) {
-	return NewLeadershipService(state.LeadershipClaimer(), authorizer)
+	claimerResource := resources.Get(LeadershipClaimerResource)
+	if claimerResource == nil {
+		return nil, errors.NotFoundf("resource %q", LeadershipClaimerResource)
+	}
+	claimer, ok := claimerResource.(leadership.Claimer)
+	if !ok {
+		return nil, errors.Errorf("expected %T, got %T", claimer, claimerResource)
+	}
+	return NewLeadershipService(claimer, authorizer)
 }
 
 // NewLeadershipService constructs a new LeadershipService.

@@ -144,16 +144,19 @@ func (s *ApplicationStatusGetter) Status(args params.Entities) (params.Applicati
 			continue
 		}
 
-		// ...so we can check the unit's application leadership...
-		checker := s.st.LeadershipChecker()
-		token := checker.LeadershipCheck(applicationId, unitId)
-		if err := token.Check(nil); err != nil {
-			// TODO(fwereade) this should probably be ErrPerm is certain cases,
-			// but I don't think I implemented an exported ErrNotLeader. I
-			// should have done, though.
-			result.Results[i].Error = ServerError(err)
-			continue
-		}
+		// TODO(axw)
+		/*
+			// ...so we can check the unit's application leadership...
+			checker := s.st.LeadershipChecker()
+			token := checker.LeadershipCheck(applicationId, unitId)
+			if err := token.Check(nil); err != nil {
+				// TODO(fwereade) this should probably be ErrPerm is certain cases,
+				// but I don't think I implemented an exported ErrNotLeader. I
+				// should have done, though.
+				result.Results[i].Error = ServerError(err)
+				continue
+			}
+		*/
 
 		// ...and collect the results.
 		applicationStatus, unitStatuses, err := application.ApplicationAndUnitsStatus()

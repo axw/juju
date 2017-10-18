@@ -93,6 +93,7 @@ type Server struct {
 	logSinkWriter          io.WriteCloser
 	logsinkRateLimitConfig logsink.RateLimitConfig
 	dbloggers              dbloggers
+	models                 *ModelResourcesRegistry
 
 	// mu guards the fields below it.
 	mu sync.Mutex
@@ -172,6 +173,12 @@ type ServerConfig struct {
 
 	// PrometheusRegisterer registers Prometheus collectors.
 	PrometheusRegisterer prometheus.Registerer
+
+	// ModelResourcesRegistry is the model resources registry that
+	// is used to provide model-specific resources to the API server.
+	// This relieves the API server of the need to track/manage
+	// per-model resources itself.
+	ModelResourcesRegistry *ModelResourcesRegistry
 }
 
 // Validate validates the API server configuration.
@@ -184,6 +191,9 @@ func (c ServerConfig) Validate() error {
 	}
 	if c.NewObserver == nil {
 		return errors.NotValidf("missing NewObserver")
+	}
+	if c.ModelResourcesRegistry == nil {
+		return errors.NotValidf("missing ModelResourcesRegistry")
 	}
 	if err := c.RateLimitConfig.Validate(); err != nil {
 		return errors.Annotate(err, "validating rate limit configuration")
@@ -371,6 +381,7 @@ func newServer(stPool *state.StatePool, lis net.Listener, cfg ServerConfig) (_ *
 			dbLoggerBufferSize:    cfg.LogSinkConfig.DBLoggerBufferSize,
 			dbLoggerFlushInterval: cfg.LogSinkConfig.DBLoggerFlushInterval,
 		},
+		models: cfg.ModelResourcesRegistry,
 	}
 
 	srv.tlsConfig = srv.newTLSConfig(cfg)

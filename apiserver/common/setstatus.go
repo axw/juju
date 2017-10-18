@@ -88,19 +88,22 @@ func (s *ApplicationStatusSetter) SetStatus(args params.SetStatus) (params.Error
 			continue
 		}
 
-		// ...and set the status, conditional on the unit being (and remaining)
-		// service leader.
-		checker := s.st.LeadershipChecker()
-		token := checker.LeadershipCheck(serviceId, unitId)
+		// TODO(axw)
+		/*
+			// ...and set the status, conditional on the unit being (and remaining)
+			// service leader.
+			checker := s.st.LeadershipChecker()
+			token := checker.LeadershipCheck(serviceId, unitId)
 
-		// TODO(fwereade) pass token into SetStatus instead of checking here.
-		if err := token.Check(nil); err != nil {
-			// TODO(fwereade) this should probably be ErrPerm is certain cases,
-			// but I don't think I implemented an exported ErrNotLeader. I
-			// should have done, though.
-			result.Results[i].Error = ServerError(err)
-			continue
-		}
+			// TODO(fwereade) pass token into SetStatus instead of checking here.
+			if err := token.Check(nil); err != nil {
+				// TODO(fwereade) this should probably be ErrPerm is certain cases,
+				// but I don't think I implemented an exported ErrNotLeader. I
+				// should have done, though.
+				result.Results[i].Error = ServerError(err)
+				continue
+			}
+		*/
 		// TODO(perrito666) 2016-05-02 lp:1558657
 		now := time.Now()
 		sInfo := status.StatusInfo{

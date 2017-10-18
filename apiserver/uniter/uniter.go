@@ -29,6 +29,12 @@ import (
 
 var logger = loggo.GetLogger("juju.apiserver.uniter")
 
+const (
+	// LeadershipCheckerResource is the name for the leadership.Checker
+	// required by this facade.
+	LeadershipCheckerResource = "leadership-checker"
+)
+
 // UniterAPI implements the latest version (v6) of the Uniter API.
 type UniterAPI struct {
 	*common.LifeGetter
@@ -128,6 +134,10 @@ func NewUniterAPI(st *state.State, resources facade.Resources, authorizer facade
 		return nil, errors.Annotate(err, "could not create meter status API handler")
 	}
 	accessUnitOrApplication := common.AuthAny(accessUnit, accessApplication)
+	leadershipSettingsAccessor, err := newLeadershipSettingsAccessor(st, resources, authorizer)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	return &UniterAPI{
 		LifeGetter:                 common.NewLifeGetter(st, accessUnitOrApplication),
 		DeadEnsurer:                common.NewDeadEnsurer(st, accessUnit),
@@ -135,7 +145,7 @@ func NewUniterAPI(st *state.State, resources facade.Resources, authorizer facade
 		APIAddresser:               common.NewAPIAddresser(st, resources),
 		ModelWatcher:               common.NewModelWatcher(st, resources, authorizer),
 		RebootRequester:            common.NewRebootRequester(st, accessMachine),
-		LeadershipSettingsAccessor: leadershipSettingsAccessorFactory(st, resources, authorizer),
+		LeadershipSettingsAccessor: leadershipSettingsAccessor,
 		MeterStatus:                msAPI,
 		// TODO(fwereade): so *every* unit should be allowed to get/set its
 		// own status *and* its application's? This is not a pleasing arrangement.
@@ -1500,11 +1510,21 @@ func relationsInScopeTags(unit *state.Unit) ([]string, error) {
 	return tags, nil
 }
 
-func leadershipSettingsAccessorFactory(
+func newLeadershipSettingsAccessor(
 	st *state.State,
 	resources facade.Resources,
 	auth facade.Authorizer,
-) *leadershipapiserver.LeadershipSettingsAccessor {
+) (*leadershipapiserver.LeadershipSettingsAccessor, error) {
+
+	checkerResource := resources.Get(LeadershipCheckerResource)
+	if checkerResource == nil {
+		return nil, errors.NotFoundf("resource %q", LeadershipCheckerResource)
+	}
+	checker, ok := checkerResource.(leadership.Checker)
+	if !ok {
+		return nil, errors.Errorf("expected %T, got %T", checker, checkerResource)
+	}
+
 	registerWatcher := func(applicationId string) (string, error) {
 		application, err := st.Application(applicationId)
 		if err != nil {
@@ -1534,9 +1554,9 @@ func leadershipSettingsAccessorFactory(
 		auth,
 		registerWatcher,
 		getSettings,
-		st.LeadershipChecker().LeadershipCheck,
+		checker.LeadershipCheck,
 		writeSettings,
-	)
+	), nil
 }
 
 // AddMetricBatches adds the metrics for the specified unit.

@@ -785,14 +785,17 @@ func (i *importer) application(a description.Application) error {
 		}
 	}
 
-	if a.Leader() != "" {
-		if err := i.st.LeadershipClaimer().ClaimLeadership(
-			a.Name(),
-			a.Leader(),
-			initialLeaderClaimTime); err != nil {
-			return errors.Trace(err)
+	// TODO(axw)
+	/*
+		if a.Leader() != "" {
+			if err := i.st.LeadershipClaimer().ClaimLeadership(
+				a.Name(),
+				a.Leader(),
+				initialLeaderClaimTime); err != nil {
+				return errors.Trace(err)
+			}
 		}
-	}
+	*/
 
 	return nil
 }

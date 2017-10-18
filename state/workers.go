@@ -18,7 +18,6 @@ import (
 const (
 	txnLogWorker          = "txnlog"
 	presenceWorker        = "presence"
-	leadershipWorker      = "leadership"
 	singularWorker        = "singular"
 	allManagerWorker      = "allmanager"
 	allModelManagerWorker = "allmodelmanager"
@@ -55,22 +54,24 @@ func newWorkers(st *State) (*workers, error) {
 	ws.StartWorker(pingBatcherWorker, func() (worker.Worker, error) {
 		return presence.NewPingBatcher(st.getPresenceCollection(), pingFlushInterval), nil
 	})
-	ws.StartWorker(leadershipWorker, func() (worker.Worker, error) {
-		client, err := st.getLeadershipLeaseClient()
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		manager, err := lease.NewManager(lease.ManagerConfig{
-			Secretary: leadershipSecretary{},
-			Client:    client,
-			Clock:     ws.state.clock,
-			MaxSleep:  time.Minute,
+	/*
+		ws.StartWorker(leadershipWorker, func() (worker.Worker, error) {
+			client, err := st.getLeadershipLeaseClient()
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			manager, err := lease.NewManager(lease.ManagerConfig{
+				Secretary: leadershipSecretary{},
+				Client:    client,
+				Clock:     ws.state.clock,
+				MaxSleep:  time.Minute,
+			})
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			return manager, nil
 		})
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		return manager, nil
-	})
+	*/
 	ws.StartWorker(singularWorker, func() (worker.Worker, error) {
 		client, err := ws.state.getSingularLeaseClient()
 		if err != nil {
@@ -114,6 +115,7 @@ func (ws *workers) pingBatcherWorker() *presence.PingBatcher {
 	return w.(*presence.PingBatcher)
 }
 
+/*
 func (ws *workers) leadershipManager() *lease.Manager {
 	w, err := ws.Worker(leadershipWorker, nil)
 	if err != nil {
@@ -121,6 +123,7 @@ func (ws *workers) leadershipManager() *lease.Manager {
 	}
 	return w.(*lease.Manager)
 }
+*/
 
 func (ws *workers) singularManager() *lease.Manager {
 	w, err := ws.Worker(singularWorker, nil)

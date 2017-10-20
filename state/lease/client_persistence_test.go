@@ -8,7 +8,6 @@ import (
 
 	jc "github.com/juju/testing/checkers"
 	"github.com/juju/utils/clock"
-	"github.com/juju/utils/clock/monotonic"
 	gc "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2/bson"
 
@@ -24,32 +23,13 @@ type ClientPersistenceSuite struct {
 
 var _ = gc.Suite(&ClientPersistenceSuite{})
 
-func (s *ClientPersistenceSuite) TestNewClientInvalidClockDoc(c *gc.C) {
-	config := lease.ClientConfig{
-		Id:           "client",
-		Namespace:    "namespace",
-		Collection:   "collection",
-		Mongo:        NewMongo(s.db),
-		Clock:        clock.WallClock,
-		MonotonicNow: monotonic.Now,
-	}
-	dbKey := "clock#namespace#"
-	err := s.db.C("collection").Insert(bson.M{"_id": dbKey})
-	c.Assert(err, jc.ErrorIsNil)
-
-	client, err := lease.NewClient(config)
-	c.Check(client, gc.IsNil)
-	c.Check(err, gc.ErrorMatches, `corrupt clock document: invalid type ""`)
-}
-
 func (s *ClientPersistenceSuite) TestNewClientInvalidLeaseDoc(c *gc.C) {
 	config := lease.ClientConfig{
-		Id:           "client",
-		Namespace:    "namespace",
-		Collection:   "collection",
-		Mongo:        NewMongo(s.db),
-		Clock:        clock.WallClock,
-		MonotonicNow: monotonic.Now,
+		Id:         "client",
+		Namespace:  "namespace",
+		Collection: "collection",
+		Mongo:      NewMongo(s.db),
+		Clock:      clock.WallClock,
 	}
 	err := s.db.C("collection").Insert(bson.M{
 		"_id":       "snagglepuss",
@@ -61,20 +41,6 @@ func (s *ClientPersistenceSuite) TestNewClientInvalidLeaseDoc(c *gc.C) {
 	client, err := lease.NewClient(config)
 	c.Check(client, gc.IsNil)
 	c.Check(err, gc.ErrorMatches, `corrupt lease document "snagglepuss": inconsistent _id`)
-}
-
-func (s *ClientPersistenceSuite) TestNewClientMissingClockDoc(c *gc.C) {
-	// The database starts out empty, so just creating the fixture is enough
-	// to test this code path.
-	s.EasyFixture(c)
-}
-
-func (s *ClientPersistenceSuite) TestNewClientExtantClockDoc(c *gc.C) {
-	// Empty database: new Client creates clock doc.
-	s.EasyFixture(c)
-
-	// Clock doc exists; new Client created successfully.
-	s.EasyFixture(c)
 }
 
 func (s *ClientPersistenceSuite) TestClaimLease(c *gc.C) {

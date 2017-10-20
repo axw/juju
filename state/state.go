@@ -18,7 +18,6 @@ import (
 	jujutxn "github.com/juju/txn"
 	"github.com/juju/utils"
 	"github.com/juju/utils/clock"
-	"github.com/juju/utils/clock/monotonic"
 	"github.com/juju/utils/os"
 	"github.com/juju/utils/series"
 	"github.com/juju/utils/set"
@@ -440,12 +439,11 @@ func (st *State) ApplicationLeaders() (map[string]string, error) {
 
 func (st *State) getLeadershipLeaseClient() (lease.Client, error) {
 	client, err := statelease.NewClient(statelease.ClientConfig{
-		Id:           st.leaseClientId,
-		Namespace:    applicationLeadershipNamespace,
-		Collection:   leasesC,
-		Mongo:        &environMongo{st},
-		Clock:        st.stateClock,
-		MonotonicNow: monotonic.Now,
+		Id:         st.leaseClientId,
+		Namespace:  applicationLeadershipNamespace,
+		Collection: leasesC,
+		Mongo:      &environMongo{st},
+		Clock:      st.stateClock,
 	})
 	if err != nil {
 		return nil, errors.Annotatef(err, "cannot create leadership lease client")
@@ -455,12 +453,11 @@ func (st *State) getLeadershipLeaseClient() (lease.Client, error) {
 
 func (st *State) getSingularLeaseClient() (lease.Client, error) {
 	client, err := statelease.NewClient(statelease.ClientConfig{
-		Id:           st.leaseClientId,
-		Namespace:    singularControllerNamespace,
-		Collection:   leasesC,
-		Mongo:        &environMongo{st},
-		Clock:        st.stateClock,
-		MonotonicNow: monotonic.Now,
+		Id:         st.leaseClientId,
+		Namespace:  singularControllerNamespace,
+		Collection: leasesC,
+		Mongo:      &environMongo{st},
+		Clock:      st.stateClock,
 	})
 	if err != nil {
 		return nil, errors.Annotatef(err, "cannot create singular lease client")

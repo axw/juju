@@ -10,7 +10,6 @@ import (
 	jujutxn "github.com/juju/txn"
 	txntesting "github.com/juju/txn/testing"
 	"github.com/juju/utils/clock"
-	"github.com/juju/utils/clock/monotonic"
 	gc "gopkg.in/check.v1"
 
 	corelease "github.com/juju/juju/core/lease"
@@ -28,12 +27,11 @@ var _ = gc.Suite(&ClientSimpleRaceSuite{})
 func (s *ClientSimpleRaceSuite) TestNewClient_WorksDespite_CreateClockRace(c *gc.C) {
 	config := func(id string) lease.ClientConfig {
 		return lease.ClientConfig{
-			Id:           id,
-			Namespace:    "ns",
-			Collection:   "leases",
-			Mongo:        NewMongo(s.db),
-			Clock:        clock.WallClock,
-			MonotonicNow: monotonic.Now,
+			Id:         id,
+			Namespace:  "ns",
+			Collection: "leases",
+			Mongo:      NewMongo(s.db),
+			Clock:      clock.WallClock,
 		}
 	}
 	sutConfig := config("sut")

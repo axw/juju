@@ -61,14 +61,12 @@ func NewFixture(c *gc.C, database *mgo.Database, params FixtureParams) *Fixture 
 		clockStart = defaultClockStart
 	}
 	clock := NewClock(clockStart, params.ClockStep)
-	monotonic := newMonotonicClock(params.ClockStep)
 	config := lease.ClientConfig{
-		Id:           or(params.Id, "default-client"),
-		Namespace:    or(params.Namespace, "default-namespace"),
-		Collection:   or(params.Collection, "default-collection"),
-		Mongo:        mongo,
-		Clock:        clock,
-		MonotonicNow: monotonic.Now,
+		Id:         or(params.Id, "default-client"),
+		Namespace:  or(params.Namespace, "default-namespace"),
+		Collection: or(params.Collection, "default-collection"),
+		Mongo:      mongo,
+		Clock:      clock,
 	}
 	client, err := lease.NewClient(config)
 	c.Assert(err, jc.ErrorIsNil)

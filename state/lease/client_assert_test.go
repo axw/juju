@@ -70,6 +70,7 @@ func (s *ClientAssertSuite) TestPassesWhenLeaseStillHeldDespitePassingExpiry(c *
 
 func (s *ClientAssertSuite) TestAbortsWhenLeaseVacant(c *gc.C) {
 	info := s.fix.Client.Leases()["name"]
+	c.Logf("info: %v", info)
 
 	s.fix.Clock.Advance(time.Hour)
 	err := s.fix.Client.ExpireLease("name")

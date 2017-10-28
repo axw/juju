@@ -19,6 +19,8 @@
 package dummy
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
@@ -830,17 +832,31 @@ func (e *environ) Bootstrap(ctx environs.BootstrapContext, args environs.Bootstr
 			logger.Debugf("setting password for %q to %q", owner.Name(), icfg.Controller.MongoInfo.Password)
 			owner.SetPassword(icfg.Controller.MongoInfo.Password)
 
+			tlsCert, err := tls.X509KeyPair([]byte(testing.ServerCert), []byte(testing.ServerKey))
+			if err != nil {
+				st.Close()
+				return errors.Annotatef(err, "cannot create new TLS certificate")
+			}
+			x509Cert, err := x509.ParseCertificate(tlsCert.Certificate[0])
+			if err != nil {
+				st.Close()
+				return errors.Annotatef(err, "parsing x509 cert")
+			}
+			tlsCert.Leaf = x509Cert
+			getCertificate := func() *tls.Certificate {
+				return &tlsCert
+			}
+
 			statePool := state.NewStatePool(st)
 			machineTag := names.NewMachineTag("0")
 			estate.apiServer, err = apiserver.NewServer(statePool, estate.apiListener, apiserver.ServerConfig{
-				Clock:       clock.WallClock,
-				Cert:        testing.ServerCert,
-				Key:         testing.ServerKey,
-				Tag:         machineTag,
-				DataDir:     DataDir,
-				LogDir:      LogDir,
-				Hub:         centralhub.New(machineTag),
-				NewObserver: func() observer.Observer { return &fakeobserver.Instance{} },
+				Clock:          clock.WallClock,
+				GetCertificate: getCertificate,
+				Tag:            machineTag,
+				DataDir:        DataDir,
+				LogDir:         LogDir,
+				Hub:            centralhub.New(machineTag),
+				NewObserver:    func() observer.Observer { return &fakeobserver.Instance{} },
 				// Should never be used but prevent external access just in case.
 				AutocertURL: "https://0.1.2.3/no-autocert-here",
 				RegisterIntrospectionHandlers: func(f func(path string, h http.Handler)) {

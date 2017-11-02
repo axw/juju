@@ -38,6 +38,7 @@ import (
 	"github.com/juju/juju/environs/simplestreams"
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/instance"
+	jujunetwork "github.com/juju/juju/network"
 
 	"github.com/juju/juju/provider/azure/internal/armtemplates"
 	internalazureresources "github.com/juju/juju/provider/azure/internal/azureresources"
@@ -1776,3 +1777,173 @@ func (env *azureEnviron) AgentMirror() (simplestreams.CloudSpec, error) {
 		Endpoint: fmt.Sprintf("https://%s/", env.storageEndpoint),
 	}, nil
 }
+
+func (env *azureEnviron) Subnets(instanceId instance.Id, subnetIds []jujunetwork.Id) ([]jujunetwork.SubnetInfo, error) {
+	var subnets []jujunetwork.SubnetInfo
+	if instanceId == instance.UnknownId {
+		// TODO(axw) fetch this from the Azure API
+		subnets = []jujunetwork.SubnetInfo{{
+			CIDR:              controllerSubnetPrefix,
+			ProviderId:        jujunetwork.Id(controllerSubnetName),
+			ProviderNetworkId: jujunetwork.Id(internalNetworkName),
+		}, {
+			CIDR:              internalSubnetPrefix,
+			ProviderId:        jujunetwork.Id(internalSubnetName),
+			ProviderNetworkId: jujunetwork.Id(internalNetworkName),
+		}}
+	} else {
+		nics, err := env.NetworkInterfaces(instanceId)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		for _, nic := range nics {
+			subnets = append(subnets, jujunetwork.SubnetInfo{
+				CIDR:              nic.CIDR,
+				ProviderId:        nic.ProviderSubnetId,
+				ProviderNetworkId: nic.ProviderNetworkId,
+			})
+		}
+	}
+
+	if len(subnetIds) == 0 {
+		return subnets, nil
+	}
+
+	var results []jujunetwork.SubnetInfo
+	var missing []jujunetwork.Id
+	for _, subnetId := range subnetIds {
+		var found bool
+		for _, subnet := range subnets {
+			if subnet.ProviderId == subnetId {
+				found = true
+				results = append(results, subnet)
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, subnetId)
+		}
+	}
+	if len(missing) != 0 {
+		return nil, errors.NotFoundf("subnets %q", missing)
+	}
+	return results, nil
+}
+
+func (env *azureEnviron) NetworkInterfaces(instanceId instance.Id) ([]jujunetwork.InterfaceInfo, error) {
+	allInstanceNics, err := instanceNetworkInterfaces(
+		env.resourceGroup,
+		network.InterfacesClient{env.network},
+	)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	instanceNics := allInstanceNics[instanceId]
+
+	results := make([]jujunetwork.InterfaceInfo, len(instanceNics))
+	for i, nic := range instanceNics {
+		deviceIndex := i + 1
+		if to.Bool(nic.Primary) {
+			deviceIndex = 0
+		}
+
+		// The Properties.Subnet field only contains the subnet ID, so
+		// until we support dynamic network interfaces, we use our
+		// hard-coded knowledge of interface names.
+		ipcfg := (*nic.IPConfigurations)[0]
+		subnet := ipcfg.Subnet
+		cidr := internalSubnetPrefix
+		subnetName := internalSubnetName
+		networkName := internalNetworkName
+		if strings.HasSuffix(to.String(subnet.ID), controllerSubnetName) {
+			cidr = controllerSubnetPrefix
+			subnetName = controllerSubnetName
+		}
+
+		var address jujunetwork.Address
+		configType := jujunetwork.ConfigUnknown
+		switch method := ipcfg.PrivateIPAllocationMethod; method {
+		case network.Static:
+			configType = jujunetwork.ConfigStatic
+			address = jujunetwork.NewScopedAddress(
+				to.String(ipcfg.PrivateIPAddress),
+				jujunetwork.ScopeCloudLocal,
+			)
+		case network.Dynamic:
+			configType = jujunetwork.ConfigDHCP
+		default:
+			return nil, errors.NotSupportedf("private IP allocation method %q", method)
+		}
+
+		var dnsServers []jujunetwork.Address
+		var dnsSearchDomains []string
+		if nic.DNSSettings != nil {
+			for _, server := range to.StringSlice(nic.DNSSettings.AppliedDNSServers) {
+				dnsServers = append(dnsServers, jujunetwork.NewAddress(server))
+			}
+			dnsSearchDomains = append(dnsSearchDomains, to.String(
+				nic.DNSSettings.InternalDomainNameSuffix,
+			))
+		}
+
+		results[i] = jujunetwork.InterfaceInfo{
+			DeviceIndex:       deviceIndex,
+			MACAddress:        to.String(nic.MacAddress),
+			CIDR:              cidr,
+			ProviderId:        jujunetwork.Id(to.String(nic.Name)),
+			ProviderSubnetId:  jujunetwork.Id(subnetName),
+			ProviderNetworkId: jujunetwork.Id(networkName),
+			InterfaceName:     fmt.Sprintf("eth%d", deviceIndex),
+			InterfaceType:     jujunetwork.EthernetInterface,
+			ConfigType:        configType,
+			Address:           address,
+			DNSServers:        dnsServers,
+			DNSSearchDomains:  dnsSearchDomains,
+		}
+	}
+	return results, nil
+}
+
+func (env *azureEnviron) SupportsSpaces() (bool, error) {
+	return false, nil
+}
+
+func (env *azureEnviron) SupportsSpaceDiscovery() (bool, error) {
+	return false, nil
+}
+
+func (env *azureEnviron) Spaces() ([]jujunetwork.SpaceInfo, error) {
+	return nil, errors.NotSupportedf("spaces")
+}
+
+func (env *azureEnviron) SupportsContainerAddresses() (bool, error) {
+	return false, nil
+}
+
+func (env *azureEnviron) AllocateContainerAddresses(instance.Id, names.MachineTag, []jujunetwork.InterfaceInfo) ([]jujunetwork.InterfaceInfo, error) {
+	return nil, errors.NotSupportedf("container addresses")
+}
+
+func (env *azureEnviron) ReleaseContainerAddresses([]jujunetwork.ProviderInterfaceInfo) error {
+	return errors.NotSupportedf("container addresses")
+}
+
+func (env *azureEnviron) ProviderSpaceInfo(space *jujunetwork.SpaceInfo) (*environs.ProviderSpaceInfo, error) {
+	return nil, errors.NotSupportedf("provider space info")
+}
+
+func (env *azureEnviron) AreSpacesRoutable(space1, space2 *environs.ProviderSpaceInfo) (bool, error) {
+	return false, nil
+}
+
+func (env *azureEnviron) SSHAddresses(addresses []jujunetwork.Address) ([]jujunetwork.Address, error) {
+	return addresses, nil
+}
+
+func (env *azureEnviron) SuperSubnets() ([]string, error) {
+	// TODO(axw) make the CIDR a constant. It's combination
+	// of the controller and internal subnets.
+	return []string{"192.168.0.0/16"}, nil
+}
+
+var _ environs.Networking = (*azureEnviron)(nil)

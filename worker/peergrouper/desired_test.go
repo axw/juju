@@ -155,13 +155,10 @@ func desiredPeerGroupTests(ipVersion TestIPVersion) []desiredPeerGroupTest {
 			machines: append(mkMachines("11v 12v", ipVersion), &machineTracker{
 				id:        "13",
 				wantsVote: true,
-				mongoHostPorts: []network.HostPort{{
-					Address: network.Address{
-						Value: ipVersion.extraHost,
-						Type:  ipVersion.addressType,
-						Scope: network.ScopeCloudLocal,
-					},
-					Port: 1234,
+				addresses: []network.Address{{
+					Value: ipVersion.extraHost,
+					Type:  ipVersion.addressType,
+					Scope: network.ScopeCloudLocal,
 				}},
 			}),
 			statuses:     mkStatuses("1s 2p 3p", ipVersion),
@@ -175,9 +172,8 @@ func desiredPeerGroupTests(ipVersion TestIPVersion) []desiredPeerGroupTest {
 		}, {
 			about: "a machine's address is ignored if it changes to empty",
 			machines: append(mkMachines("11v 12v", ipVersion), &machineTracker{
-				id:             "13",
-				wantsVote:      true,
-				mongoHostPorts: nil,
+				id:        "13",
+				wantsVote: true,
 			}),
 			statuses:      mkStatuses("1s 2p 3p", ipVersion),
 			members:       mkMembers("1v 2v 3v", ipVersion),
@@ -269,13 +265,10 @@ func mkMachines(description string, ipVersion TestIPVersion) []*machineTracker {
 	for i, d := range descrs {
 		ms[i] = &machineTracker{
 			id: fmt.Sprint(d.id),
-			mongoHostPorts: []network.HostPort{{
-				Address: network.Address{
-					Value: fmt.Sprintf(ipVersion.machineFormatHost, d.id),
-					Type:  ipVersion.addressType,
-					Scope: network.ScopeCloudLocal,
-				},
-				Port: mongoPort,
+			addresses: []network.Address{{
+				Value: fmt.Sprintf(ipVersion.formatHost, d.id),
+				Type:  ipVersion.addressType,
+				Scope: network.ScopeCloudLocal,
 			}},
 			wantsVote: strings.Contains(d.flags, "v"),
 		}

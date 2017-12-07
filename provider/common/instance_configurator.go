@@ -30,12 +30,6 @@ type InstanceConfigurator interface {
 
 	// List all ingress rules.
 	FindIngressRules() ([]network.IngressRule, error)
-
-	// Add Ip address.
-	AddIpAddress(nic string, addr string) error
-
-	// Release Ip address.
-	ReleaseIpAddress(addr string) error
 }
 
 type sshInstanceConfigurator struct {
@@ -195,51 +189,4 @@ func (c *sshInstanceConfigurator) FindIngressRules() ([]network.IngressRule, err
 		}
 	}
 	return res, nil
-}
-
-// AddIpAddress implements InstanceConfigurator interface.
-func (c *sshInstanceConfigurator) AddIpAddress(nic string, addr string) error {
-	cmd := fmt.Sprintf("ls /etc/network/interfaces.d | grep %s: | sed 's/%s://' | sed 's/.cfg//' | tail -1", nic, nic)
-	command := c.client.Command(c.host, []string{"/bin/bash"}, c.options)
-	command.Stdin = strings.NewReader(cmd)
-	lastIndStr, err := command.CombinedOutput()
-	if err != nil {
-		return errors.Errorf("failed to obtain last device index: %s", lastIndStr)
-	}
-	lastInd := 0
-	if ind, err := strconv.ParseInt(string(lastIndStr), 10, 64); err != nil {
-		lastInd = int(ind) + 1
-	}
-	nic = fmt.Sprintf("%s:%d", nic, lastInd)
-	cmd = fmt.Sprintf("printf 'auto %s\\niface %s inet static\\naddress %s' | sudo tee -a /etc/network/interfaces.d/%s.cfg\nsudo ifup %s", nic, nic, addr, nic, nic)
-
-	command = c.client.Command(c.host, []string{"/bin/bash"}, c.options)
-	command.Stdin = strings.NewReader(cmd)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return errors.Errorf("failed to add IP address: %s", output)
-	}
-	logger.Tracef("add ip address output: %s", output)
-	return nil
-}
-
-// ReleaseIpAddress implements InstanceConfigurator interface.
-func (c *sshInstanceConfigurator) ReleaseIpAddress(addr string) error {
-	cmd := fmt.Sprintf("ip addr show | grep %s | awk '{print $7}'", addr)
-	command := c.client.Command(c.host, []string{"/bin/bash"}, c.options)
-	command.Stdin = strings.NewReader(cmd)
-	nic, err := command.CombinedOutput()
-	if err != nil {
-		return errors.Errorf("faild to get nic by ip address: %s", nic)
-	}
-
-	cmd = fmt.Sprintf("sudo rm %s.cfg \nsudo ifdown %s", nic, nic)
-	command = c.client.Command(c.host, []string{"/bin/bash"}, c.options)
-	command.Stdin = strings.NewReader(cmd)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return errors.Errorf("failed to release IP address: %s", output)
-	}
-	logger.Tracef("release ip address output: %s", output)
-	return nil
 }

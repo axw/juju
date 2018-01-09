@@ -3,6 +3,7 @@ package network_test
 import (
 	"fmt"
 	"net"
+	"os/exec"
 	"runtime"
 
 	gc "gopkg.in/check.v1"
@@ -20,6 +21,9 @@ var _ = gc.Suite(&GatewaySuite{})
 func (s *GatewaySuite) TestDefaultRouteOnMachine(c *gc.C) {
 	if runtime.GOOS != "linux" {
 		c.Skip("skipping default route on-machine test on non-linux")
+	}
+	if _, err := exec.LookPath("ip"); err != nil {
+		c.Skip("skipping default route on-machine test, missing 'ip' command")
 	}
 	s.PatchValue(network.LaunchIpRouteShow, network.LaunchIpRouteShowReal)
 	_, _, err := network.GetDefaultRoute()

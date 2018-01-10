@@ -304,6 +304,34 @@ func (t *hostSwitchingTransport) RoundTrip(req *http.Request) (*http.Response, e
 	return t.fallback.RoundTrip(req)
 }
 
+// DialConn dials a TLS connection to the API server, and returns the resulting
+// connection. This may be used, for example, to dial a connection that will be
+// upgraded to another protocol.
+//
+// The provided context must be non-nil.
+//
+// TODO: this method needs to be made proxy-aware.
+func (st *state) DialConn(ctx context.Context) (net.Conn, error) {
+	dialer := &net.Dialer{}
+	if deadline, ok := ctx.Deadline(); ok {
+		dialer.Deadline = deadline
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	canceled := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		if ctx.Err() == context.Canceled {
+			close(canceled)
+		}
+	}()
+	dialer.Cancel = canceled
+
+	return tls.DialWithDialer(dialer, "tcp", st.addr, st.tlsConfig)
+}
+
 // ConnectStream implements StreamConnector.ConnectStream.
 func (st *state) ConnectStream(path string, attrs url.Values) (base.Stream, error) {
 	path, err := apiPath(st.modelTag, path)

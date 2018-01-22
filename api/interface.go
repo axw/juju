@@ -290,6 +290,13 @@ type Connection interface {
 	// associated with.
 	CookieURL() *url.URL
 
+	// DialConn dials a TLS connection to the API server, and returns the resulting
+	// connection. This may be used, for example, to dial a connection that will be
+	// upgraded to another protocol.
+	//
+	// The provided context must be non-nil.
+	DialConn(context.Context) (net.Conn, error)
+
 	// These methods expose a bunch of worker-specific facades, and basically
 	// just should not exist; but removing them is too noisy for a single CL.
 	// Client in particular is intimately coupled with State -- and the others

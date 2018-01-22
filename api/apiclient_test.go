@@ -212,6 +212,19 @@ func (s *apiclientSuite) TestServerRoot(c *gc.C) {
 	c.Assert(url, gc.Matches, "https://localhost:[0-9]+")
 }
 
+func (s *apiclientSuite) TestDialConn(c *gc.C) {
+	conn, err := s.APIState.DialConn(context.Background())
+	c.Assert(err, jc.ErrorIsNil)
+	defer conn.Close()
+
+	_, portStr, err := net.SplitHostPort(s.APIState.Addr())
+	c.Assert(err, jc.ErrorIsNil)
+
+	addr := conn.RemoteAddr().(*net.TCPAddr)
+	c.Assert(addr.IP.IsLoopback(), jc.IsTrue)
+	c.Assert(fmt.Sprint(addr.Port), gc.Equals, portStr)
+}
+
 func (s *apiclientSuite) TestDialWebsocketStopsOtherDialAttempts(c *gc.C) {
 	// Try to open the API with two addresses.
 	// Wait for connection attempts to both.

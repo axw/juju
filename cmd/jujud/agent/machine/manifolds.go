@@ -16,7 +16,6 @@ import (
 	"github.com/juju/utils/voyeur"
 	"github.com/juju/version"
 	"github.com/prometheus/client_golang/prometheus"
-	"gopkg.in/juju/names.v2"
 	"gopkg.in/juju/worker.v1"
 
 	coreagent "github.com/juju/juju/agent"
@@ -59,10 +58,14 @@ import (
 	"github.com/juju/juju/worker/peergrouper"
 	"github.com/juju/juju/worker/proxyupdater"
 	psworker "github.com/juju/juju/worker/pubsub"
+	"github.com/juju/juju/worker/raft"
+	"github.com/juju/juju/worker/raft/raftclusterer"
+	"github.com/juju/juju/worker/raft/raftflag"
+	"github.com/juju/juju/worker/raft/rafttransport"
+	"github.com/juju/juju/worker/raftdemo"
 	"github.com/juju/juju/worker/reboot"
 	"github.com/juju/juju/worker/restorewatcher"
 	"github.com/juju/juju/worker/resumer"
-	"github.com/juju/juju/worker/singular"
 	workerstate "github.com/juju/juju/worker/state"
 	"github.com/juju/juju/worker/stateconfigwatcher"
 	"github.com/juju/juju/worker/storageprovisioner"
@@ -245,9 +248,9 @@ func Manifolds(config ManifoldsConfig) dependency.Manifolds {
 		return crosscontroller.NewClient(conn), nil
 	}
 
-	agentConfig := config.Agent.CurrentConfig()
-	machineTag := agentConfig.Tag().(names.MachineTag)
-	controllerTag := agentConfig.Controller()
+	//agentConfig := config.Agent.CurrentConfig()
+	//machineTag := agentConfig.Tag().(names.MachineTag)
+	//controllerTag := agentConfig.Controller()
 
 	return dependency.Manifolds{
 		// The agent manifold references the enclosing agent, and is the
@@ -456,17 +459,40 @@ func Manifolds(config ManifoldsConfig) dependency.Manifolds {
 			BackoffDelay:   globalClockUpdaterBackoffDelay,
 		}),
 
+		raftName: ifController(raft.Manifold(raft.ManifoldConfig{
+			AgentName:     agentName,
+			TransportName: raftTransportName,
+			FSM:           &raftdemo.FSM{},                     // TODO(axw)
+			Logger:        loggo.GetLogger("juju.worker.raft"), // TODO(axw)
+			NewWorker:     raft.NewWorkerShim,
+			// TODO(axw) timeouts
+		})),
+
+		raftDemoName: ifPrimaryController(raftdemo.Manifold(raftdemo.ManifoldConfig{
+			RaftName:  raftName,
+			NewWorker: raftdemo.NewWorker,
+		})),
+
+		raftClustererName: ifPrimaryController(raftclusterer.Manifold(raftclusterer.ManifoldConfig{
+			RaftName:       raftName,
+			CentralHubName: centralHubName,
+			NewWorker:      raftclusterer.NewWorker,
+		})),
+
+		raftTransportName: ifController(rafttransport.Manifold(rafttransport.ManifoldConfig{
+			AgentName: agentName,
+			MuxName:   apiServerName,
+			APIOpen:   api.Open,
+			NewWorker: rafttransport.NewWorkerShim,
+			Path:      "/raft",
+		})),
+
 		// Each controller machine runs a singular worker which will
 		// attempt to claim responsibility for running certain workers
 		// that must not be run concurrently by multiple agents.
-		isPrimaryControllerFlagName: ifController(singular.Manifold(singular.ManifoldConfig{
-			ClockName:     clockName,
-			APICallerName: apiCallerName,
-			Duration:      config.ControllerLeaseDuration,
-			Claimant:      machineTag,
-			Entity:        controllerTag,
-			NewFacade:     singular.NewFacade,
-			NewWorker:     singular.NewWorker,
+		isPrimaryControllerFlagName: ifController(raftflag.Manifold(raftflag.ManifoldConfig{
+			RaftName:  raftName,
+			NewWorker: raftflag.NewWorker,
 		})),
 
 		// The serving-info-setter manifold sets grabs the state
@@ -773,4 +799,9 @@ const (
 	peergrouperName               = "peer-grouper"
 	restoreWatcherName            = "restore-watcher"
 	certificateUpdaterName        = "certificate-updater"
+
+	raftName          = "raft"
+	raftDemoName      = "raft-demo"
+	raftClustererName = "raft-clusterer"
+	raftTransportName = "raft-transport"
 )

@@ -5,20 +5,19 @@ package rafttransport
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
 	"net"
-	"sync"
+	"strconv"
 	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
-	"github.com/juju/pubsub"
 	"gopkg.in/juju/names.v2"
 
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/apiserver/apiserverhttp"
-	pubsubapiserver "github.com/juju/juju/pubsub/apiserver"
 	"github.com/juju/juju/worker/catacomb"
 	"github.com/juju/juju/worker/raft/raftutil"
 )
@@ -33,13 +32,6 @@ type Config struct {
 	// APIInfo contains the information, excluding addresses,
 	// required to connect to an API server.
 	APIInfo *api.Info
-
-	// APIOpen is the function used to dial an API connection.
-	APIOpen api.OpenFunc
-
-	// Hub is the structured hub to which the worker will subscribe
-	// for API server address updates.
-	Hub *pubsub.StructuredHub
 
 	// Mux is the API server HTTP mux into which the handler will
 	// be installed.
@@ -62,12 +54,6 @@ func (config Config) Validate() error {
 	if config.APIInfo == nil {
 		return errors.NotValidf("nil APIInfo")
 	}
-	if config.APIOpen == nil {
-		return errors.NotValidf("nil APIOpen")
-	}
-	if config.Hub == nil {
-		return errors.NotValidf("nil Hub")
-	}
 	if config.Mux == nil {
 		return errors.NotValidf("nil Mux")
 	}
@@ -88,20 +74,29 @@ func NewWorker(config Config) (*Worker, error) {
 		return nil, errors.Trace(err)
 	}
 
+	certPool, err := api.CreateCertPool(config.APIInfo.CACert)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	apiPorts := config.APIInfo.Ports()
+	if n := len(apiPorts); n != 1 {
+		return nil, errors.Errorf("api.Info has %d unique ports, expected 1", n)
+	}
+
 	w := &Worker{
-		config:         config,
-		connections:    make(chan net.Conn),
-		dialRequests:   make(chan dialRequest),
-		serversUpdated: make(chan struct{}),
+		config:       config,
+		connections:  make(chan net.Conn),
+		dialRequests: make(chan dialRequest),
+		tlsConfig:    api.NewTLSConfig(certPool),
+		apiPort:      apiPorts[0],
 	}
 
 	const logPrefix = "[transport] "
 	logWriter := &raftutil.LoggoWriter{logger, loggo.DEBUG}
 	logLogger := log.New(logWriter, logPrefix, 0)
 	transport := raft.NewNetworkTransportWithConfig(&raft.NetworkTransportConfig{
-		Logger:                logLogger,
-		MaxPool:               7, // 7 is the maximum juju cluster size
-		ServerAddressProvider: serverAddressProvider{},
+		Logger:  logLogger,
+		MaxPool: 7, // 7 is the maximum juju cluster size
 		Stream: newStreamLayer(config.Tag, w.connections, &Dialer{
 			APIInfo: config.APIInfo,
 			DialRaw: w.dialRaw,
@@ -111,25 +106,14 @@ func NewWorker(config Config) (*Worker, error) {
 	})
 	w.Transport = transport
 
-	// Subscribe to API server address changes.
-	unsubscribeHub, err := w.config.Hub.Subscribe(
-		pubsubapiserver.DetailsTopic,
-		w.apiserverDetailsChanged,
-	)
-	if err != nil {
-		return nil, errors.Annotate(err, "subscribing to apiserver details")
-	}
-
 	if err := catacomb.Invoke(catacomb.Plan{
 		Site: &w.catacomb,
 		Work: func() error {
 			defer transport.Close()
-			defer unsubscribeHub()
 			return w.loop()
 		},
 	}); err != nil {
 		transport.Close()
-		unsubscribeHub()
 		return nil, errors.Trace(err)
 	}
 	return w, nil
@@ -143,16 +127,14 @@ type Worker struct {
 	config       Config
 	connections  chan net.Conn
 	dialRequests chan dialRequest
-
-	mu             sync.Mutex
-	servers        pubsubapiserver.Details
-	serversUpdated chan struct{}
+	tlsConfig    *tls.Config
+	apiPort      int
 }
 
 type dialRequest struct {
-	ctx    context.Context
-	tag    names.MachineTag
-	result chan<- dialResult
+	ctx     context.Context
+	address string
+	result  chan<- dialResult
 }
 
 type dialResult struct {
@@ -175,11 +157,6 @@ func (w *Worker) Wait() error {
 // tag of a controller machine agent. The resulting connection is
 // appropriate for use as Dialer.DialRaw.
 func (w *Worker) dialRaw(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
-	tag, err := names.ParseMachineTag(string(address))
-	if err != nil {
-		return nil, net.InvalidAddrError(err.Error())
-	}
-
 	// Give precedence to the worker dying.
 	select {
 	case <-w.catacomb.Dying():
@@ -196,9 +173,9 @@ func (w *Worker) dialRaw(address raft.ServerAddress, timeout time.Duration) (net
 
 	resultCh := make(chan dialResult)
 	req := dialRequest{
-		ctx:    ctx,
-		tag:    tag,
-		result: resultCh,
+		ctx:     ctx,
+		address: string(address),
+		result:  resultCh,
 	}
 	select {
 	case w.dialRequests <- req:
@@ -246,50 +223,12 @@ func (w *Worker) loop() error {
 	}
 }
 
-func (w *Worker) apiserverDetailsChanged(topic string, details pubsubapiserver.Details, err error) {
-	if err != nil {
-		// This should never happen, so treat it as fatal.
-		w.catacomb.Kill(errors.Annotate(err, "apiserver details callback failed"))
-		return
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.servers = details
-	close(w.serversUpdated)
-	w.serversUpdated = make(chan struct{})
-}
-
 func (w *Worker) handleDial(req dialRequest) {
-	addrs := w.serverAddresses(req.ctx, req.tag)
-	if addrs == nil {
-		// context expired or canceled
-		return
-	}
-
-	dial := func() (net.Conn, error) {
-		// Dial an api.Connection first, so we get the
-		// right address to connect to. The multi-address
-		// connection logic should be refactored so we
-		// can do without this.
-		apiInfo := *w.config.APIInfo
-		apiInfo.SkipLogin = true
-		apiInfo.Tag = nil
-		apiInfo.Password = ""
-		apiInfo.Macaroons = nil
-		apiInfo.Addrs = addrs
-		dialOpts := api.DefaultDialOpts()
-		if deadline, ok := req.ctx.Deadline(); ok {
-			dialOpts.Timeout = time.Until(deadline)
-		}
-		apiConn, err := w.config.APIOpen(&apiInfo, dialOpts)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		defer apiConn.Close()
-		return apiConn.DialConn(req.ctx)
-	}
-
-	conn, err := dial()
+	addr := net.JoinHostPort(
+		req.address,
+		strconv.Itoa(w.apiPort),
+	)
+	conn, err := dialConn(req.ctx, addr, w.tlsConfig)
 	select {
 	case req.result <- dialResult{conn, err}:
 		return
@@ -302,35 +241,29 @@ func (w *Worker) handleDial(req dialRequest) {
 	}
 }
 
-func (w *Worker) serverAddresses(ctx context.Context, tag names.MachineTag) []string {
-	for {
-		w.mu.Lock()
-		server, ok := w.servers.Servers[tag.Id()]
-		serversUpdated := w.serversUpdated
-		w.mu.Unlock()
-		if ok {
-			return server.Addresses
-		}
-		logger.Tracef("waiting for address for %s", tag)
-		select {
-		case <-serversUpdated:
-			continue
-		case <-ctx.Done():
-		case <-w.catacomb.Dying():
-		}
-		// context expired or canceled
-		return nil
+// dialConn dials a TLS connection to the API server with the
+// given address, using the given TLS configuration. This will
+// be used for requesting the raft endpoint, upgrading to a
+// raw connection for inter-node raft communications.
+//
+// TODO: this function needs to be made proxy-aware.
+func dialConn(ctx context.Context, addr string, tlsConfig *tls.Config) (net.Conn, error) {
+	dialer := &net.Dialer{}
+	if deadline, ok := ctx.Deadline(); ok {
+		dialer.Deadline = deadline
 	}
-}
 
-// serverAddressProvider is an implementation of raft.ServerAddressProvider
-// that returns the provided server ID as the address, verbatim, so long as
-// it is valid machine tag.
-type serverAddressProvider struct{}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-func (serverAddressProvider) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) {
-	if _, err := names.ParseMachineTag(string(id)); err != nil {
-		return "", err
-	}
-	return raft.ServerAddress(string(id)), nil
+	canceled := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		if ctx.Err() == context.Canceled {
+			close(canceled)
+		}
+	}()
+	dialer.Cancel = canceled
+
+	return tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
 }

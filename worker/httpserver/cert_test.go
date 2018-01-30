@@ -1,7 +1,7 @@
-// Copyright 2016 Canonical Ltd.
+// Copyright 2016-2018 Canonical Ltd.
 // Licensed under the AGPLv3, see LICENCE file for details.
 
-package apiserver_test
+package httpserver_test
 
 import (
 	"crypto/tls"

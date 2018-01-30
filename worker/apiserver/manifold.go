@@ -4,7 +4,6 @@
 package apiserver
 
 import (
-	"crypto/tls"
 	"net/http"
 	"sync"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/juju/juju/state"
 	"github.com/juju/juju/worker/dependency"
 	"github.com/juju/juju/worker/gate"
+	"github.com/juju/juju/worker/httpserver/httpcontext"
 	workerstate "github.com/juju/juju/worker/state"
 )
 
@@ -26,8 +26,9 @@ import (
 // worker in a dependency.Engine.
 type ManifoldConfig struct {
 	AgentName         string
-	CertWatcherName   string
+	AuthenticatorName string
 	ClockName         string
+	MuxName           string
 	RestoreStatusName string
 	StateName         string
 	UpgradeGateName   string
@@ -44,11 +45,14 @@ func (config ManifoldConfig) Validate() error {
 	if config.AgentName == "" {
 		return errors.NotValidf("empty AgentName")
 	}
-	if config.CertWatcherName == "" {
-		return errors.NotValidf("empty CertWatcherName")
+	if config.AuthenticatorName == "" {
+		return errors.NotValidf("empty AuthenticatorName")
 	}
 	if config.ClockName == "" {
 		return errors.NotValidf("empty ClockName")
+	}
+	if config.MuxName == "" {
+		return errors.NotValidf("empty MuxName")
 	}
 	if config.RestoreStatusName == "" {
 		return errors.NotValidf("empty RestoreStatusName")
@@ -81,14 +85,14 @@ func Manifold(config ManifoldConfig) dependency.Manifold {
 	return dependency.Manifold{
 		Inputs: []string{
 			config.AgentName,
-			config.CertWatcherName,
+			config.AuthenticatorName,
 			config.ClockName,
+			config.MuxName,
 			config.RestoreStatusName,
 			config.StateName,
 			config.UpgradeGateName,
 		},
-		Start:  config.start,
-		Output: manifoldOutput,
+		Start: config.start,
 	}
 }
 
@@ -103,13 +107,18 @@ func (config ManifoldConfig) start(context dependency.Context) (worker.Worker, e
 		return nil, errors.Trace(err)
 	}
 
-	var getCertificate func() *tls.Certificate
-	if err := context.Get(config.CertWatcherName, &getCertificate); err != nil {
+	var clock clock.Clock
+	if err := context.Get(config.ClockName, &clock); err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	var clock clock.Clock
-	if err := context.Get(config.ClockName, &clock); err != nil {
+	var mux *apiserverhttp.Mux
+	if err := context.Get(config.MuxName, &mux); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	var authenticator httpcontext.LocalMacaroonAuthenticator
+	if err := context.Get(config.AuthenticatorName, &authenticator); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -135,13 +144,14 @@ func (config ManifoldConfig) start(context dependency.Context) (worker.Worker, e
 	w, err := config.NewWorker(Config{
 		AgentConfig:                       agent.CurrentConfig(),
 		Clock:                             clock,
+		Mux:                               mux,
 		StatePool:                         statePool,
 		PrometheusRegisterer:              config.PrometheusRegisterer,
 		RegisterIntrospectionHTTPHandlers: config.RegisterIntrospectionHTTPHandlers,
 		RestoreStatus:                     restoreStatus,
 		UpgradeComplete:                   upgradeLock.IsUnlocked,
 		Hub:                               config.Hub,
-		GetCertificate:                    getCertificate,
+		Authenticator:                     authenticator,
 		NewServer:                         newServerShim,
 	})
 	if err != nil {
@@ -152,26 +162,6 @@ func (config ManifoldConfig) start(context dependency.Context) (worker.Worker, e
 		Worker:  w,
 		cleanup: func() { stTracker.Done() },
 	}, nil
-}
-
-func manifoldOutput(in worker.Worker, out interface{}) error {
-	if w, ok := in.(*cleanupWorker); ok {
-		in = w.Worker
-	}
-	w, ok := in.(withMux)
-	if !ok {
-		return errors.Errorf("expected worker implementing %T, got %T", w, in)
-	}
-	muxp, ok := out.(**apiserverhttp.Mux)
-	if !ok {
-		return errors.Errorf("expected output of type %T, got %T", muxp, out)
-	}
-	*muxp = w.Mux()
-	return nil
-}
-
-type withMux interface {
-	Mux() *apiserverhttp.Mux
 }
 
 type cleanupWorker struct {

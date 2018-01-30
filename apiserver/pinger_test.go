@@ -30,7 +30,7 @@ var _ = gc.Suite(&pingerSuite{})
 
 func (s *pingerSuite) newServerWithTestClock(c *gc.C) (*apiserver.Server, *testing.Clock) {
 	clock := testing.NewClock(time.Now())
-	config := s.sampleConfig(c)
+	config := s.config
 	config.PingClock = clock
 	server := s.newServer(c, config)
 	return server, clock
@@ -120,7 +120,7 @@ func (s *pingerSuite) TestAgentConnectionDelaysShutdownWithPing(c *gc.C) {
 
 func (s *pingerSuite) TestAgentConnectionsShutDownWhenAPIServerDies(c *gc.C) {
 	clock := testing.NewClock(time.Now())
-	config := s.sampleConfig(c)
+	config := s.config
 	config.Clock = clock
 	server := s.newServerDirtyKill(c, config)
 	conn, _ := s.OpenAPIAsNewMachine(c, server)

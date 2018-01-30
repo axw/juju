@@ -4,10 +4,7 @@
 package apiserver
 
 import (
-	"crypto/tls"
-	"net"
 	"net/http"
-	"strconv"
 
 	"github.com/juju/errors"
 	"github.com/juju/loggo"
@@ -18,8 +15,10 @@ import (
 
 	"github.com/juju/juju/agent"
 	"github.com/juju/juju/apiserver"
+	"github.com/juju/juju/apiserver/apiserverhttp"
 	"github.com/juju/juju/core/auditlog"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/worker/httpserver/httpcontext"
 )
 
 var logger = loggo.GetLogger("juju.worker.apiserver")
@@ -29,18 +28,19 @@ type Config struct {
 	AgentConfig                       agent.Config
 	Clock                             clock.Clock
 	Hub                               *pubsub.StructuredHub
+	Mux                               *apiserverhttp.Mux
+	Authenticator                     httpcontext.LocalMacaroonAuthenticator
 	StatePool                         *state.StatePool
 	PrometheusRegisterer              prometheus.Registerer
 	RegisterIntrospectionHTTPHandlers func(func(path string, _ http.Handler))
 	RestoreStatus                     func() state.RestoreStatus
 	UpgradeComplete                   func() bool
-	GetCertificate                    func() *tls.Certificate
 	NewServer                         NewServerFunc
 }
 
 // NewServerFunc is the type of function that will be used
 // by the worker to create a new API server.
-type NewServerFunc func(*state.StatePool, net.Listener, apiserver.ServerConfig) (worker.Worker, error)
+type NewServerFunc func(apiserver.ServerConfig) (worker.Worker, error)
 
 // Validate validates the API server configuration.
 func (config Config) Validate() error {
@@ -56,6 +56,12 @@ func (config Config) Validate() error {
 	if config.StatePool == nil {
 		return errors.NotValidf("nil StatePool")
 	}
+	if config.Mux == nil {
+		return errors.NotValidf("nil Mux")
+	}
+	if config.Authenticator == nil {
+		return errors.NotValidf("nil Authenticator")
+	}
 	if config.PrometheusRegisterer == nil {
 		return errors.NotValidf("nil PrometheusRegisterer")
 	}
@@ -68,9 +74,6 @@ func (config Config) Validate() error {
 	if config.UpgradeComplete == nil {
 		return errors.NotValidf("nil UpgradeComplete")
 	}
-	if config.GetCertificate == nil {
-		return errors.NotValidf("nil GetCertificate")
-	}
 	if config.NewServer == nil {
 		return errors.NotValidf("nil NewServer")
 	}
@@ -82,12 +85,6 @@ func NewWorker(config Config) (worker.Worker, error) {
 	if err := config.Validate(); err != nil {
 		return nil, errors.Trace(err)
 	}
-
-	servingInfo, ok := config.AgentConfig.StateServingInfo()
-	if !ok {
-		return nil, errors.New("missing state serving info")
-	}
-	listenAddr := net.JoinHostPort("", strconv.Itoa(servingInfo.APIPort))
 
 	rateLimitConfig, err := getRateLimitConfig(config.AgentConfig)
 	if err != nil {
@@ -118,15 +115,16 @@ func NewWorker(config Config) (worker.Worker, error) {
 	auditConfig := getAuditLogConfig(controllerConfig)
 
 	serverConfig := apiserver.ServerConfig{
+		StatePool:                     config.StatePool,
 		Clock:                         config.Clock,
 		Tag:                           config.AgentConfig.Tag(),
 		DataDir:                       config.AgentConfig.DataDir(),
 		LogDir:                        logDir,
 		Hub:                           config.Hub,
-		GetCertificate:                config.GetCertificate,
+		Mux:                           config.Mux,
+		Authenticator:                 config.Authenticator,
 		RestoreStatus:                 config.RestoreStatus,
 		UpgradeComplete:               config.UpgradeComplete,
-		AutocertURL:                   controllerConfig.AutocertURL(),
 		AutocertDNSName:               controllerConfig.AutocertDNSName(),
 		AllowModelAccess:              controllerConfig.AllowModelAccess(),
 		NewObserver:                   observerFactory,
@@ -140,25 +138,9 @@ func NewWorker(config Config) (worker.Worker, error) {
 		serverConfig.AuditLog = auditlog.NewLogFile(
 			logDir, auditConfig.MaxSizeMB, auditConfig.MaxBackups)
 	}
-
-	listener, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	server, err := config.NewServer(config.StatePool, listener, serverConfig)
-	if err != nil {
-		if err := listener.Close(); err != nil {
-			logger.Warningf("failed to close listener: %s", err)
-		}
-		return nil, errors.Trace(err)
-	}
-	return server, nil
+	return config.NewServer(serverConfig)
 }
 
-func newServerShim(
-	statePool *state.StatePool,
-	listener net.Listener,
-	config apiserver.ServerConfig,
-) (worker.Worker, error) {
-	return apiserver.NewServer(statePool, listener, config)
+func newServerShim(config apiserver.ServerConfig) (worker.Worker, error) {
+	return apiserver.NewServer(config)
 }

@@ -5,10 +5,7 @@ package apiserver
 
 import (
 	"context"
-	"crypto/tls"
 	"io"
-	"log"
-	"net"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -23,15 +20,12 @@ import (
 	"github.com/juju/utils"
 	"github.com/juju/utils/clock"
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/crypto/acme"
-	"golang.org/x/crypto/acme/autocert"
 	"gopkg.in/juju/names.v2"
 	"gopkg.in/macaroon-bakery.v1/bakery"
 	"gopkg.in/macaroon-bakery.v1/httpbakery"
 	"gopkg.in/tomb.v1"
 
 	"github.com/juju/juju/apiserver/apiserverhttp"
-	"github.com/juju/juju/apiserver/authentication"
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/common/apihttp"
 	"github.com/juju/juju/apiserver/common/crossmodel"
@@ -45,6 +39,7 @@ import (
 	"github.com/juju/juju/rpc"
 	"github.com/juju/juju/rpc/jsoncodec"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/worker/httpserver/httpcontext"
 )
 
 var logger = loggo.GetLogger("juju.apiserver")
@@ -58,7 +53,6 @@ type Server struct {
 	pingClock              clock.Clock
 	wg                     sync.WaitGroup
 	statePool              *state.StatePool
-	lis                    net.Listener
 	tag                    names.Tag
 	dataDir                string
 	logDir                 string
@@ -66,7 +60,7 @@ type Server struct {
 	loginRetryPause        time.Duration
 	facades                *facade.Registry
 	modelUUID              string
-	loginAuthCtxt          *authContext
+	authenticator          httpcontext.LocalMacaroonAuthenticator
 	offerAuthCtxt          *crossmodel.AuthContext
 	lastConnectionID       uint64
 	centralHub             *pubsub.StructuredHub
@@ -74,8 +68,6 @@ type Server struct {
 	connCount              int64
 	totalConn              int64
 	loginAttempts          int64
-	getCertificate         func() *tls.Certificate
-	tlsConfig              *tls.Config
 	allowModelAccess       bool
 	logSinkWriter          io.WriteCloser
 	logsinkRateLimitConfig logsink.RateLimitConfig
@@ -105,18 +97,20 @@ type Server struct {
 
 // ServerConfig holds parameters required to set up an API server.
 type ServerConfig struct {
-	Clock     clock.Clock
-	PingClock clock.Clock
-	Tag       names.Tag
-	DataDir   string
-	LogDir    string
-	Hub       *pubsub.StructuredHub
+	Clock         clock.Clock
+	PingClock     clock.Clock
+	Tag           names.Tag
+	DataDir       string
+	LogDir        string
+	Hub           *pubsub.StructuredHub
+	Mux           *apiserverhttp.Mux
+	Authenticator httpcontext.LocalMacaroonAuthenticator
 
-	// GetCertificate holds a function that returns the current
-	// local TLS certificate for the server. The function may
-	// return updated values, so should be called whenever a
-	// new connection is accepted.
-	GetCertificate func() *tls.Certificate
+	// StatePool is the StatePool used for looking up State
+	// to pass to facades. StatePool will not be closed by the
+	// server; it is the callers responsibility to close it
+	// after the apiserver has exited.
+	StatePool *state.StatePool
 
 	// UpgradeComplete is a function that reports whether or not
 	// the if the agent running the API server has completed
@@ -134,11 +128,6 @@ type ServerConfig struct {
 	// official TLS certificates will be obtained. If this is
 	// empty, no certificates will be requested.
 	AutocertDNSName string
-
-	// AutocertURL holds the URL from which official
-	// TLS certificates will be obtained. By default,
-	// acme.LetsEncryptURL will be used.
-	AutocertURL string
 
 	// AllowModelAccess holds whether users will be allowed to
 	// access models that they have access rights to even when
@@ -175,14 +164,20 @@ type ServerConfig struct {
 
 // Validate validates the API server configuration.
 func (c ServerConfig) Validate() error {
+	if c.StatePool == nil {
+		return errors.NotValidf("missing StatePool")
+	}
 	if c.Hub == nil {
 		return errors.NotValidf("missing Hub")
 	}
+	if c.Mux == nil {
+		return errors.NotValidf("missing Mux")
+	}
+	if c.Authenticator == nil {
+		return errors.NotValidf("missing Authenticator")
+	}
 	if c.Clock == nil {
 		return errors.NotValidf("missing Clock")
-	}
-	if c.GetCertificate == nil {
-		return errors.NotValidf("missing GetCertificate")
 	}
 	if c.NewObserver == nil {
 		return errors.NotValidf("missing NewObserver")
@@ -214,16 +209,8 @@ func (c ServerConfig) pingClock() clock.Clock {
 	return c.PingClock
 }
 
-// NewServer serves the given state by accepting requests on the given
-// listener, using the given certificate and key (in PEM format) for
-// authentication.
-//
-// The Server will not close the StatePool; the caller is responsible
-// for closing it after the Server has been stopped.
-//
-// The Server will close the listener when it exits, even if returns
-// an error.
-func NewServer(stPool *state.StatePool, lis net.Listener, cfg ServerConfig) (*Server, error) {
+// NewServer serves API requests using the given configuration.
+func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.LogSinkConfig == nil {
 		logSinkConfig := DefaultLogSinkConfig()
 		cfg.LogSinkConfig = &logSinkConfig
@@ -231,31 +218,23 @@ func NewServer(stPool *state.StatePool, lis net.Listener, cfg ServerConfig) (*Se
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Trace(err)
 	}
-
 	// Important note:
 	// Do not manipulate the state within NewServer as the API
 	// server needs to run before mongo upgrades have happened and
 	// any state manipulation may be be relying on features of the
 	// database added by upgrades. Here be dragons.
-	srv, err := newServer(stPool, lis, cfg)
-	if err != nil {
-		// There is no running server around to close the listener.
-		lis.Close()
-		return nil, errors.Trace(err)
-	}
-	return srv, nil
+	return newServer(cfg)
 }
 
-func newServer(stPool *state.StatePool, lis net.Listener, cfg ServerConfig) (_ *Server, err error) {
+func newServer(cfg ServerConfig) (_ *Server, err error) {
 	limiter := utils.NewLimiterWithPause(
 		cfg.RateLimitConfig.LoginRateLimit, cfg.RateLimitConfig.LoginMinPause,
 		cfg.RateLimitConfig.LoginMaxPause, clock.WallClock)
 	srv := &Server{
 		clock:                         cfg.Clock,
 		pingClock:                     cfg.pingClock(),
-		lis:                           lis,
 		newObserver:                   cfg.NewObserver,
-		statePool:                     stPool,
+		statePool:                     cfg.StatePool,
 		tag:                           cfg.Tag,
 		dataDir:                       cfg.DataDir,
 		logDir:                        cfg.LogDir,
@@ -265,7 +244,8 @@ func newServer(stPool *state.StatePool, lis net.Listener, cfg ServerConfig) (_ *
 		restoreStatus:                 cfg.RestoreStatus,
 		facades:                       AllFacades(),
 		centralHub:                    cfg.Hub,
-		getCertificate:                cfg.GetCertificate,
+		mux:                           cfg.Mux,
+		authenticator:                 cfg.Authenticator,
 		allowModelAccess:              cfg.AllowModelAccess,
 		publicDNSName_:                cfg.AutocertDNSName,
 		registerIntrospectionHandlers: cfg.RegisterIntrospectionHandlers,
@@ -283,20 +263,12 @@ func newServer(stPool *state.StatePool, lis net.Listener, cfg ServerConfig) (_ *
 		},
 	}
 
-	httpCtxt := httpContext{srv: srv}
-	srv.mux = apiserverhttp.NewMux(apiserverhttp.WithAuth(httpCtxt.authRequest))
-	srv.tlsConfig = srv.newTLSConfig(cfg)
-	srv.lis = newThrottlingListener(
-		tls.NewListener(lis, srv.tlsConfig), cfg.RateLimitConfig, clock.WallClock)
-
-	// The auth context for authenticating logins.
-	srv.loginAuthCtxt, err = newAuthContext(stPool.SystemState())
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
+	// TODO(axw) move throttling to worker/httpserver.
+	//srv.lis = newThrottlingListener(
+	//	tls.NewListener(lis, srv.tlsConfig), cfg.RateLimitConfig, clock.WallClock)
 
 	// The auth context for authenticating access to application offers.
-	srv.offerAuthCtxt, err = newOfferAuthcontext(stPool)
+	srv.offerAuthCtxt, err = newOfferAuthcontext(cfg.StatePool)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -317,6 +289,8 @@ func newServer(stPool *state.StatePool, lis net.Listener, cfg ServerConfig) (_ *
 
 	go func() {
 		defer srv.tomb.Done()
+		defer srv.dbloggers.dispose()
+		defer srv.logSinkWriter.Close()
 		srv.tomb.Kill(srv.loop())
 	}()
 	return srv, nil
@@ -339,46 +313,8 @@ func (a *metricAdaptor) ConcurrentLoginAttempts() int64 {
 }
 
 func (a *metricAdaptor) ConnectionPauseTime() time.Duration {
-	return a.srv.lis.(*throttlingListener).pauseTime()
-}
-
-func (srv *Server) newTLSConfig(cfg ServerConfig) *tls.Config {
-	tlsConfig := utils.SecureTLSConfig()
-	if cfg.AutocertDNSName == "" {
-		// No official DNS name, no certificate.
-		tlsConfig.GetCertificate = func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			cert, _ := srv.localCertificate(clientHello.ServerName)
-			return cert, nil
-		}
-		return tlsConfig
-	}
-	m := autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		Cache:      srv.statePool.SystemState().AutocertCache(),
-		HostPolicy: autocert.HostWhitelist(cfg.AutocertDNSName),
-	}
-	if cfg.AutocertURL != "" {
-		m.Client = &acme.Client{
-			DirectoryURL: cfg.AutocertURL,
-		}
-	}
-	tlsConfig.GetCertificate = func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		logger.Infof("getting certificate for server name %q", clientHello.ServerName)
-		// Get the locally created certificate and whether it's appropriate
-		// for the SNI name. If not, we'll try to get an acme cert and
-		// fall back to the local certificate if that fails.
-		cert, shouldUse := srv.localCertificate(clientHello.ServerName)
-		if shouldUse {
-			return cert, nil
-		}
-		acmeCert, err := m.GetCertificate(clientHello)
-		if err == nil {
-			return acmeCert, nil
-		}
-		logger.Errorf("cannot get autocert certificate for %q: %v", clientHello.ServerName, err)
-		return cert, nil
-	}
-	return tlsConfig
+	//return a.srv.lis.(*throttlingListener).pauseTime()
+	return 0 // XXX
 }
 
 // TotalConnections returns the total number of connections ever made.
@@ -399,12 +335,6 @@ func (srv *Server) LoginAttempts() int64 {
 // Dead returns a channel that signals when the server has exited.
 func (srv *Server) Dead() <-chan struct{} {
 	return srv.tomb.Dead()
-}
-
-// Mux returns the server's Mux, for other workers to register
-// handlers on.
-func (srv *Server) Mux() *apiserverhttp.Mux {
-	return srv.mux
 }
 
 // Stop stops the server and returns when all running requests
@@ -441,109 +371,93 @@ func (w *loggoWrapper) Write(content []byte) (int, error) {
 
 // loop is the main loop for the server.
 func (srv *Server) loop() error {
-	logger.Infof("listening on %q", srv.lis.Addr())
-
-	defer func() {
-		addr := srv.lis.Addr().String() // Addr not valid after close
-		err := srv.lis.Close()
-		logger.Infof("closed listening socket %q with final error: %v", addr, err)
-
-		srv.wg.Wait() // wait for any outstanding requests to complete.
-		srv.dbloggers.dispose()
-		srv.logSinkWriter.Close()
-	}()
-
 	// for pat based handlers, they are matched in-order of being
 	// registered, first match wins. So more specific ones have to be
 	// registered first.
-	for _, endpoint := range srv.endpoints() {
-		registerEndpoint(endpoint, srv.mux)
-	}
-
-	// TODO(axw) graceful HTTP server shutdown. Then we'll shutdown the
-	// server, rather than closing the listener.
-
-	go func() {
-		logger.Debugf("Starting API http server on address %q", srv.lis.Addr())
-		httpSrv := &http.Server{
-			Handler:   srv.mux,
-			TLSConfig: srv.tlsConfig,
-			ErrorLog: log.New(&loggoWrapper{
-				level:  loggo.WARNING,
-				logger: logger,
-			}, "", 0), // no prefix and no flags so log.Logger doesn't add extra prefixes
-		}
-		err := httpSrv.Serve(srv.lis)
-		// Normally logging an error at debug level would be grounds for a beating,
-		// however in this case the error is *expected* to be non nil, and does not
-		// affect the operation of the apiserver, but for completeness log it anyway.
-		logger.Debugf("API http server exited, final error was: %v", err)
-	}()
-
-	for {
-		select {
-		case <-srv.tomb.Dying():
-			return tomb.ErrDying
-		case <-srv.clock.After(authentication.LocalLoginInteractionTimeout):
-			now := srv.loginAuthCtxt.clock.Now()
-			srv.loginAuthCtxt.localUserInteractions.Expire(now)
+	for _, ep := range srv.endpoints() {
+		srv.mux.AddHandler(ep.Method, ep.Pattern, ep.Handler)
+		defer srv.mux.RemoveHandler(ep.Method, ep.Pattern)
+		if ep.Method == "GET" {
+			srv.mux.AddHandler("HEAD", ep.Pattern, ep.Handler)
+			defer srv.mux.RemoveHandler("HEAD", ep.Pattern)
 		}
 	}
+	<-srv.tomb.Dying()
+	srv.wg.Wait() // wait for any outstanding requests to complete.
+	return tomb.ErrDying
 }
 
 func (srv *Server) endpoints() []apihttp.Endpoint {
-	var endpoints []apihttp.Endpoint
+	const modelRoutePrefix = "/model/:modeluuid"
 
-	add := func(pattern string, handler http.Handler) {
-		// TODO: We can switch from all methods to specific ones for entries
-		// where we only want to support specific request methods. However, our
-		// tests currently assert that errors come back as application/json and
-		// pat only does "text/plain" responses.
-		for _, method := range defaultHTTPMethods {
+	type handler struct {
+		pattern         string
+		methods         []string
+		handler         http.Handler
+		unauthenticated bool
+		authorizer      httpcontext.Authorizer
+		tracked         bool
+		noModelUUID     bool
+	}
+	var endpoints []apihttp.Endpoint
+	controllerModelUUID := srv.statePool.SystemState().ModelUUID()
+	addHandler := func(handler handler) {
+		methods := handler.methods
+		if methods == nil {
+			methods = defaultHTTPMethods
+		}
+		h := handler.handler
+		if handler.tracked {
+			h = srv.trackRequests(h)
+		}
+		if !handler.unauthenticated {
+			h = &httpcontext.BasicAuthHandler{
+				Handler:       h,
+				Authenticator: srv.authenticator,
+				Authorizer:    handler.authorizer,
+			}
+		}
+		if !handler.noModelUUID {
+			if strings.HasPrefix(handler.pattern, modelRoutePrefix) {
+				h = &httpcontext.QueryModelHandler{
+					Handler: h,
+					Query:   ":modeluuid",
+				}
+			} else {
+				h = &httpcontext.ImpliedModelHandler{
+					Handler:   h,
+					ModelUUID: controllerModelUUID,
+				}
+			}
+		}
+		for _, method := range methods {
 			endpoints = append(endpoints, apihttp.Endpoint{
-				Pattern: pattern,
+				Pattern: handler.pattern,
 				Method:  method,
-				Handler: handler,
+				Handler: h,
 			})
 		}
 	}
 
-	httpCtxt := httpContext{
-		srv: srv,
-	}
-
-	strictCtxt := httpCtxt
-	strictCtxt.strictValidation = true
-	strictCtxt.controllerModelOnly = true
-
-	mainAPIHandler := srv.trackRequests(http.HandlerFunc(srv.apiHandler))
-	logStreamHandler := srv.trackRequests(newLogStreamEndpointHandler(httpCtxt))
-	debugLogHandler := srv.trackRequests(newDebugLogDBHandler(httpCtxt))
-	pubsubHandler := srv.trackRequests(newPubSubHandler(httpCtxt, srv.centralHub))
-
-	// This handler is model specific even though it only ever makes sense
-	// for a controller because the API caller that is handed to the worker
-	// that is forwarding the messages between controllers is bound to the
-	// /model/:modeluuid namespace.
-	add("/model/:modeluuid/pubsub", pubsubHandler)
-	add("/model/:modeluuid/logstream", logStreamHandler)
-	add("/model/:modeluuid/log", debugLogHandler)
-
+	httpCtxt := httpContext{srv: srv}
+	mainAPIHandler := http.HandlerFunc(srv.apiHandler)
+	logStreamHandler := newLogStreamEndpointHandler(httpCtxt)
+	debugLogHandler := newDebugLogDBHandler(httpCtxt)
+	debugLogAuthorizer := tagKindAuthorizer{names.MachineTagKind, names.UserTagKind}
+	pubsubHandler := newPubSubHandler(httpCtxt, srv.centralHub)
 	logSinkHandler := logsink.NewHTTPHandler(
 		newAgentLogWriteCloserFunc(httpCtxt, srv.logSinkWriter, &srv.dbloggers),
 		httpCtxt.stop(),
 		&srv.logsinkRateLimitConfig,
 	)
-	add("/model/:modeluuid/logsink", srv.trackRequests(logSinkHandler))
-
-	// We don't need to save the migrated logs to a logfile as well as to the DB.
+	logSinkAuthorizer := tagKindAuthorizer{names.MachineTagKind, names.UnitTagKind}
 	logTransferHandler := logsink.NewHTTPHandler(
+		// We don't need to save the migrated logs
+		// to a logfile as well as to the DB.
 		newMigrationLogWriteCloserFunc(httpCtxt, &srv.dbloggers),
 		httpCtxt.stop(),
 		nil, // no rate-limiting
 	)
-	add("/migrate/logtransfer", srv.trackRequests(logTransferHandler))
-
 	modelRestHandler := &modelRestHandler{
 		ctxt:          httpCtxt,
 		dataDir:       srv.dataDir,
@@ -552,26 +466,25 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 	modelRestServer := &RestHTTPHandler{
 		GetHandler: modelRestHandler.ServeGet,
 	}
-	add("/model/:modeluuid/rest/1.0/:entity/:name/:attribute", modelRestServer)
-
 	modelCharmsHandler := &charmsHandler{
 		ctxt:          httpCtxt,
 		dataDir:       srv.dataDir,
 		stateAuthFunc: httpCtxt.stateForRequestAuthenticatedUser,
 	}
-	charmsServer := &CharmsHTTPHandler{
+	modelCharmsHTTPHandler := &CharmsHTTPHandler{
 		PostHandler: modelCharmsHandler.ServePost,
 		GetHandler:  modelCharmsHandler.ServeGet,
 	}
-	add("/model/:modeluuid/charms", charmsServer)
-	add("/model/:modeluuid/tools",
-		&toolsUploadHandler{
-			ctxt:          httpCtxt,
-			stateAuthFunc: httpCtxt.stateForRequestAuthenticatedUser,
-		},
-	)
-
-	add("/model/:modeluuid/applications/:application/resources/:resource", &ResourcesHandler{
+	modelCharmsUploadAuthorizer := tagKindAuthorizer{names.UserTagKind}
+	modelToolsUploadHandler := &toolsUploadHandler{
+		ctxt:          httpCtxt,
+		stateAuthFunc: httpCtxt.stateForRequestAuthenticatedUser,
+	}
+	modelToolsUploadAuthorizer := tagKindAuthorizer{names.UserTagKind}
+	modelToolsDownloadHandler := &toolsDownloadHandler{
+		ctxt: httpCtxt,
+	}
+	resourcesHandler := &ResourcesHandler{
 		StateAuthFunc: func(req *http.Request, tagKinds ...string) (ResourcesBackend, state.StatePoolReleaser, names.Tag, error) {
 			st, closer, entity, err := httpCtxt.stateForRequestAuthenticatedTag(req, tagKinds...)
 			if err != nil {
@@ -583,8 +496,8 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 			}
 			return rst, closer, entity.Tag(), nil
 		},
-	})
-	add("/model/:modeluuid/units/:unit/resources/:resource", &UnitResourcesHandler{
+	}
+	unitResourcesHandler := &UnitResourcesHandler{
 		NewOpener: func(req *http.Request, tagKinds ...string) (resource.Opener, state.StatePoolReleaser, error) {
 			st, closer, _, err := httpCtxt.stateForRequestAuthenticatedTag(req, tagKinds...)
 			if err != nil {
@@ -601,114 +514,31 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 			}
 			return opener, closer, nil
 		},
-	})
-
+	}
+	controllerAdminAuthorizer := controllerAdminAuthorizer{srv.statePool.SystemState()}
 	migrateCharmsHandler := &charmsHandler{
 		ctxt:          httpCtxt,
 		dataDir:       srv.dataDir,
 		stateAuthFunc: httpCtxt.stateForMigrationImporting,
 	}
-	add("/migrate/charms",
-		&CharmsHTTPHandler{
-			PostHandler: migrateCharmsHandler.ServePost,
-			GetHandler:  migrateCharmsHandler.ServeUnsupported,
-		},
-	)
-	add("/migrate/tools",
-		&toolsUploadHandler{
-			ctxt:          httpCtxt,
-			stateAuthFunc: httpCtxt.stateForMigrationImporting,
-		},
-	)
-	add("/migrate/resources",
-		&resourcesMigrationUploadHandler{
-			ctxt:          httpCtxt,
-			stateAuthFunc: httpCtxt.stateForMigrationImporting,
-		},
-	)
-	add("/model/:modeluuid/tools/:version",
-		&toolsDownloadHandler{
-			ctxt: httpCtxt,
-		},
-	)
-	add("/model/:modeluuid/backups",
-		&backupHandler{
-			ctxt: strictCtxt,
-		},
-	)
-	add("/model/:modeluuid/api", mainAPIHandler)
-
-	// GUI related paths.
-	endpoints = append(endpoints, guiEndpoints(guiURLPathPrefix, srv.dataDir, httpCtxt)...)
-	add("/gui-archive", &guiArchiveHandler{
-		ctxt: httpCtxt,
-	})
-	add("/gui-version", &guiVersionHandler{
-		ctxt: httpCtxt,
-	})
-
-	// For backwards compatibility we register all the old paths
-	add("/log", debugLogHandler)
-
-	add("/charms", charmsServer)
-	add("/tools",
-		&toolsUploadHandler{
-			ctxt:          httpCtxt,
-			stateAuthFunc: httpCtxt.stateForRequestAuthenticatedUser,
-		},
-	)
-	add("/tools/:version",
-		&toolsDownloadHandler{
-			ctxt: httpCtxt,
-		},
-	)
-	add("/register",
-		&registerUserHandler{
-			ctxt: httpCtxt,
-		},
-	)
-	add("/api", mainAPIHandler)
-	// Serve the API at / (only) for backward compatiblity. Note that the
-	// pat muxer special-cases / so that it does not serve all
-	// possible endpoints, but only / itself.
-	add("/", mainAPIHandler)
-
-	// Register the introspection endpoints.
-	if srv.registerIntrospectionHandlers != nil {
-		handle := func(subpath string, handler http.Handler) {
-			add(path.Join("/introspection/", subpath),
-				introspectionHandler{
-					httpCtxt,
-					handler,
-				},
-			)
-		}
-		srv.registerIntrospectionHandlers(handle)
+	migrateCharmsHTTPHandler := &CharmsHTTPHandler{
+		PostHandler: migrateCharmsHandler.ServePost,
+		GetHandler:  migrateCharmsHandler.ServeUnsupported,
 	}
+	migrateToolsUploadHandler := &toolsUploadHandler{
+		ctxt:          httpCtxt,
+		stateAuthFunc: httpCtxt.stateForMigrationImporting,
+	}
+	resourcesMigrationUploadHandler := &resourcesMigrationUploadHandler{
+		ctxt:          httpCtxt,
+		stateAuthFunc: httpCtxt.stateForMigrationImporting,
+	}
+	backupHandler := &backupHandler{ctxt: httpCtxt}
+	registerHandler := &registerUserHandler{ctxt: httpCtxt}
+	guiArchiveHandler := &guiArchiveHandler{ctxt: httpCtxt}
+	guiVersionHandler := &guiVersionHandler{ctxt: httpCtxt}
 
-	// Add HTTP handlers for local-user macaroon authentication.
-	localLoginHandlers := &localLoginHandlers{srv.loginAuthCtxt, srv.statePool.SystemState()}
-	dischargeMux := http.NewServeMux()
-	httpbakery.AddDischargeHandler(
-		dischargeMux,
-		localUserIdentityLocationPath,
-		localLoginHandlers.authCtxt.localUserThirdPartyBakeryService,
-		localLoginHandlers.checkThirdPartyCaveat,
-	)
-	dischargeMux.Handle(
-		localUserIdentityLocationPath+"/login",
-		makeHandler(handleJSON(localLoginHandlers.serveLogin)),
-	)
-	dischargeMux.Handle(
-		localUserIdentityLocationPath+"/wait",
-		makeHandler(handleJSON(localLoginHandlers.serveWait)),
-	)
-	add(localUserIdentityLocationPath+"/discharge", dischargeMux)
-	add(localUserIdentityLocationPath+"/publickey", dischargeMux)
-	add(localUserIdentityLocationPath+"/login", dischargeMux)
-	add(localUserIdentityLocationPath+"/wait", dischargeMux)
-
-	// Add HTTP handlers for application offer macaroon authentication.
+	// HTTP handler for application offer macaroon authentication.
 	appOfferHandler := &localOfferAuthHandler{authCtx: srv.offerAuthCtxt}
 	appOfferDischargeMux := http.NewServeMux()
 	httpbakery.AddDischargeHandler(
@@ -718,9 +548,162 @@ func (srv *Server) endpoints() []apihttp.Endpoint {
 		srv.offerAuthCtxt.ThirdPartyBakeryService().(*bakery.Service),
 		appOfferHandler.checkThirdPartyCaveat,
 	)
-	add(localOfferAccessLocationPath+"/discharge", appOfferDischargeMux)
-	add(localOfferAccessLocationPath+"/publickey", appOfferDischargeMux)
 
+	handlers := []handler{{
+		// This handler is model specific even though it only
+		// ever makes sense for a controller because the API
+		// caller that is handed to the worker that is forwarding
+		// the messages between controllers is bound to the
+		// /model/:modeluuid namespace.
+		pattern:    modelRoutePrefix + "/pubsub",
+		handler:    pubsubHandler,
+		tracked:    true,
+		authorizer: controllerAuthorizer{},
+	}, {
+		pattern: modelRoutePrefix + "/logstream",
+		handler: logStreamHandler,
+		tracked: true,
+	}, {
+		pattern:    modelRoutePrefix + "/log",
+		handler:    debugLogHandler,
+		tracked:    true,
+		authorizer: debugLogAuthorizer,
+	}, {
+		pattern:    modelRoutePrefix + "/logsink",
+		handler:    logSinkHandler,
+		tracked:    true,
+		authorizer: logSinkAuthorizer,
+	}, {
+		pattern:         modelRoutePrefix + "/api",
+		handler:         mainAPIHandler,
+		tracked:         true,
+		unauthenticated: true,
+	}, {
+		pattern: modelRoutePrefix + "/rest/1.0/:entity/:name/:attribute",
+		handler: modelRestServer,
+	}, {
+		// GET /charms has no authorizer
+		pattern: modelRoutePrefix + "/charms",
+		methods: []string{"GET"},
+		handler: modelCharmsHTTPHandler,
+	}, {
+		pattern:    modelRoutePrefix + "/charms",
+		methods:    []string{"POST"},
+		handler:    modelCharmsHTTPHandler,
+		authorizer: modelCharmsUploadAuthorizer,
+	}, {
+		pattern:    modelRoutePrefix + "/tools",
+		handler:    modelToolsUploadHandler,
+		authorizer: modelToolsUploadAuthorizer,
+	}, {
+		pattern:         modelRoutePrefix + "/tools/:version",
+		handler:         modelToolsDownloadHandler,
+		unauthenticated: true,
+	}, {
+		pattern: modelRoutePrefix + "/applications/:application/resources/:resource",
+		handler: resourcesHandler,
+	}, {
+		pattern: modelRoutePrefix + "/units/:unit/resources/:resource",
+		handler: unitResourcesHandler,
+	}, {
+		pattern: modelRoutePrefix + "/backups",
+		handler: backupHandler,
+	}, {
+		pattern:    "/migrate/charms",
+		handler:    migrateCharmsHTTPHandler,
+		authorizer: controllerAdminAuthorizer,
+	}, {
+		pattern:    "/migrate/tools",
+		handler:    migrateToolsUploadHandler,
+		authorizer: controllerAdminAuthorizer,
+	}, {
+		pattern:    "/migrate/resources",
+		handler:    resourcesMigrationUploadHandler,
+		authorizer: controllerAdminAuthorizer,
+	}, {
+		pattern:    "/migrate/logtransfer",
+		handler:    logTransferHandler,
+		tracked:    true,
+		authorizer: controllerAdminAuthorizer,
+	}, {
+		pattern:         "/api",
+		handler:         mainAPIHandler,
+		tracked:         true,
+		unauthenticated: true,
+		noModelUUID:     true,
+	}, {
+		// Serve the API at / for backward compatiblity. Note that the
+		// pat muxer special-cases / so that it does not serve all
+		// possible endpoints, but only / itself.
+		pattern:         "/",
+		handler:         mainAPIHandler,
+		tracked:         true,
+		unauthenticated: true,
+		noModelUUID:     true,
+	}, {
+		pattern:         "/register",
+		handler:         registerHandler,
+		unauthenticated: true,
+	}, {
+		pattern:    "/tools",
+		handler:    modelToolsUploadHandler,
+		authorizer: modelToolsUploadAuthorizer,
+	}, {
+		pattern:         "/tools/:version",
+		handler:         modelToolsDownloadHandler,
+		unauthenticated: true,
+	}, {
+		pattern:    "/log",
+		handler:    debugLogHandler,
+		tracked:    true,
+		authorizer: debugLogAuthorizer,
+	}, {
+		// GET /charms has no authorizer
+		pattern: "/charms",
+		methods: []string{"GET"},
+		handler: modelCharmsHTTPHandler,
+	}, {
+		pattern:    "/charms",
+		methods:    []string{"POST"},
+		handler:    modelCharmsHTTPHandler,
+		authorizer: modelCharmsUploadAuthorizer,
+	}, {
+		pattern: "/gui-archive",
+		methods: []string{"POST"},
+		handler: guiArchiveHandler,
+	}, {
+		pattern:         "/gui-archive",
+		methods:         []string{"GET"},
+		handler:         guiArchiveHandler,
+		unauthenticated: true,
+	}, {
+		pattern: "/gui-version",
+		handler: guiVersionHandler,
+	}, {
+		pattern: localOfferAccessLocationPath + "/discharge",
+		handler: appOfferDischargeMux,
+	}, {
+		pattern: localOfferAccessLocationPath + "/publickey",
+		handler: appOfferDischargeMux,
+	}}
+	if srv.registerIntrospectionHandlers != nil {
+		add := func(subpath string, h http.Handler) {
+			handlers = append(handlers, handler{
+				pattern: path.Join("/introspection/", subpath),
+				handler: introspectionHandler{httpCtxt, h},
+			})
+		}
+		srv.registerIntrospectionHandlers(add)
+	}
+
+	// Construct endpoints from handler structs.
+	for _, handler := range handlers {
+		addHandler(handler)
+	}
+
+	// Finally, register GUI content endpoints.
+	guiEndpoints := guiEndpoints(guiURLPathPrefix, srv.dataDir, httpCtxt)
+	endpoints = append(endpoints, guiEndpoints...)
 	return endpoints
 }
 
@@ -759,13 +742,6 @@ func (srv *Server) trackRequests(handler http.Handler) http.Handler {
 	})
 }
 
-func registerEndpoint(ep apihttp.Endpoint, mux *apiserverhttp.Mux) {
-	mux.AddHandler(ep.Method, ep.Pattern, ep.Handler)
-	if ep.Method == "GET" {
-		mux.AddHandler("HEAD", ep.Pattern, ep.Handler)
-	}
-}
-
 func (srv *Server) apiHandler(w http.ResponseWriter, req *http.Request) {
 	atomic.AddInt64(&srv.totalConn, 1)
 	addCount := func(delta int64) {
@@ -782,7 +758,7 @@ func (srv *Server) apiHandler(w http.ResponseWriter, req *http.Request) {
 	defer apiObserver.Leave()
 
 	websocket.Serve(w, req, func(conn *websocket.Conn) {
-		modelUUID := req.URL.Query().Get(":modeluuid")
+		modelUUID := httpcontext.RequestModelUUID(req)
 		logger.Tracef("got a request for model %q", modelUUID)
 		if err := srv.serveConn(
 			req.Context(),
@@ -813,24 +789,21 @@ func (srv *Server) serveConn(
 	// Note that we don't overwrite modelUUID here because
 	// newAPIHandler treats an empty modelUUID as signifying
 	// the API version used.
-	resolvedModelUUID, err := validateModelUUID(validateArgs{
-		statePool: srv.statePool,
-		modelUUID: modelUUID,
-	})
+	resolvedModelUUID := modelUUID
+	if modelUUID == "" {
+		resolvedModelUUID = srv.statePool.SystemState().ModelUUID()
+	}
 	var (
 		st       *state.State
 		h        *apiHandler
 		releaser state.StatePoolReleaser
 	)
-	if err == nil {
-		st, releaser, err = srv.statePool.Get(resolvedModelUUID)
-	}
 
+	st, releaser, err := srv.statePool.Get(resolvedModelUUID)
 	if err == nil {
 		defer releaser()
 		h, err = newAPIHandler(srv, st, conn, modelUUID, connectionID, host)
 	}
-
 	if err != nil {
 		conn.ServeRoot(&errRoot{errors.Trace(err)}, recorderFactory, serverError)
 	} else {
@@ -857,31 +830,6 @@ func (srv *Server) publicDNSName() string {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	return srv.publicDNSName_
-}
-
-// localCertificate returns the local server certificate and reports
-// whether it should be used to serve a connection addressed to the
-// given server name.
-func (srv *Server) localCertificate(serverName string) (*tls.Certificate, bool) {
-	cert := srv.getCertificate()
-	if net.ParseIP(serverName) != nil {
-		// IP address connections always use the local certificate.
-		return cert, true
-	}
-	if !strings.Contains(serverName, ".") {
-		// If the server name doesn't contain a period there's no
-		// way we can obtain a certificate for it.
-		// This applies to the common case where "juju-apiserver" is
-		// used as the server name.
-		return cert, true
-	}
-	// Perhaps the server name is explicitly mentioned by the server certificate.
-	for _, name := range cert.Leaf.DNSNames {
-		if name == serverName {
-			return cert, true
-		}
-	}
-	return cert, false
 }
 
 func serverError(err error) error {

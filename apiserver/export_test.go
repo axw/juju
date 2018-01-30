@@ -4,18 +4,12 @@
 package apiserver
 
 import (
-	"net"
-	"time"
-
 	jc "github.com/juju/testing/checkers"
 	gc "gopkg.in/check.v1"
 	"gopkg.in/juju/names.v2"
-	"gopkg.in/macaroon.v1"
 
-	"github.com/juju/juju/apiserver/authentication"
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/apiserver/facade"
-	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/permission"
 	"github.com/juju/juju/rpc"
 	"github.com/juju/juju/state"
@@ -31,6 +25,7 @@ var (
 	SpritePath            = spritePath
 )
 
+/*
 func ServerMacaroon(srv *Server) (*macaroon.Macaroon, error) {
 	auth, err := srv.loginAuthCtxt.externalMacaroonAuth()
 	if err != nil {
@@ -46,12 +41,7 @@ func ServerBakeryService(srv *Server) (authentication.BakeryService, error) {
 	}
 	return auth.(*authentication.ExternalMacaroonAuthenticator).Service, nil
 }
-
-// ServerAuthenticatorForTag calls the authenticatorForTag method
-// of the server's authContext.
-func ServerAuthenticatorForTag(srv *Server, tag names.Tag) (authentication.EntityAuthenticator, error) {
-	return srv.loginAuthCtxt.authenticator("testing.invalid:1234").authenticatorForTag(tag)
-}
+*/
 
 func APIHandlerWithEntity(entity state.Entity) *apiHandler {
 	return &apiHandler{entity: entity}
@@ -61,30 +51,6 @@ const (
 	LoginRateLimit = defaultLoginRateLimit
 	LoginRetyPause = defaultLoginRetryPause
 )
-
-// DelayLogins changes how the Login code works so that logins won't proceed
-// until they get a message on the returned channel.
-// After calling this function, the caller is responsible for sending messages
-// on the nextChan in order for Logins to succeed. The original behavior can be
-// restored by calling the cleanup function.
-func DelayLogins() (nextChan chan struct{}, cleanup func()) {
-	nextChan = make(chan struct{}, 10)
-	cleanup = func() {
-		doCheckCreds = checkCreds
-	}
-	delayedCheckCreds := func(
-		st *state.State,
-		c params.LoginRequest,
-		authTag names.Tag,
-		lookForModelUser bool,
-		authenticator authentication.EntityAuthenticator,
-	) (state.Entity, *time.Time, error) {
-		<-nextChan
-		return checkCreds(st, c, authTag, lookForModelUser, authenticator)
-	}
-	doCheckCreds = delayedCheckCreds
-	return
-}
 
 func NewErrRoot(err error) *errRoot {
 	return &errRoot{err}
@@ -97,6 +63,7 @@ func TestingAPIRoot(facades *facade.Registry) rpc.Root {
 	return newAPIRoot(nil, state.NewStatePool(nil), facades, common.NewResources(), nil)
 }
 
+/*
 // TestingAPIHandler gives you an APIHandler that isn't connected to
 // anything real. It's enough to let test some basic functionality though.
 func TestingAPIHandler(c *gc.C, pool *state.StatePool, st *state.State) (*apiHandler, *common.Resources) {
@@ -123,6 +90,7 @@ func TestingAPIHandlerWithEntity(c *gc.C, pool *state.StatePool, st *state.State
 	h.entity = entity
 	return h, hr
 }
+*/
 
 // TestingUpgradingRoot returns a resricted srvRoot in an upgrade
 // scenario.
@@ -177,11 +145,6 @@ func TestingRestrictedRoot(check func(string, string) error) rpc.Root {
 func TestingAboutToRestoreRoot() rpc.Root {
 	r := TestingAPIRoot(AllFacades())
 	return restrictRoot(r, aboutToRestoreMethodsOnly)
-}
-
-// Addr returns the address that the server is listening on.
-func (srv *Server) Addr() *net.TCPAddr {
-	return srv.lis.Addr().(*net.TCPAddr) // cannot fail
 }
 
 // PatchGetMigrationBackend overrides the getMigrationBackend function
